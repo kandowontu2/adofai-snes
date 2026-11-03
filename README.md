@@ -14,7 +14,9 @@ Submit a pull request with your edited assets and screenshots.
 
 ## Building
 
-See [BUILDING.md](docs/BUILDING.md). Source includes the engine, original port
+Start with [Build your first ROM on Windows](docs/BUILDING.md): numbered setup,
+one-song import, copy-and-paste build commands, and exact output paths.
+Source includes the engine, original port
 artwork, compilers, importers and verification tools. Commercial chart data,
 music and hit samples are not included; import these from your own local game
 installation. Community charts require the corresponding authors' files.

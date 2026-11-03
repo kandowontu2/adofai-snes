@@ -1,5 +1,5 @@
 """Read default and per-floor hit sounds without modifying imported charts."""
-import json,re
+import argparse,json,re
 from pathlib import Path
 import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
@@ -33,10 +33,11 @@ def native(scene):
                 countdownSpeedMultiplier=conductor.get('countdownSpeedMultiplier',1),events=events)
 
 def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument('--levels',type=int,nargs='+',choices=range(1,62),default=list(range(1,62)))
+    args=ap.parse_args()
     rows={}
-    from import_community import COMMUNITY
-    community={c['id'] for c in COMMUNITY}
-    for n in range(1,62):
+    for n in args.levels:
         data=json.loads((ROOT/f'assets/private/level{n}.json').read_text());raw=None
         if n<=39:
             meta=WORLDS[n-1]
@@ -59,7 +60,7 @@ def main():
     path=ROOT/'assets/private/hitsound-levels.json'
     if path.exists():
         previous=json.loads(path.read_text())
-        rows.update({str(n):previous[str(n)] for n in community if str(n) in previous})
+        rows={**previous,**rows}
     path.write_text(json.dumps(rows,indent=2))
 
 if __name__=='__main__':main()

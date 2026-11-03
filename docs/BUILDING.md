@@ -1,91 +1,191 @@
-# Building from source
+# Build a ROM on Windows
 
-This repository contains the port's assembly, asset generators, importers and
-tests. It does not contain the commercial game's music, extracted chart data,
-hit samples, third-party community charts, or generated song assets. Editable original port graphics are included under
-`assets/graphics/`.
+Start with **1-X only**. The steps below produce a playable SA-1 ROM without
+needing the full catalog or anyone else's build cache. Run commands in
+**PowerShell**, from the repository's top folder (the folder containing
+`README.md`). Stop if a command reports an error; fix it before continuing.
 
-The current toolchain is developed on Windows with Python 3. Other platforms
-may need adjustments to emulator paths and executable names in the tools.
+## 1. Install the tools once
 
-## Tools
+You need:
 
-- Python with the packages in `requirements.txt`.
-- cc65's `ca65` and `ld65` assemblers/linker, available on PATH, under
-  `$env:CC65_HOME/bin`, or in `.tools/cc65/`.
-- FFmpeg on PATH for audio preparation.
-- GCC on PATH for the BRR encoder.
-- A locally installed, legally obtained copy of A Dance of Fire and Ice for
-  importing its charts and audio.
-- An emulator supporting SA-1; MSU packs also require MSU-1 support.
+| Tool | What to install / check |
+| --- | --- |
+| Git | Needed to clone the repository. `git --version` should work. |
+| Python | Use 64-bit Python 3.12 or later; enable its PATH option during installation. This recipe was checked with Python 3.14. |
+| cc65 | Extract the Windows tools; you need `ca65.exe` and `ld65.exe`. |
+| FFmpeg | Extract a Windows build and add its `bin` folder to PATH. |
+| GCC | A Windows GCC toolchain, such as MinGW-w64. Its `bin` folder must be on PATH. |
+| ADOFAI | Install your own copy of the original game through Steam. |
+| Emulator | SA-1 support is required; the master also needs MSU-1 support. |
+
+Open a new PowerShell window after changing PATH. Clone and enter the source:
 
 ```powershell
-python -m pip install -r requirements.txt
+git clone https://github.com/kandowontu2/adofai-snes.git
+Set-Location adofai-snes
+```
+
+If you already have the source, open PowerShell in that folder instead.
+Create a Python environment. Activation is unnecessary; every command below
+uses its Python directly, avoiding PowerShell execution-policy problems.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 New-Item -ItemType Directory -Force .tools | Out-Null
 ```
 
-## Small first build
-
-Import the installed game's main campaign:
-
-```powershell
-python tools/import_campaign.py --game "C:/Program Files (x86)/Steam/steamapps/common/A Dance of Fire and Ice"
-```
-
-The importers write their output under ignored `assets/private/`. Additional
-importers add visibility, colors, camera and hit sounds from the same installed
-game. Several importers use `DEFAULT_GAME` in `tools/import_campaign.py`; change
-that default if the installation is elsewhere. Featured Tech importers expect
-the relevant subscribed Workshop charts in the local Steam library. Community
-charts must be obtained separately from their authors.
-
-Build a master containing only the first level, then convert its compiled data
-into an SA-1 cartridge:
+Set the cc65 location. **Replace the example path** with the folder that
+contains cc65's `bin` directory:
 
 ```powershell
-python tools/campaign_assets.py --pack master --levels 1 --out build/demo-assets
-python tools/build_sa1.py --source build/demo-assets --out build/sa1-demo
+$env:CC65_HOME = 'C:\Tools\cc65'
 ```
 
-Keep `adofai.sfc`, `adofai.msu`, and any `adofai-*.pcm` files together. Omitting
-PCM files selects the compressed-audio fallback; the `.msu` data file is still
-required. These are generated/private artifacts and must not be committed.
-
-A self-contained cartridge can be generated from the compiled song:
+Alternatively, put `ca65.exe` and `ld65.exe` directly in `.tools\cc65\`.
+Check the tools before importing anything:
 
 ```powershell
-python tools/build_standalone.py --sa1 --source build/sa1-demo --levels 1 --key standalone-demo --title "FIRST LEVEL DEMO"
+.\.venv\Scripts\python.exe --version
+& "$env:CC65_HOME\bin\ca65.exe" --version
+& "$env:CC65_HOME\bin\ld65.exe" --version
+ffmpeg -version
+gcc --version
 ```
 
-## Renderer options
+If you used `.tools\cc65\`, run those two executables from that folder instead.
+The build compiles its own BRR audio encoder using GCC; you do not need to find
+or download a separate encoder.
 
-Chart compilation supports `--camera-rotation`, `--camera-position`,
-`--camera-zoom`, `--adaptive-raster`, `--adaptive-motion-raster`, `--shared-contours`, and
-`--motion-step`.
-These options affect compiled geometry and cache pressure. Their use in a
-release is chart-specific; enabling every effect for every chart is not a
-validated release configuration. The current R build additionally compiles
-MoveTrack tile rotations. Gradual per-tile scaling is not implemented.
+## 2. Point the importers at your game
 
-Build one chart before attempting the full catalog. Full music and texture
-generation can require substantial time and disk space. The `dist/` archives
-and historical build caches are not necessary for source development.
-
-## Checks
-
-Pure compiler tests include:
+Set this to the **game folder**, not the Steam folder or the game's executable:
 
 ```powershell
-python -m unittest discover -s tests -p test_tile_rotation.py
-python -m unittest discover -s tests -p test_camera_rotation.py
+$env:ADOFAI_GAME = 'C:\Program Files (x86)\Steam\steamapps\common\A Dance of Fire and Ice'
+Test-Path "$env:ADOFAI_GAME\A Dance of Fire and Ice_Data\resources.assets"
 ```
 
-The emulator runners in `tools/` have additional local dependencies. In
-particular, `emulate.py` uses a Snes9x libretro core, and the Mesen runners use a
-Mesen executable. Adjust those paths for your installation. Graphics checks
-should cover a full song, checkpoints, and more than one playback speed.
+The check must print `True`. Change the path if your Steam library is on another
+drive. Keep using this PowerShell window: environment variables set here last
+only for this session. Set both variables again when opening a new window.
 
-Running the entire historical unittest suite also requires legacy ROM fixtures
-at `build/campaign/` and other older pack paths. Those fixtures are not shipped;
-use the targeted compiler tests above and the current-pack verification runners
-unless you have built those legacy fixtures.
+## 3. Import the first song and its sounds
+
+Run these in order:
+
+```powershell
+.\.venv\Scripts\python.exe tools/import_campaign.py --levels 1
+.\.venv\Scripts\python.exe tools/import_hit_samples.py
+.\.venv\Scripts\python.exe tools/import_hitsounds.py --levels 1
+```
+
+This creates `assets/private/level1.json`, `assets/private/1-X.wav`,
+`assets/private/hitsound-levels.json`, and the `assets/private/hitsounds/`
+sample folder. The installed game is not modified. These extracted files are
+local build inputs and must not be included in a pull request.
+
+## 4. Build the first-song master
+
+The first command compiles the chart, graphics and music. The second builds the
+SA-1 ROM. Audio and chart generation can take a while; wait for each to finish.
+
+```powershell
+.\.venv\Scripts\python.exe tools/campaign_assets.py --pack master --levels 1 --out build/demo-assets
+.\.venv\Scripts\python.exe tools/build_sa1.py --source build/demo-assets --out build/sa1-demo
+```
+
+The compiler imports missing color, camera and visibility information from the
+same game installation automatically. The displayed master title may refer to
+all worlds, but `--levels 1` includes only 1-X.
+
+**Your playable files are:**
+
+- `build/sa1-demo/adofai.sfc` — the ROM to open in your emulator.
+- `build/sa1-demo/adofai.msu` — required data; keep it beside the ROM.
+- `build/sa1-demo/adofai-*.pcm` — optional full-quality music, if present.
+
+For compressed playback, copy only the `.sfc` and `.msu` into a separate play
+folder. For PCM playback, also copy the `adofai-*.pcm` files from
+`build/sa1-demo/sample-clock-pcm/` into that play folder. Do not copy files named
+`level1.pcm`: those are intermediate encoder inputs, not MSU music tracks.
+
+Open `adofai.sfc` and press START. Always boot fresh after rebuilding; an old
+save state restores old code/data state. Replace the matching `.msu` and PCM
+files too when rebuilding audio.
+
+## 5. Optional: make a single-file cartridge
+
+After step 4, run:
+
+```powershell
+.\.venv\Scripts\python.exe tools/build_standalone.py --sa1 --source build/sa1-demo --levels 1 --key standalone-demo --title "FIRST LEVEL DEMO"
+```
+
+Open **`build/packs/standalone-demo/adofai.sfc`**. This version needs no `.msu`
+or `.pcm` files. It contains compressed music and still requires SA-1 support.
+
+## Editing graphics and rebuilding
+
+See [GRAPHICS.md](GRAPHICS.md) for CHR, palette and tile assignments.
+
+For **static CHR or palette edits**, rebuild the existing SA-1 pack:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import sys; from pathlib import Path; sys.path.insert(0,'tools'); from build_sa1 import compile_engine; compile_engine(Path('build/sa1-demo'))"
+```
+
+For a standalone pack, replace `build/sa1-demo` with
+`build/packs/standalone-demo` in that command.
+
+For **track-shape or chart-generator edits**, repeat step 4 with fresh output
+folders, for example `build/demo-assets-v2` and `build/sa1-demo-v2`. Change both
+`--source` and `--out` accordingly. The SA-1 builder reuses an existing output
+pack; simply rerunning it against a changed source does not refresh all chart
+data. Fresh folders avoid this trap. Repeat step 5 with the new source and a
+new key if you also want a new standalone cartridge.
+
+Submit source graphics and screenshots, not generated files from `build/`.
+
+## Common problems
+
+| Message or symptom | What to check |
+| --- | --- |
+| `python`, `ffmpeg` or `gcc` is not recognized | Install that tool, add its executable folder to PATH, and open a new terminal. |
+| `ca65 not found` / `ld65 not found` | Check `CC65_HOME\bin`, or put both executables in `.tools\cc65\`. |
+| `ModuleNotFoundError` | Use `.\.venv\Scripts\python.exe` and install `requirements.txt` with that same interpreter. |
+| Missing `hitsound-levels.json` or `sndKick.wav` | Run all three commands in step 3. Chart import alone is insufficient. |
+| Missing Unity assets / import failure | Check `ADOFAI_GAME`. Importers depend on the installed game's asset layout; a changed game version may need importer updates. |
+| Source-audio hash assertion | The embedded-hit alignment was measured against a specific recording. Do not bypass the check; a different recording needs an audio review. |
+| ROM opens but master data/music is missing | Keep the matching `.msu` beside the ROM, with the same basename, in an MSU-1-capable emulator. |
+| Old chart geometry after a rebuild | Use fresh output folders as described above, then boot without a save state. |
+
+## Larger builds and developer checks
+
+The one-song recipe is a starting point, **not a reproducible full-release
+recipe**. The 65-song releases also need official, Workshop and community
+imports, plus chart-specific renderer settings. Those inputs and historical
+release caches are not shipped. Do not remove `--levels 1` and expect a full
+catalog build to work from this setup.
+
+Relevant importers are `import_official.py`, `import_tech.py` and
+`import_community.py`. Some later importers still have local paths or depend on
+previous import stages. Renderer flags such as `--camera-rotation`,
+`--camera-position`, `--camera-zoom`, `--adaptive-raster`,
+`--adaptive-motion-raster`, `--shared-contours` and `--motion-step` need
+chart-specific capacity and emulator checks; enabling all flags is not a
+validated release configuration.
+
+Two compiler checks that do not require historical ROM fixtures:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_tile_rotation.py
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_camera_rotation.py
+```
+
+Emulator runners need their own configured Mesen or Snes9x libretro paths.
+The entire historical test suite also needs old ROM fixtures that are not in
+Git. For graphics changes, test a full song, checkpoint retries and multiple
+speeds. Windows is the supported development workflow; other platforms may
+need path and executable-name changes.

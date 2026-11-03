@@ -1,12 +1,13 @@
 """Import the twelve main worlds from the user's local ADOFAI installation."""
 import argparse
+import os
 import json
 from pathlib import Path
 import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
 from UnityPy.files.ObjectReader import get_typetree_node
 
-DEFAULT_GAME=r'C:\Program Files (x86)\Steam\steamapps\common\A Dance of Fire and Ice'
+DEFAULT_GAME=os.environ.get('ADOFAI_GAME',r'C:\Program Files (x86)\Steam\steamapps\common\A Dance of Fire and Ice')
 ROOT=Path(__file__).resolve().parents[1]
 TITLES=['A DANCE OF FIRE AND ICE','OFFBEATS','THE WIND-UP','LOVE LETTERS',
         'THE MIDNIGHT TRAIN','PULSE','SPIN 2 WIN','JUNGLE CITY','CLASSIC PURSUIT',

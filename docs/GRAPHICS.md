@@ -72,7 +72,7 @@ the chart, not a fixed number of past or future notes.
 
 ## Iteration
 
-Start with a one-song build using the commands in `BUILDING.md`. Changing the
+Start with the [one-song build guide](BUILDING.md). Changing the
 track generators requires recompiling chart assets, then rebuilding the ROM.
 For static CHR/palette edits, rebuild the SA-1 engine: its cached payload is
 refreshed from `assets/graphics/mode7/` before assembly.
@@ -80,10 +80,12 @@ refreshed from `assets/graphics/mode7/` before assembly.
 For a precompiled SA-1 pack, rebuild engine code with:
 
 ```powershell
-python -c "import sys; from pathlib import Path; sys.path.insert(0,'tools'); from build_sa1 import compile_engine; compile_engine(Path('build/sa1-demo'))"
+.\.venv\Scripts\python.exe -c "import sys; from pathlib import Path; sys.path.insert(0,'tools'); from build_sa1 import compile_engine; compile_engine(Path('build/sa1-demo'))"
 ```
 
-For track edits, rerun the chart compilation and pack generation instead.
+For track edits, rerun chart compilation and pack generation into fresh output
+folders, as described in the build guide. Existing SA-1 output packs reuse
+their chart data even when the source folder has changed.
 Use a fresh emulator boot after rebuilding; old save states retain obsolete
 RAM, cache contents and animation pointers.
 

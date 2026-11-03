@@ -26,7 +26,9 @@ def native(game,scene):
 def main():
     game=Path(DEFAULT_GAME);catalog={m['id']:m for m in WORLDS}
     for n in range(1,62):
-        path=ROOT/f'assets/private/level{n}.json';data=json.loads(path.read_text())
+        path=ROOT/f'assets/private/level{n}.json'
+        if not path.exists():continue
+        data=json.loads(path.read_text())
         if n>=40:raw=load_game_json(Path(data['source']).read_text(encoding='utf-8-sig'))
         elif catalog[n].get('text'):raw=load_game_json((ROOT/f'build/catalog/text-{catalog[n]["text"]}.json').read_text(encoding='utf-8-sig'))
         else:raw=None
