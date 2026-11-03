@@ -1,0 +1,10 @@
+{
+  "Shaker": 0.015,
+  "ShakerLoud": 0.015,
+  "Hammer": 0.03,
+  "Stick": 0.021,
+  "Squareshot": 0.05,
+  "ClapHit": 0.036,
+  "ClapHitEcho": 0.116,
+  "ReverbClap": 0.026
+}

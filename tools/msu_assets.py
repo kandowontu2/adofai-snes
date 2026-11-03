@@ -22,9 +22,10 @@ def generate(out,charts,music):
             end=data.tell();data.seek(table_offset)
             data.write(b''.join(struct.pack('<I',s) for s in snapshots));data.seek(end)
             descriptors+=struct.pack('<IHHIIHHI',offset,track,1000+n*32,animation_offset,table_offset,c.get('visibility_cells',0),int(bool(c.get('pattern_versions'))),timeline_offset)
+            from embedded_hit_audio import mix_hits, fingerprint
             wav=ROOT/f'assets/private/{n}-X.wav'
             prefix=c['countdown']*60/c['bpm'] if c['separate_countdown'] else 0
-            settings=dict(source=hashlib.sha256(wav.read_bytes()).hexdigest(),prefix=prefix,end=c['duration'],offset=c['offset'],checkpoints=c['checkpoints'],format=1)
+            settings=dict(source=hashlib.sha256(wav.read_bytes()).hexdigest(),percussion_mix=fingerprint(c),prefix=prefix,end=c['duration'],offset=c['offset'],checkpoints=c['checkpoints'],format=1)
             stamp=out/f'msu-{n}.json';targets=[(track,0)]+[(1000+n*32+i,cp['block']*16/12000) for i,cp in enumerate(c['checkpoints'])]
             if not(stamp.exists() and json.loads(stamp.read_text())==settings and all((out/f'adofai-{t}.pcm').exists() for t,_ in targets)):
                 raw=out/f'msu-{n}.raw'
@@ -39,6 +40,8 @@ def generate(out,charts,music):
                     for k in range(c['countdown']):
                         start=round((c['offset']+k*60/c['bpm'])*RATE)
                         if start>=0:pcm[start:start+count]+=hat[:,None]
+                hit_report=mix_hits(pcm,c,RATE)
+                (out/f'level{n}-pcm-hit-mix.json').write_text(json.dumps(hit_report,indent=2))
                 pcm=np.clip(pcm[:length],-32768,32767).astype('<i2')
                 for t,start in targets:
                     target=out/f'adofai-{t}.pcm'

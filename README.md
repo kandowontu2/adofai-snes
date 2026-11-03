@@ -55,11 +55,21 @@ a bounded texture cache, and synchronized camera/scene publication. Planets
 scale with camera zoom. Hit sounds follow scheduled chart beats, independently
 of manual tap timing and calibration.
 
-Measured per-track percussion/music alignment corrections live in
-`assets/audio/hit-timing.json`. For 1-X, percussion starts two chart frames
-earlier with compressed music and one frame earlier with PCM. This corrects
-the audible drum alignment without moving input judgments. The waveform check
-`tools/verify_1x_music_alignment.py` compares isolated hit voices with the music.
+Scheduled hit sounds are mixed into the music at sample precision, so rendering
+stalls and video-frame rounding cannot separate them from the song. Original
+per-sample advances are in `assets/audio/hit-sound-offsets.json`. Confirmed
+source-embedded kicks in 1-X, 2-X, 1J-X and 2J-X are listed in
+`assets/audio/hit-timing.json`; those hits are reused instead of doubled.
+Missing hits in those four tracks use their measured source alignment; other
+tracks retain authored timing with the original sample-specific advances.
+Playback speed changes affect
+the complete mix, including percussion pitch. Input judgments remain separate.
+
+This audio update requires dataset 24 and regenerated PCM tracks; updating only
+the ROM is insufficient. `tools/audit_music_hits.py` screens every source song,
+`tools/verify_sample_mixes.py` checks every hit's placement, and
+`tools/verify_music_locked_hits.py` compares whole-run emulator audio with the
+mixed reference through the later 1-X sections.
 
 Camera zoom and rotation support is chart-specific. R additionally imports
 MoveTrack tile rotations. Gradual individual-tile scaling is not implemented.

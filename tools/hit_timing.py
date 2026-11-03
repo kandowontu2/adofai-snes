@@ -14,7 +14,9 @@ def lead_frames(level, pcm=False):
 def patch_pack(out):
     out = Path(out)
     levels = json.loads((out/'pack.json').read_text())['levels']
+    settings = json.loads((ROOT/'assets/audio/hit-timing.json').read_text())
     (out/'hit_timing.inc').write_text(
         '; Percussion only: chart times and input calibration are unchanged.\n'
         'hit_music_lead_frames: .word '+','.join(str(lead_frames(n)) for n in levels)+'\n'
-        'hit_pcm_lead_frames: .word '+','.join(str(lead_frames(n, True)) for n in levels)+'\n')
+        'hit_pcm_lead_frames: .word '+','.join(str(lead_frames(n, True)) for n in levels)+'\n'
+        'hit_music_embedded: .word '+','.join('1' for n in levels)+'\n')

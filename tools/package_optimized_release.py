@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import shutil
+import struct
 import zipfile
 from pathlib import Path
 
@@ -18,7 +19,7 @@ def atomic_copy(source, target):
     temp = target.with_name(target.name+'.new')
     shutil.copyfile(source, temp); temp.replace(target)
 
-def main(release_report=None, release_note=None):
+def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=None, dataset_version=23):
     note = release_note or NOTE
     inputs = json.loads((ROOT/'build/optimized-release-inputs.json').read_text())
     replacements = {}; builds = []; masters = {}
@@ -35,6 +36,30 @@ def main(release_report=None, release_note=None):
     valid_roms = {r['rom_sha256'] for r in builds}
     valid_msu = {r['msu_sha256'] for r in builds if r['msu_sha256']}
     base = ROOT/'build/packs/sa1-scheduled-hits'
+    pcm_files = pcm_files or {}
+    pcm_hashes = {name:sha(path) for name,path in pcm_files.items()}
+    pcm_zip = zipfile.ZipFile(pcm_archive) if pcm_archive else None
+    if pcm_files:
+        assert pcm_zip is not None and set(pcm_files)==set(pcm_zip.namelist())
+
+    def copy_pcm(name, output):
+        original = pcm_zip.getinfo(Path(name).name)
+        entry = copy.copy(original)
+        entry.filename = entry.orig_filename = name
+        entry.header_offset = output.start_dir
+        entry.flag_bits &= ~8
+        output.fp.seek(output.start_dir)
+        output.fp.write(entry.FileHeader(zip64=max(entry.file_size,entry.compress_size)>=zipfile.ZIP64_LIMIT))
+        pcm_zip.fp.seek(original.header_offset)
+        header = struct.unpack('<4s5H3I2H',pcm_zip.fp.read(30))
+        assert header[0]==b'PK\x03\x04'
+        pcm_zip.fp.seek(header[-2]+header[-1],1)
+        left = entry.compress_size
+        while left:
+            block = pcm_zip.fp.read(min(left,1024*1024));assert block
+            output.fp.write(block);left-=len(block)
+        output.start_dir=output.fp.tell()
+        output.filelist.append(entry);output.NameToInfo[name]=entry;output._didModify=True
     if release_report is None:
         evidence = {}
         for name in ('optimized-all-graphics.json', 'optimized-fast-graphics.json', 'optimized-standalone-checks.json',
@@ -86,14 +111,22 @@ def main(release_report=None, release_note=None):
         if Path(name).name == 'verification.json':
             return json.dumps(report,indent=2).encode()
         for old,new in mapping.items(): text=text.replace(old,new)
+        if Path(name).name=='SHA256SUMS.txt' and pcm_files:
+            def pcm_sum(match):
+                filename=Path(match[2]).name
+                assert filename in pcm_hashes, filename
+                return pcm_hashes[filename]+match[1]+match[2]
+            text=re.sub(r'(?m)^[0-9a-fA-F]{64}(\s+\*?)([^\r\n]+\.pcm)$',pcm_sum,text)
         if Path(name).name=='SHA256SUMS.txt' and sha(base/'adofai.sfc') in text and 'adofai.msu' not in text:
             text=text.rstrip()+'\n'+sha(base/'adofai.msu')+'  adofai.msu\n'
         text=text.replace('dataset version 20','dataset version 23').replace('dataset 20','dataset 23')
         text=text.replace('dataset version 21','dataset version 23').replace('dataset 21','dataset 23')
         text=text.replace('dataset version 22','dataset version 23').replace('dataset 22','dataset 23')
+        if dataset_version!=23:
+            text=text.replace('dataset version 23',f'dataset version {dataset_version}').replace('dataset 23',f'dataset {dataset_version}')
         text=text.replace('Full-catalog checks for the final startup-clear fix are still running.\n','')
         if Path(name).name.lower().startswith('readme'):
-            if text.startswith('2026-11-02 ') and 'update' in text.split('\n',1)[0]:
+            while re.match(r'^20\d\d-\d\d-\d\d ',text) and 'update' in text.split('\n',1)[0]:
                 text=text.partition('\n\n')[2]
             # Superseded percussion semantics must not remain as current instructions.
             paragraphs=text.split('\n\n')
@@ -115,6 +148,9 @@ def main(release_report=None, release_note=None):
             old=sha(path)
             if old in replacements: atomic_copy(replacements[old],path)
             assert sha(path) in valid_roms|valid_msu, path
+        elif path.suffix=='.pcm' and pcm_files:
+            assert path.name in pcm_files, path
+            atomic_copy(pcm_files[path.name],path)
         elif path.is_file() and path.name in metadata:
             path.write_bytes(update_text(path.name,path.read_bytes()))
     # The old small hotfix now needs the matching animation dataset too.
@@ -140,6 +176,10 @@ def main(release_report=None, release_note=None):
                     if ext=='.sfc' and digest in masters:
                         msuname=str(Path(name).with_suffix('.msu')).replace('\\','/')
                         if msuname not in names:needed[msuname]=masters[digest]
+                elif ext=='.pcm' and pcm_files:
+                    assert Path(name).name in pcm_files, (path,name)
+                    copy_pcm(name,output)
+                    expected[name]=pcm_hashes[Path(name).name]
                 elif Path(name).name in metadata:
                     output.writestr(entry,update_text(name,source.read(entry)))
                 else:
@@ -166,6 +206,7 @@ def main(release_report=None, release_note=None):
     assert len(archives)==49,len(archives)
     report['archives']=archives
     (ROOT/'build/optimized-release.json').write_text(json.dumps(report,indent=2))
+    if pcm_zip is not None:pcm_zip.close()
     print('PASS all 49 ZIPs and loose releases updated',flush=True)
 
 if __name__=='__main__':main()

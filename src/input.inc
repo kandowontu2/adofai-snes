@@ -79,6 +79,11 @@ pop_tap:
  ; Schedule percussion on the uncalibrated music clock, independently of
 ; input and render progress. All working state is private to the NMI.
 service_tap_sounds:
+.ifdef HITS_IN_MUSIC
+    ; Scheduled percussion shares the decoded music samples. No frame-timed
+    ; DSP trigger can duplicate it, drift, or bunch up during a render stall.
+    rts
+.else
     lda input_sound_mask
     beq :+
     rts
@@ -91,6 +96,15 @@ service_tap_sounds:
     jne @done
     lda music_active
     jeq @done
+.ifdef SA1_BUILD
+    ; Some source tracks already contain their note percussion. Their missing
+    ; intro hits are mixed into the audio at build time, never fired twice.
+    lda selected_level
+    asl a
+    tax
+    lda hit_music_embedded,x
+    jne @done
+.endif
     lda nmi_audio_ticks
     sta f:SOUND_NOW
     sec
@@ -194,6 +208,7 @@ service_tap_sounds:
     plx
     stz input_sound_mask
     rts
+.endif
 
 get_chart_time:
     ; Autoplay shares the music output path. Manual input/display latency

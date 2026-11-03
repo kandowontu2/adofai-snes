@@ -35,6 +35,8 @@ def compile_engine(out):
     patch_animation(out)
     from animation_catchup import patch_pack as patch_catchup
     patch_catchup(out)
+    from embedded_hit_audio import patch_pack as patch_embedded_audio
+    patch_embedded_audio(out)
     from planet_assets import patch_pack
     patch_pack(out)
     # Frozen standalone packs retain their linker config. Migrate that

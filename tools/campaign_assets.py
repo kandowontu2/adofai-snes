@@ -196,12 +196,13 @@ def compress_track_chr(raw,mode7=False):
     return bytes(out)
 
 def encode_music(chart, rate=RATE, suffix=""):
+    from embedded_hit_audio import mix_hits, fingerprint
     n=chart['id'];wav=ROOT/f'assets/private/{n}-X.wav';raw=OUT/f'level{n}{suffix}.pcm';brr=OUT/f'level{n}{suffix}.brr'
     with wave.open(str(wav),'rb') as f:duration=f.getnframes()/f.getframerate()
     prefix=chart['countdown']*60/chart['bpm'] if chart['separate_countdown'] else 0
     stop=max(duration+prefix+0.25,chart['notes'][-1]['time']+0.75)
     chart['duration']=stop;chart['end_frame']=round(stop*FPS)
-    settings={'source':hashlib.sha256(wav.read_bytes()).hexdigest(),'prefix':prefix,'end':stop,
+    settings={'source':hashlib.sha256(wav.read_bytes()).hexdigest(),'percussion_mix':fingerprint(chart),'prefix':prefix,'end':stop,
               'rate':rate,'gain':0.78,'hat_offset':chart['offset'] if prefix else None,
               'encoder':hashlib.sha256((ROOT/'tools/brr_encode.c').read_bytes()).hexdigest(),
               'seek_blocks':sorted({round(c['block']*rate/RATE) for c in chart['checkpoints']})}
@@ -220,6 +221,8 @@ def encode_music(chart, rate=RATE, suffix=""):
         for k in range(chart['countdown']):
             start=round((chart['offset']+k*60/chart['bpm'])*rate)
             if start>=0:pcm[start:start+count]+=hat
+    hit_report = mix_hits(pcm, chart, rate)
+    (OUT/f'level{n}{suffix}-hit-mix.json').write_text(json.dumps(hit_report,indent=2))
     np.clip(pcm,-32768,32767).astype('<i2').tofile(raw)
     encoder=ROOT/'.tools/brr_encode.exe'
     if not encoder.exists() or encoder.stat().st_mtime<(ROOT/'tools/brr_encode.c').stat().st_mtime:
@@ -404,6 +407,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     (OUT/'placements.json').write_text(json.dumps(loc,indent=2))
     defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font')]
+    defs.append('HITS_IN_MUSIC = 1')
     defs += [f'BACKGROUND_CHR_BYTES = {len(assets["background_chr"])}']
     defs += [f'SPC_DRIVER_ADDR = ${loc["spc_driver"]:06X}',f'SPC_DRIVER_BYTES = {len(assets["spc_driver"])}']
     defs += [f'LEVEL_COUNT = {len(charts)}']

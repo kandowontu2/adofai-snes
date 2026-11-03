@@ -9,6 +9,29 @@ from hit_timing import lead_frames
 def check(base,level=None,calibration=0,speed=1,mode='manual',limit=64):
  levels=json.loads((base/'pack.json').read_text())['levels'];level=level or (25 if 25 in levels else levels[0])
  chart=json.loads((base/f'level{level}.json').read_text())
+ if 'HITS_IN_MUSIC = 1' in (base/'addresses.inc').read_text():
+  import numpy as np
+  em=Emulator(rom=base/'adofai.sfc');peak=0
+  try:
+   for _ in range(120):em.run()
+   configure(em,round(speed*10),calibration=calibration)
+   for _ in range(levels.index(level)):press(em,5)
+   press(em,1 if mode=='auto' else 9);press(em,3);em.audio.clear()
+   target=min(limit,chart['steps'])
+   for frame in range(30000):
+    em.run([8] if mode=='manual' and frame%19==0 else [])
+    if em.read('music_active'):
+     assert C.c_uint16.from_address(em.ram+0x1fc36).value==0,'A second percussion source fired'
+    if em.audio:
+     peak=max(peak,int(np.max(np.abs(np.frombuffer(b''.join(em.audio),dtype='<i2').astype(np.int32)))))
+     em.audio.clear()
+    if em.read('step')>=target:break
+   assert em.read('step')>=target,(level,em.snapshot())
+   assert peak>100,(level,'No audible music')
+   return dict(passed=True,level=level,mode=mode,calibration=calibration,speed=speed,
+               pcm=bool(em.read('msu_pcm')),covered_notes=em.read('step'),second_percussion_commands=0,
+               audio_peak=peak,**em.evidence())
+  finally:em.close()
  sounds=selections(chart,json.loads((ROOT/'assets/private/hitsound-levels.json').read_text())[str(level)])
  notes=[n for n,(sound,vol) in zip(chart['notes'][1:],sounds[1:]) if not n['flags']&8 and sound!='None' and vol]
  em=Emulator(rom=base/'adofai.sfc');rows=[]
