@@ -11,13 +11,26 @@ You need:
 
 | Tool | What to install / check |
 | --- | --- |
-| Git | Needed to clone the repository. `git --version` should work. |
-| Python | Use 64-bit Python 3.12 or later; enable its PATH option during installation. This recipe was checked with Python 3.14. |
-| cc65 | Extract the Windows tools; you need `ca65.exe` and `ld65.exe`. |
-| FFmpeg | Extract a Windows build and add its `bin` folder to PATH. |
-| GCC | A Windows GCC toolchain, such as MinGW-w64. Its `bin` folder must be on PATH. |
-| ADOFAI | Install your own copy of the original game through Steam. |
-| Emulator | SA-1 support is required; the master also needs MSU-1 support. |
+| [Git for Windows](https://git-scm.com/install/windows) | Install Git for Windows. `git --version` should work afterward. |
+| [Python for Windows](https://www.python.org/downloads/windows/) | Choose the **Windows installer (64-bit)** for Python 3.14, which was used to check this recipe. Enable its PATH option during installation. |
+| [cc65](https://cc65.github.io/) | Follow **Windows Snapshot** and extract the archive; you need `ca65.exe` and `ld65.exe`. See the [Windows setup guide](https://cc65.github.io/getting-started.html). |
+| [FFmpeg](https://ffmpeg.org/download.html) | Under **Windows EXE Files**, follow a Windows build-provider link. Download a binary build, extract it, and add its `bin` folder to PATH. |
+| [GCC through MSYS2](https://www.msys2.org/) | Install MSYS2, then install its MinGW-w64 GCC package using the commands below. |
+| [ADOFAI on Steam](https://store.steampowered.com/app/977950/A_Dance_of_Fire_and_Ice/) | Install your own copy of the original game. |
+| [Mesen emulator](https://github.com/SourMesen/Mesen2/releases) | Download the Windows build from the release assets. SA-1 support is required; the master also needs MSU-1 support. |
+
+For GCC, open **MSYS2 UCRT64** from the Start menu and run the command from
+the [MinGW-w64 setup guide](https://www.mingw-w64.org/getting-started/msys2/):
+
+```sh
+pacman -S mingw-w64-ucrt-x86_64-gcc
+```
+
+Then add `C:\msys64\ucrt64\bin` to your Windows user PATH (adjust it if you
+installed MSYS2 elsewhere). To edit PATH, search Start for **Edit environment
+variables for your account**, select **Path**, choose **Edit**, then **New**.
+Add FFmpeg's `bin` folder there too. Return to PowerShell for the remaining
+build steps; only the `pacman` command above runs in MSYS2.
 
 Open a new PowerShell window after changing PATH. Clone and enter the source:
 
