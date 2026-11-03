@@ -18,7 +18,8 @@ def atomic_copy(source, target):
     temp = target.with_name(target.name+'.new')
     shutil.copyfile(source, temp); temp.replace(target)
 
-def main():
+def main(release_report=None, release_note=None):
+    note = release_note or NOTE
     inputs = json.loads((ROOT/'build/optimized-release-inputs.json').read_text())
     replacements = {}; builds = []; masters = {}
     for row in inputs:
@@ -33,48 +34,52 @@ def main():
     mapping = {old:sha(p) for old,p in replacements.items()}
     valid_roms = {r['rom_sha256'] for r in builds}
     valid_msu = {r['msu_sha256'] for r in builds if r['msu_sha256']}
-    evidence = {}
-    for name in ('optimized-all-graphics.json', 'optimized-fast-graphics.json', 'optimized-standalone-checks.json',
-                 'optimized-layout.json', 'optimized-standalone-ar-graphics.json',
-                 'optimized-standalone-ce-graphics.json', 'optimized-standalone-r-graphics.json'):
-        r = json.loads((ROOT/'build'/name).read_text()); assert r['passed'], name
-        evidence[name] = r
     base = ROOT/'build/packs/sa1-scheduled-hits'
-    for name in ('scheduled-hits.json', 'planet-zoom/result.json', 'checkpoint-countdown.json'):
-        r = json.loads((base/'verification'/name).read_text()); assert r['passed'], name
-        evidence[name] = r
-    evidence['pcm-scheduled-hits'] = json.loads((ROOT/'build/pcm-scheduled-check/result.json').read_text())
-    assert evidence['pcm-scheduled-hits']['passed']
-    for folder in ('mesen-23-autoplay','mesen-31-autoplay','mesen-checkpoints-23','mesen-checkpoints-45'):
-        r=json.loads((base/'verification'/folder/'ppu-verification.json').read_text())
-        assert r['passed'] and r['rom_sha256']==sha(base/'adofai.sfc') and r['msu_sha256']==sha(base/'adofai.msu')
-        evidence[folder]=r
-    evidence['standalone_ar_checkpoints']=json.loads((ROOT/'build/all-audio-fix/sa1-renderer-extra-03/verification/mesen-checkpoints-1/ppu-verification.json').read_text())
-    assert evidence['standalone_ar_checkpoints']['passed']
-    expected_data={r['rom_sha256']:r['msu_sha256'] for r in builds}
-    def bound(value):
-        if isinstance(value,dict):
-            if 'rom_sha256' in value:
-                assert value['rom_sha256'] in expected_data,('Stale ROM evidence',value['rom_sha256'])
-                if 'msu_sha256' in value:assert value['msu_sha256']==expected_data[value['rom_sha256']], 'Stale data evidence'
-            for child in value.values():bound(child)
-        elif isinstance(value,list):
-            for child in value:bound(child)
-    bound(evidence)
-    evidence['ar13_before']=json.loads((ROOT/'build/ar13-previous-release.json').read_text())
-    evidence['ar13_after']=json.loads((ROOT/'build/ar13-mesen-after/result.json').read_text())
-    assert evidence['ar13_after']['rom_sha256']==sha(base/'adofai.sfc')
-    assert evidence['ar13_after']['msu_sha256']==sha(base/'adofai.msu')
-    report = dict(passed=True, release='2026-11-02 R rotation and AR-X motion optimization', builds=builds,
-                  checks=evidence, performance_limit='AR-X remains below 60 fps; MesenCE measured 54.23 fps around 13%, 4-frame worst hold.')
+    if release_report is None:
+        evidence = {}
+        for name in ('optimized-all-graphics.json', 'optimized-fast-graphics.json', 'optimized-standalone-checks.json',
+                     'optimized-layout.json', 'optimized-standalone-ar-graphics.json',
+                     'optimized-standalone-ce-graphics.json', 'optimized-standalone-r-graphics.json'):
+            r = json.loads((ROOT/'build'/name).read_text()); assert r['passed'], name
+            evidence[name] = r
+        base = ROOT/'build/packs/sa1-scheduled-hits'
+        for name in ('scheduled-hits.json', 'planet-zoom/result.json', 'checkpoint-countdown.json'):
+            r = json.loads((base/'verification'/name).read_text()); assert r['passed'], name
+            evidence[name] = r
+        evidence['pcm-scheduled-hits'] = json.loads((ROOT/'build/pcm-scheduled-check/result.json').read_text())
+        assert evidence['pcm-scheduled-hits']['passed']
+        for folder in ('mesen-23-autoplay','mesen-31-autoplay','mesen-checkpoints-23','mesen-checkpoints-45'):
+            r=json.loads((base/'verification'/folder/'ppu-verification.json').read_text())
+            assert r['passed'] and r['rom_sha256']==sha(base/'adofai.sfc') and r['msu_sha256']==sha(base/'adofai.msu')
+            evidence[folder]=r
+        evidence['standalone_ar_checkpoints']=json.loads((ROOT/'build/all-audio-fix/sa1-renderer-extra-03/verification/mesen-checkpoints-1/ppu-verification.json').read_text())
+        assert evidence['standalone_ar_checkpoints']['passed']
+        expected_data={r['rom_sha256']:r['msu_sha256'] for r in builds}
+        def bound(value):
+            if isinstance(value,dict):
+                if 'rom_sha256' in value:
+                    assert value['rom_sha256'] in expected_data,('Stale ROM evidence',value['rom_sha256'])
+                    if 'msu_sha256' in value:assert value['msu_sha256']==expected_data[value['rom_sha256']], 'Stale data evidence'
+                for child in value.values():bound(child)
+            elif isinstance(value,list):
+                for child in value:bound(child)
+        bound(evidence)
+        evidence['ar13_before']=json.loads((ROOT/'build/ar13-previous-release.json').read_text())
+        evidence['ar13_after']=json.loads((ROOT/'build/ar13-mesen-after/result.json').read_text())
+        assert evidence['ar13_after']['rom_sha256']==sha(base/'adofai.sfc')
+        assert evidence['ar13_after']['msu_sha256']==sha(base/'adofai.msu')
+        report = dict(passed=True, release='2026-11-02 R rotation and AR-X motion optimization', builds=builds,
+                      checks=evidence, performance_limit='AR-X remains below 60 fps; MesenCE measured 54.23 fps around 13%, 4-frame worst hold.')
+    else:
+        report = release_report(builds, base)
 
     def update_text(name, data):
         encoding='utf-8'
         try: text=data.decode(encoding)
         except UnicodeDecodeError: encoding='cp1252';text=data.decode(encoding)
-        if Path(name).name=='RELEASE-NOTES.txt':return NOTE.encode()
+        if Path(name).name=='RELEASE-NOTES.txt':return note.encode()
         if 'ADOFAI - autoplay audio timing fix' in text:
-            return (NOTE+'\nClose the emulator and replace both game files in your master folder.\n'
+            return (note+'\nClose the emulator and replace both game files in your master folder.\n'
                     'Keep existing PCM files. Start fresh rather than loading an old save state.\n'
                     'All current distribution ZIPs include this release.\n'
                     'Required adofai.msu SHA256: '+sha(base/'adofai.msu')+'\n').encode()
@@ -95,7 +100,7 @@ def main():
             paragraphs=[p for p in paragraphs if not any(s in p for s in (
                 'Manual percussion is dispatched', 'Manual tap feedback now',
                 'Autoplay timing fix included:', 'ROM-only autoplay', 'ROM-only update'))]
-            text=NOTE+'\n'+'\n\n'.join(paragraphs)
+            text=note+'\n'+'\n\n'.join(paragraphs)
             if 'COMPRESSED MASTER' in text:
                 size=(base/'adofai.sfc').stat().st_size+(base/'adofai.msu').stat().st_size
                 text=re.sub(r'Installed game files: [^\n]+',f'Installed game files: {size:,} bytes ({size/1048576:.2f} MiB).',text)
@@ -115,7 +120,7 @@ def main():
     # The old small hotfix now needs the matching animation dataset too.
     hotfix=DIST/'adofai-autoplay-audio-fix'
     atomic_copy(base/'adofai.msu',hotfix/'adofai.msu')
-    (DIST/'RELEASE-NOTES.txt').write_text(NOTE)
+    (DIST/'RELEASE-NOTES.txt').write_text(note)
     archives=[]
     for path in sorted(DIST.rglob('*.zip')):
         temporary=path.with_suffix('.zip.partial');expected={};needed={}
@@ -150,7 +155,7 @@ def main():
                     output.NameToInfo[copied.filename]=copied;output._didModify=True
             for name,media in needed.items():
                 output.write(media,name);expected[name]=sha(media)
-            if 'RELEASE-NOTES.txt' not in names:output.writestr('RELEASE-NOTES.txt',NOTE)
+            if 'RELEASE-NOTES.txt' not in names:output.writestr('RELEASE-NOTES.txt',note)
         with zipfile.ZipFile(temporary) as check:
             assert check.testzip() is None,path
             for name,digest in expected.items(): assert hashlib.sha256(check.read(name)).hexdigest()==digest,(path,name)

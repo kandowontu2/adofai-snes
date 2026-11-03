@@ -1375,6 +1375,9 @@ hud6: .incbin "hud6.bin"
 hud7: .incbin "hud7.bin"
 hud8: .incbin "hud8.bin"
 .include "tables.inc"
+.ifdef SA1_BUILD
+.include "hit_timing.inc"
+.endif
 .segment "HEADER"
 .res 16,0
 .byte "ADOFAI SNES OFFICIAL "

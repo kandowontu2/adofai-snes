@@ -4,6 +4,7 @@ from pathlib import Path
 from emulate import Emulator,ROOT
 from input_helpers import press,configure
 from hit_sound_assets import selections
+from hit_timing import lead_frames
 
 def check(base,level=None,calibration=0,speed=1,mode='manual',limit=64):
  levels=json.loads((base/'pack.json').read_text())['levels'];level=level or (25 if 25 in levels else levels[0])
@@ -22,7 +23,7 @@ def check(base,level=None,calibration=0,speed=1,mode='manual',limit=64):
    em.run([8] if mode=='manual' and frame%19==0 else [])
    after=word(0x1fc36)
    for _ in range((after-before)&65535):
-    note=notes[len(rows)];phase=word(0x1fc0e)-note['frame']
+    note=notes[len(rows)];phase=word(0x1fc0e)+lead_frames(level,bool(em.read('msu_pcm')))-note['frame']
     rows.append(dict(step=note['step'],phase_frames=phase))
     assert -.01<=phase<=max(2,2*speed),(level,mode,calibration,rows[-1])
    before=after

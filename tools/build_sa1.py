@@ -27,6 +27,8 @@ def main():
     compile_engine(out)
 
 def compile_engine(out):
+    from hit_timing import patch_pack as patch_hit_timing
+    patch_hit_timing(out)
     from animation_references import patch_pack as patch_references
     patch_references(out)
     from animation_bulk import patch_pack as patch_animation

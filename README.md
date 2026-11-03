@@ -55,6 +55,12 @@ a bounded texture cache, and synchronized camera/scene publication. Planets
 scale with camera zoom. Hit sounds follow scheduled chart beats, independently
 of manual tap timing and calibration.
 
+Measured per-track percussion/music alignment corrections live in
+`assets/audio/hit-timing.json`. For 1-X, percussion starts two chart frames
+earlier with compressed music and one frame earlier with PCM. This corrects
+the audible drum alignment without moving input judgments. The waveform check
+`tools/verify_1x_music_alignment.py` compares isolated hit voices with the music.
+
 Camera zoom and rotation support is chart-specific. R additionally imports
 MoveTrack tile rotations. Gradual individual-tile scaling is not implemented.
 Dense motion can use half-resolution track textures to reduce transfer cost;

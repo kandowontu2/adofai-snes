@@ -1,0 +1,7 @@
+{
+  "1": {
+    "advance_seconds": 0.03,
+    "pcm_advance_seconds": 0.0166666667,
+    "reason": "Measured 1-X opening percussion/music attack mismatch: compressed kick attacks trail the music drums by 29-31 ms. PCM uses its separate video-frame clock and needs one frame rather than two. Advance percussion only; retain chart judgment and calibration. Verified against isolated audible DSP output."
+  }
+}

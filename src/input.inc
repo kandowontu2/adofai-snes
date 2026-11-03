@@ -149,7 +149,30 @@ service_tap_sounds:
 :
     asl a
     tax
+.ifdef SA1_BUILD
+    ; A track-specific music alignment correction affects percussion only.
+    ; Do not apply input/display calibration to the audible music clock.
+    phx
+    lda selected_level
+    asl a
+    tax
+.ifdef MSU_BUILD
+    lda msu_pcm
+    beq @compressed_sound_lead
     lda f:SOUND_NOW
+    clc
+    adc hit_pcm_lead_frames,x
+    bra @sound_deadline
+@compressed_sound_lead:
+.endif
+    lda f:SOUND_NOW
+    clc
+    adc hit_music_lead_frames,x
+@sound_deadline:
+    plx
+.else
+    lda f:SOUND_NOW
+.endif
     cmp f:NOTE_TIME,x
     bcc @done
     lda f:SOUND_NOTE
