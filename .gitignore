@@ -1,0 +1,14 @@
+build/
+.tools/
+assets/private/
+__pycache__/
+*.pyc
+dist/
+.venv/
+*.spc
+*.pcm
+*.brr
+*.wav
+*.mp3
+*.ogg
+*.flac

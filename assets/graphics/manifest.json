@@ -1,0 +1,23 @@
+{
+  "demo": {
+    "background.chr": 3264,
+    "background.map": 2048,
+    "font.chr": 2048,
+    "objects.chr": 8192,
+    "palette.bin": 512
+  },
+  "campaign": {
+    "background.chr": 3264,
+    "background.map": 2048,
+    "font.chr": 2048,
+    "objects.chr": 8192,
+    "palette.bin": 512
+  },
+  "mode7": {
+    "background.chr": 3264,
+    "background.map": 2048,
+    "font.chr": 2048,
+    "objects.chr": 8192,
+    "palette.bin": 512
+  }
+}

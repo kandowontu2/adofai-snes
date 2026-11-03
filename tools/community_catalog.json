@@ -1,0 +1,40 @@
+[
+  {
+    "id": 62,
+    "code": "MPP2-X",
+    "title": "MAD PIANO PARTY II",
+    "artist": "Plum",
+    "author": "NumbEr07 & LUMI",
+    "source": "assets/private/community/mpp2/Mad Piano Party 2.adofai",
+    "archive": "https://nnty.fun/downloads/game/adofai_songs/Mad_Piano_Party_2.zip",
+    "reference": "https://www.youtube.com/watch?v=qTdETK_ngBk"
+  },
+  {
+    "id": 63,
+    "code": "FE-X",
+    "title": "FERAL EASY",
+    "artist": "meganeko",
+    "author": "Ma6icCu8e",
+    "workshop": "2802386409",
+    "featured_classic": true
+  },
+  {
+    "id": 64,
+    "code": "FM-X",
+    "title": "FERAL MEDIUM",
+    "artist": "meganeko",
+    "author": "Ma6icCu8e",
+    "workshop": "2802387483",
+    "featured_classic": true
+  },
+  {
+    "id": 65,
+    "code": "OO-X",
+    "title": "OOPARTS NERFED",
+    "requires_msu": true,
+    "artist": "Camellia",
+    "author": "Lupel_2 (original by Nephrolepis)",
+    "workshop": "2558945567",
+    "reference": "https://www.youtube.com/watch?v=ckHERsEjrzI"
+  }
+]
