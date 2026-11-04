@@ -52,6 +52,13 @@ chart events through `tools/track_colors.py`, rather than a global artwork palet
 
 ## Hardware constraints
 
+Planet color presets are defined by `COLOR_RGB` in
+[`tools/presentation_assets.py`](../tools/presentation_assets.py), in the order
+shown by `COLOR_NAMES`. Edit those RGB triples to change the selectable colors;
+the build generates their dark-to-light shading. Cached SA-1 engine rebuilds
+refresh these presets too. The in-game fire/ice color settings override the
+static planet palette entries in `palette.bin`.
+
 OBJ sprites use 4-bit indexed pixels. Pixel index 0 is transparent. A sprite
 uses one 16-color palette; the two planets can select different palettes.
 The source atlas is a 128-by-128 sheet of 8-by-8 tiles. Tile numbers in the

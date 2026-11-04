@@ -27,6 +27,13 @@ def main():
     compile_engine(out)
 
 def compile_engine(out):
+    # Color presets are editable source, including when rebuilding frozen packs.
+    from presentation_assets import tables as presentation_tables
+    table_path=out/'tables.inc'
+    colors=re.search(r'^orb_colors:.*$',presentation_tables(assets.FPS),re.M).group(0)
+    current=table_path.read_text()
+    assert re.search(r'^orb_colors:.*$',current,re.M), 'Missing planet color table'
+    table_path.write_text(re.sub(r'^orb_colors:.*$',lambda _:colors,current,flags=re.M))
     from hit_timing import patch_pack as patch_hit_timing
     patch_hit_timing(out)
     from animation_references import patch_pack as patch_references
