@@ -146,7 +146,8 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
     for path in DIST.rglob('*'):
         if path.suffix in ('.sfc','.msu'):
             old=sha(path)
-            if old in replacements: atomic_copy(replacements[old],path)
+            if old in replacements and mapping[old] != old:
+                atomic_copy(replacements[old],path)
             assert sha(path) in valid_roms|valid_msu, path
         elif path.suffix=='.pcm' and pcm_files:
             assert path.name in pcm_files, path
