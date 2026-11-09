@@ -283,6 +283,10 @@ mode7_cache_prepare:
     cmp scratch
     jeq @logical_next
     sta f:M7_CACHE_LOGICAL
+    ; Reservations only consume slots during this pass. Once exhausted,
+    ; skip the repeated 256-slot free-pool scan.
+    lda f:M7_CACHE_SCAN
+    bne @atomic_begin
     lda #256
     sta map_left
 @allocate:
@@ -299,6 +303,9 @@ mode7_cache_prepare:
     bne @allocate
     ; A dense transition can reuse an old-only slot in the final atomic
     ; commit. Ordinary uploads never touch a displayed pattern.
+    lda #1
+    sta f:M7_CACHE_SCAN
+@atomic_begin:
     lda #256
     sta map_left
 @atomic:

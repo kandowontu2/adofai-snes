@@ -87,4 +87,26 @@ class TrackColors(unittest.TestCase):
         self.assertEqual(palette[slots[0]*2],palette_words((0,0,1),'Standard')[0])
         self.assertEqual(palette[slots[1]*2],palette_words((1,0,0),'Standard')[0])
 
+    def test_quantized_glow_cycles_do_not_reassign_geometry_each_frame(self):
+        import copy
+        d,c=self.fixture(8)
+        d['track_settings'].update(trackColorType='Glow',secondaryTrackColor='0000ff',
+            trackColorAnimDuration=4,trackColorPulse='Forward',trackPulseLength=8,trackGlowIntensity=0)
+        for n in c['notes']:n['frame']=1000;n['time']=1000/FPS
+        c.update(authored_visibility=True,authored_material_capacity=3)
+        legacy=copy.deepcopy(c)
+        _,legacy_updates=palette_schedule(d,legacy,[3]*8,{})
+        c['stable_color_quantization']=True
+        slots,updates=palette_schedule(d,c,[3]*8,{})
+        self.assertTrue(any(f<1000 for f in legacy_updates))
+        self.assertFalse(any(f<1000 for f in updates))
+        self.assertEqual(len(set(slots)),3)
+        seqs=sequences(d,c)
+        for frame in (0,28,60,92,120):
+            palette={i:v for f,i,v in c['track_palette_versions'] if f<=frame}
+            authored={tuple(palette_words(*evaluate(sequence,frame))[:2]) for sequence in seqs}
+            for slot in set(slots):
+                self.assertIn((palette[slot*2],palette[slot*2+1]),authored)
+        self.assertGreater(len({v for f,i,v in c['track_palette_versions'] if i==slots[0]*2 and f<240}),5)
+
 if __name__=='__main__':unittest.main()

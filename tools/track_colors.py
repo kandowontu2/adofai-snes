@@ -220,24 +220,47 @@ def authored_palette_schedule(data,chart,initial,changes):
     frames=set(range(0,end+1,4))|set(changes)|set(landings)
     for sequence in seqs:
         for at,duration,_,_ in sequence:frames.update((at,round(at+duration*FPS)))
+    # Compare complete animation trajectories instead of instantaneous colors.
+    # Otherwise crossing Glow colors can swap aliases every palette tick,
+    # rerasterizing whole visible sections despite unchanged geometry.
+    signatures={};distances={}
+    signature_frames={0}
+    if chart.get('stable_color_quantization'):
+        for sequence in seqs:
+            for at,duration,_,target in sequence:
+                signature_frames.update(round(at+target[3]*FPS*k/8) for k in range(9))
+                signature_frames.update(round(at+duration*FPS*k/4) for k in range(5))
+        signature_frames=sorted(signature_frames)
+        if len(signature_frames)>256:
+            signature_frames=[signature_frames[round(i*(len(signature_frames)-1)/255)] for i in range(256)]
+    def glow(sequence,frame):
+        at,duration,ease,target=sequence[0];start=target[6]
+        def value(t):
+            phase=easing(ease,max(0,min(1,(t-at)/(duration*FPS)))) if duration else 1
+            return start+(target[6]-start)*phase
+        for record in sequence[1:]:
+            if record[0]>frame:break
+            start=value(record[0]);at,duration,ease,target=record
+        return value(frame)
+    def signature(g):
+        if g not in signatures:
+            sequence=seq_by_group[g[0]]
+            signatures[g]=tuple(v for f in signature_frames for v in palette_words(*evaluate(sequence,f),glow(sequence,f) if g[2] else 0)[(3-g[1])*2:(3-g[1])*2+2])
+        return signatures[g]
     for frame in sorted(frames):
         for i,a in changes.get(frame,{}).items():alpha[i]=a
         keys=[(groups[i],a,frame>=landings[i]) for i,a in enumerate(alpha)]
         active={keys[i] for i,a in enumerate(alpha) if a}
         aliases={g:g for g in active}
-        def glow(sequence):
-            at,duration,ease,target=sequence[0];start=target[6]
-            def value(t):
-                phase=easing(ease,max(0,min(1,(t-at)/(duration*FPS)))) if duration else 1
-                return start+(target[6]-start)*phase
-            for record in sequence[1:]:
-                if record[0]>frame:break
-                start=value(record[0]);at,duration,ease,target=record
-            return value(frame)
-        colors={g:tuple(palette_words(*evaluate(seq_by_group[g[0]],frame),glow(seq_by_group[g[0]]) if g[2] else 0)[(3-g[1])*2:(3-g[1])*2+2]) for g in active}
+        colors={g:tuple(palette_words(*evaluate(seq_by_group[g[0]],frame),glow(seq_by_group[g[0]],frame) if g[2] else 0)[(3-g[1])*2:(3-g[1])*2+2]) for g in active}
         peak=max(peak,len(active))
         if len(active)>capacity:
             def distance(a,b):
+                if chart.get('stable_color_quantization'):
+                    pair=tuple(sorted((a,b)))
+                    if pair not in distances:
+                        distances[pair]=sum((((x>>s)&31)-((y>>s)&31))**2 for x,y in zip(signature(a),signature(b)) for s in (0,5,10))
+                    return distances[pair]
                 return sum((((x>>s)&31)-((y>>s)&31))**2 for x,y in zip(colors[a],colors[b]) for s in (0,5,10))
             chosen=sorted(active & set(assigned))[:capacity]
             if not chosen:chosen=[min(active)]

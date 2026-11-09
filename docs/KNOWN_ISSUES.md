@@ -1,24 +1,31 @@
-# Known rendering issues
+# Rendering performance and verification
 
-The November 9 PA-X update fixes the presentation freeze near 75% at 1.0x.
-It does not guarantee 60 FPS: MesenCE measured 47.88 delivered FPS over steps
-300-424, with a longest hold of 32 frames. The manual replay completed all
-407 scored hits; 250 PPU samples matched 9.37 million visible pixels.
+The November 9 update removes the long presentation stalls in Feral [Hard],
+Celica (Remastered Ver.), and Heaven's Gateway. All 65 master charts pass the
+full-song graphics and presentation-progress checks, with no VBlank overruns.
+The three affected standalone cartridges also pass.
 
-The new presentation-progress check found remaining stalls at 1.0x:
+This does not guarantee 60 FPS. MesenCE measurements of the affected sections:
 
-| Chart | Approximate section in this build |
-| --- | --- |
-| FT04-X Feral [Hard] | 95% |
-| FT19-X Celica (Remastered Ver.) | 50% |
-| FT21-X Heaven's Gateway | 95% |
+| Chart | Steps | Maximum display hold | Delivered FPS |
+| --- | --- | ---: | ---: |
+| Feral [Hard] | 1380–1508 | 18 frames | 15.36 |
+| Celica | 480–620 | 9 frames | 16.03 |
+| Heaven's Gateway | 1800–2029 | 41 frames | 15.29 |
 
-The preceding release also fails the progress check for all three charts
-(Heaven's Gateway fails earlier, around 33%). These remain unresolved.
-A completed autoplay run and correct pixels in its last published scene
-alone do not prove that its display kept advancing.
+Heaven's Gateway still has a noticeable short pause. These measurements count
+published track scenes, not emulator refreshes; audio and input can continue
+while a track scene waits for a safe upload. Further rendering optimization is
+needed for smooth 60 FPS in these sections. Increasing upload limits beyond the
+VBlank budget caused corruption in testing and is not included in the release.
 
-`tools/verify_render.py` now rejects a displayed scene more than 120 song-clock
+The earlier PA-X fix remains: its steps 300–424 measured 47.88 delivered FPS,
+with a maximum hold of 32 frames in MesenCE at 1.0x.
+
+`tools/verify_render.py` rejects a displayed scene more than 120 song-clock
 frames behind playback. This conservative hang check is separate from frame-rate
 measurement. `tools/profile_ar_section_mesen.py --max-hold N` also bounds holds
 that continue through the end of the measurement window and checks VBlank safety.
+
+This update changes master chart data. Replace both `adofai.sfc` and `adofai.msu`;
+existing PCM files can be retained. Music bytes are unchanged.

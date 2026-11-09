@@ -551,7 +551,8 @@ def main():
     ap.add_argument('--past-tiles',type=int,choices=range(0,5),default=1)
     ap.add_argument('--fixed-tile-positions',action='store_true')
     ap.add_argument('--compact-graphics',action='store_true')
-    ap.add_argument('--material-capacity',type=int,choices=(1,3,6,12,24,48),default=48)
+    ap.add_argument('--stable-color-quantization',action='store_true',help='Keep palette aliases consistent through authored color cycles')
+    ap.add_argument('--material-capacity',type=int,choices=(1,3,6,12,24,48),default=None,help='Override the chart-specific palette capacity')
     ap.add_argument('--shared-contours',action='store_true')
     ap.add_argument('--camera-rotation',action='store_true')
     ap.add_argument('--adaptive-raster',action='store_true')
@@ -581,10 +582,15 @@ def main():
     if not args.chart_cache_only:(OUT/'pack.json').write_text(json.dumps(dict(pack,code=args.pack),indent=2))
     for n in pack['levels']:
         source=ROOT/f'assets/private/level{n}.json'
-        fingerprint=hashlib.sha256(bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,args.adaptive_motion_raster,args.reuse_motion_phase,args.viewport_inset])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
+        # These lossless raster-phase choices and stable color clustering
+        # are part of the chart build, not private release-cache settings.
+        reuse_motion_phase=args.reuse_motion_phase or n in (43,60)
+        stable_color_quantization=args.stable_color_quantization or n==58
+        material_capacity=args.material_capacity if args.material_capacity is not None else (12 if n==58 else 48)
+        fingerprint=hashlib.sha256(bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,args.adaptive_motion_raster,reuse_motion_phase,args.viewport_inset,stable_color_quantization])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
             (ROOT/'tools/track_visibility.py').read_bytes()+(ROOT/'tools/viewport_cells.py').read_bytes()+(ROOT/'tools/track_geometry.py').read_bytes()+(ROOT/'assets/graphics/track-shapes.json').read_bytes()+(ROOT/'tools/track_motion.py').read_bytes()+(ROOT/'tools/track_events.py').read_bytes()+(ROOT/'tools/raster_phase.py').read_bytes()+(ROOT/'tools/track_mipmaps.py').read_bytes()+
             ((ROOT/'tools/track_readability.py').read_bytes()+(ROOT/'tools/track_patterns.py').read_bytes()+(ROOT/'tools/track_camera.py').read_bytes() if msu or n in (26,31) or n>=40 else b'')+
-            ((ROOT/'tools/track_colors.py').read_bytes() if msu else b'')+bytes([msu,1,args.preview_tiles,args.past_tiles,args.fixed_tile_positions,args.material_capacity,args.shared_contours,args.motion_step])+ (b'compact' if args.compact_graphics else b'')).hexdigest()
+            ((ROOT/'tools/track_colors.py').read_bytes() if msu else b'')+bytes([msu,1,args.preview_tiles,args.past_tiles,args.fixed_tile_positions,material_capacity,args.shared_contours,args.motion_step])+ (b'compact' if args.compact_graphics else b'')).hexdigest()
         stamp=OUT/f'level{n}-build.json'
         names=[f'{a}{n}' for a in ('chart','track_chr','track_map','timeline','visibility_index','checkpoints')]
         cached_metadata=json.loads((OUT/f'level{n}.json').read_text()) if stamp.exists() else {}
@@ -609,10 +615,11 @@ def main():
             c['mode7']=True
             c['compiled_reference_sets']=True
             c['motion_step']=args.motion_step
-            c['reuse_motion_phase']=args.reuse_motion_phase
+            c['reuse_motion_phase']=reuse_motion_phase
             c['viewport_inset']=args.viewport_inset
             c['adaptive_motion_raster']=args.adaptive_motion_raster
-            c['authored_material_capacity']=args.material_capacity
+            c['authored_material_capacity']=material_capacity
+            c['stable_color_quantization']=stable_color_quantization
             if args.shared_contours:c['shared_track_contour']=True
             if args.compact_graphics:
                 c.update(constrained_graphics=True,readability_foreground=0,readability_detail=0,nearby_motion_only=True,pattern_batch_budget=64)
