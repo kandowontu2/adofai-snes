@@ -28,6 +28,8 @@ Tile 8 supplies the tick silhouette; the runtime composites independent fading
 columns into VRAM glyphs 128–144 so neighboring hits remain visible.
 The two dim tick shades derive from palette 7’s bright color (index 31);
 CGRAM entries 29–30 are reserved for those runtime fade shades.
+Static HUD glyphs are monochrome: the loader preserves their silhouette and
+maps nontransparent pixels to color 3, keeping text separate from fade shades.
 Printable characters retain their ASCII tile numbers.
 
 The Mode-7 OBJ sheet includes every planet zoom size. These are editable

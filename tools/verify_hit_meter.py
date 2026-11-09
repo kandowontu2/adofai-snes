@@ -24,6 +24,11 @@ def verify(rom):
         return ((row[0]>>bit)&1)|(((row[1]>>bit)&1)<<1)
     try:
         for _ in range(120):em.run()
+        font=(rom.parent/'font.bin').read_bytes()
+        expected=bytes(v for i in range(0,len(font),2) for v in [font[i]|font[i+1]]*2)
+        video=em.core.retro_get_memory_data(3)
+        assert C.string_at(video+0xA000,2048)==expected,'Static text must use full-bright ink'
+        em.capture(out/'menu-text-brightness.png')
         select_level(em,1);press(em,1);press(em,3)
         wait(em,lambda:em.read('combo')>=3,1200)
         chart=json.loads((rom.parent/'level1.json').read_text())

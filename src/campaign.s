@@ -853,7 +853,29 @@ fast_reset:
 .endif
     GFX BACKGROUND_CHR_ADDR,$4000,BACKGROUND_CHR_BYTES
     GFX BACKGROUND_MAP_ADDR,$7400,2048
+.ifdef SA1_BUILD
+    ; Static HUD glyphs are monochrome. Put their ink in color 3 so the
+    ; meter can use colors 1/2 for fading without dimming ordinary text.
+    ; This boot-only staging area is reused by meter/alpha data in play.
+    ldx #0
+@font_ink:
+    lda f:FONT_ADDR,x
+    sta scratch
+    xba
+    ora scratch
+    and #255
+    sta scratch
+    xba
+    ora scratch
+    sta f:$7FDE00,x
+    inx
+    inx
+    cpx #2048
+    bcc @font_ink
+    GFX $7FDE00,$5000,2048
+.else
     GFX FONT_ADDR,$5000,2048
+.endif
     GFX OBJECTS_ADDR,$6000,8192
     sep #$20
     .a8
