@@ -183,10 +183,48 @@ retry_game:
     stz pattern_blanked
 @audio_start:
 .endif
+    ; Arm the SPC before starting its clock. Rendering cannot postpone or
+    ; bunch up the four audible clicks; the main loop only tracks UI state.
+    lda checkpoint_beat
+    jsr checkpoint_audio_ticks
+    sta $2141
+    lda #$8D
+    jsr spc_command
+    lda checkpoint_click_next
+    sec
+    sbc music_origin
+    bpl :+
+    lda #0
+:
+    jsr checkpoint_audio_ticks
+    sta $2141
+    sep #$20
+    .a8
+    lda #4
+    sta $2143
+    rep #$20
+    .a16
+    lda #$8E
+    jsr spc_command
     lda #$85
     jsr spc_command
     lda #1
     sta music_active
+    rts
+
+; Convert chart frames to real SPC timer ticks, rounded to the nearest tick.
+; speed_scale is chart frames per 250-Hz tick in unsigned 16.16 format.
+checkpoint_audio_ticks:
+    sta math_hi
+    lda speed_scale
+    sta math_b
+    lsr a
+    sta math_lo
+    jsr divide32
+    lda math_lo
+    bne :+
+    inc a
+:
     rts
 
 ; Music-clock scheduling also resumes correctly after pausing the count-in.
@@ -203,8 +241,6 @@ update_checkpoint_clicks:
     clc
     adc checkpoint_beat
     sta checkpoint_click_next
-    lda #$8B
-    jsr spc_command
 @done:
     rts
 

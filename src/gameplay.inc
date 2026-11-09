@@ -139,14 +139,19 @@ update_game:
     lda #112
     bra @volume
 @fade:
+    ; Keep the backing track below the count-in, including its final click.
+    ; Normal music level returns when the checkpoint becomes playable.
     lda elapsed
     sec
     sbc music_origin
     asl a
-    cmp #112
+    cmp #56
     bcc @volume
-    lda #112
+    lda #56
 @volume:
+.ifdef MSU_BUILD
+    sta msu_volume
+.endif
     sep #$20
     .a8
     sta $2141

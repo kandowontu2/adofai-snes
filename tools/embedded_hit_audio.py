@@ -87,7 +87,7 @@ def file_offset(address):
     return address-0xC00000 if address >= 0xC00000 else address
 
 
-def patch_pack(out):
+def patch_pack(out, *, generate_pcm=True):
     """Upgrade frozen audio in place without changing the animation layout."""
     out = Path(out)
     pack = json.loads((out/'pack.json').read_text())
@@ -127,6 +127,8 @@ def patch_pack(out):
                     assert existing in (old, updated), 'Music descriptor does not match source bytes'
                     f.seek(at)
                     f.write(updated)
+                if not generate_pcm:
+                    continue
                 # Rebuild only this PCM track, preserving every other song.
                 pcm_root = out/'sample-clock-pcm'
                 pcm_root.mkdir(exist_ok=True)

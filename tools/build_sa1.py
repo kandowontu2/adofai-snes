@@ -26,7 +26,22 @@ def main():
             f.seek(12);f.write(bytes([20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13,0]))
     compile_engine(out)
 
-def compile_engine(out):
+def compile_engine(out, *, generate_pcm=True):
+    # Cached packs embed the SPC driver in the payload, not spc.bin. Refresh
+    # it on engine rebuilds so audio fixes reach existing release variants.
+    from spc_campaign import assemble as assemble_spc
+    driver = assemble_spc(calibration_period=125)
+    addresses = (out/'addresses.inc').read_text()
+    expected = int(re.search(r'SPC_DRIVER_BYTES = (\d+)', addresses).group(1))
+    assert len(driver) == expected, 'SPC driver size changed; regenerate pack assets'
+    location = json.loads((out/'placements.json').read_text())['spc_driver']
+    offset = location-0xC00000 if location >= 0xC00000 else location
+    with (out/'sa1_payload.bin').open('r+b') as payload:
+        assert 0x10000 <= offset and offset+len(driver)-0x10000 <= os.fstat(payload.fileno()).st_size
+        payload.seek(offset-0x10000)
+        payload.write(driver)
+    (out/'spc_driver.bin').write_bytes(driver)
+    (out/'spc.bin').write_bytes(driver)
     # Color presets are editable source, including when rebuilding frozen packs.
     from presentation_assets import tables as presentation_tables
     table_path=out/'tables.inc'
@@ -43,7 +58,7 @@ def compile_engine(out):
     from animation_catchup import patch_pack as patch_catchup
     patch_catchup(out)
     from embedded_hit_audio import patch_pack as patch_embedded_audio
-    patch_embedded_audio(out)
+    patch_embedded_audio(out, generate_pcm=generate_pcm)
     from planet_assets import patch_pack
     patch_pack(out)
     # Frozen standalone packs retain their linker config. Migrate that

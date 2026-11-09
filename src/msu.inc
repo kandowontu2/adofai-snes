@@ -327,7 +327,9 @@ msu_command:
     cmp #$86
     jne @done
     ; Match the checkpoint's fade-in while the SPC music voice stays muted.
-    lda $2141
+    ; Reading an APU port returns SPC output (the clock), not the volume
+    ; just written to its input port. Use the CPU's saved command parameter.
+    lda msu_volume
     and #255
     cmp #112
     bcs @full

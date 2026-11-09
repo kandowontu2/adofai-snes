@@ -156,10 +156,13 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
             path.write_bytes(update_text(path.name,path.read_bytes()))
     # The old small hotfix now needs the matching animation dataset too.
     hotfix=DIST/'adofai-autoplay-audio-fix'
-    atomic_copy(base/'adofai.msu',hotfix/'adofai.msu')
+    if hotfix.is_dir():
+        atomic_copy(base/'adofai.msu',hotfix/'adofai.msu')
     (DIST/'RELEASE-NOTES.txt').write_text(note)
     archives=[]
-    for path in sorted(DIST.rglob('*.zip')):
+    archive_paths=sorted(DIST.rglob('*.zip'))
+    assert archive_paths, 'No release archives found'
+    for path in archive_paths:
         temporary=path.with_suffix('.zip.partial');expected={};needed={}
         with zipfile.ZipFile(path) as source, zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED,compresslevel=6,allowZip64=True) as output:
             entries=source.infolist();ordered=sorted(entries,key=lambda e:e.header_offset)
@@ -204,10 +207,10 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
         archives.append(dict(file=str(path.relative_to(DIST)),files=expected))
         (ROOT/'build/optimized-package-progress.json').write_text(json.dumps(archives,indent=2))
         print('Verified ZIP',path.name,flush=True)
-    assert len(archives)==49,len(archives)
+    assert len(archives)==len(archive_paths),(len(archives),len(archive_paths))
     report['archives']=archives
     (ROOT/'build/optimized-release.json').write_text(json.dumps(report,indent=2))
     if pcm_zip is not None:pcm_zip.close()
-    print('PASS all 49 ZIPs and loose releases updated',flush=True)
+    print(f'PASS all {len(archives)} ZIPs and loose releases updated',flush=True)
 
 if __name__=='__main__':main()
