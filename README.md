@@ -100,3 +100,6 @@ output, cache state, checkpoint restoration, scheduled audio, zoomed planets,
 SA-1 memory layout and ROM payloads. Test reports bind to ROM/data hashes.
 Emulator binaries and private chart assets are local dependencies, not included
 in this repository.
+
+See [known rendering issues](docs/KNOWN_ISSUES.md) for the PA-X fix, remaining
+chart stalls, and the distinction between pixel correctness and display progress.

@@ -379,6 +379,13 @@ mode7_cache_prepare:
     ; published track and planets still change together in VBlank.
 .ifdef SA1_BUILD
     lda f:M7_UPLOAD_LIMIT
+    ; mode7_commit_patterns already holds HUD DMA for >=4 uploads.
+    ; Reclaim four slots only for small views. Larger rotated/zoomed
+    ; views need their conservative limits for scattered map spans.
+    cmp #16
+    bne :+
+    clc
+    adc #4
 .else
     lda #20
 .endif

@@ -49,7 +49,7 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
     for at,index,value in chart.get('track_palette_versions',[]):color_versions[index].append((at,value))
     color_versions=[([p[0] for p in rows],[p[1] for p in rows]) for rows in color_versions]
     samples=0;published_samples=0;max_objects=0;trails=flashes=False;zooms=set();checked_chr=False;clipped_differences=0;atomic_peak=0;deferrals=[]
-    startup_frames=0;music_started=False
+    startup_frames=0;music_started=False;max_display_age=0
     # Sample-bank loading precedes the song clock. Keep validating its
     # displayed frames, but do not subtract that bounded loading time from
     # the complete-song playback allowance.
@@ -67,6 +67,12 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
             errors=C.c_uint16.from_address(em.cache_ram+0x1fc90).value
             if errors>len(deferrals):deferrals.append(dict(frame=frame,atomic=atomic,step=em.read('step')))
         if em.read('state')!=1 or em.read('display_state')!=1:continue
+        # Correct pixels in an indefinitely retained old scene are not a pass.
+        # This two-second bound catches hangs; it is not a 60 FPS guarantee.
+        if em.read('music_active'):
+            age=(em.read('chart_time')-em.read('display_chart_time')) & 65535
+            max_display_age=max(max_display_age,age)
+            assert age<120,('Track presentation stalled',frame,age,em.snapshot())
         ready=bool(em.read('frame_ready'))
         # The real OAM is immutable on held frames; main's staging buffer
         # may currently be under construction.
@@ -190,10 +196,14 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
         samples+=1
     assert checked_chr and samples and trails and not flashes,(checked_chr,samples,trails,flashes)
     result=dict(code=chart['code'],**em.evidence(),
-                mode7=True,cache_samples=samples,max_objects_per_line=max_objects,ppu_chr_match=True,ppu_pattern_scope='visible track; unused prefetch may be pending',trails=trails,tile_flashes=flashes,
+                mode7=True,max_display_age=max_display_age,cache_samples=samples,max_objects_per_line=max_objects,ppu_chr_match=True,ppu_pattern_scope='visible track; unused prefetch may be pending',trails=trails,tile_flashes=flashes,
                 zoom_values=len(zooms),clipped_pattern_differences=clipped_differences,visible_pixel_bounds=[0,chart.get("viewport_top",32),255,chart.get("viewport_bottom",160)-1],map_deferrals=em.read('m7_map_deferrals'),pattern_peak_queued=em.read('pattern_peak_queued'),
                 vblank_overruns=em.read('pattern_vblank_overruns'),speed=em.read('speed_tenths')/10,
                 final_state=em.read('state'),combo=em.read('combo'),expected_hits=chart['hits'],published_samples=published_samples)
+    if result['vblank_overruns']:
+        result['first_vblank_overrun']={name:em.read(name) for name in ('vblank_first_time','vblank_first_queue','vblank_first_state')}
+        if em.sa1:
+            result['first_vblank_overrun'].update(zip(('rows','span','slots','limit'),struct.unpack('<4H',C.string_at(em.cache_ram+0x1fcde,8))))
     assert result['pattern_peak_queued']<=32 and result['vblank_overruns']==0,result
     if 'mode7_cache_prepare' in em.labels:
         result.update(versioned_ppu_cache=True,cache_capacity_errors=C.c_uint16.from_address(em.cache_ram+0x1fc50).value,
