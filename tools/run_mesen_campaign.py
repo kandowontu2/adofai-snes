@@ -62,7 +62,8 @@ def main():
             actions=',menu_actions={'+','.join('['+str(k)+']="'+v+'"' for k,v in seq.items())+'}'
         pitch=round(1536*speed/10)
         if json.loads((base/'pack.json').read_text()).get('fast_audio_rate') and speed>10:pitch=round(pitch/3)*3
-        scheduled=',pitch='+str(pitch)+',manual_times={'+','.join(str(n['frame']) for n in chart['notes'][1:] if not(n['flags']&8))+'},manual_steps={'+','.join(str(n['step']) for n in chart['notes'][1:] if not(n['flags']&8))+'}'
+        manual_notes=[n for n in chart['notes'][1:] if not(n['flags']&8) for _ in range(n.get('taps_needed',1))]
+        scheduled=',pitch='+str(pitch)+',manual_times={'+','.join(str(n['frame']) for n in manual_notes)+'},manual_steps={'+','.join(str(n['step']) for n in manual_notes)+'}'
         if args.autoplay:scheduled+=',autoplay=true'
         if args.graphics_dumps:scheduled+=',graphics_dumps=true'
         if args.trace_frame:scheduled+=',trace_frame='+str(args.trace_frame)

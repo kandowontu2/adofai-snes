@@ -556,6 +556,7 @@ meter_head: .res 2
 meter_count: .res 2
 meter_average: .res 2
 meter_dirty: .res 2
+note_taps: .res 2
 meter_next_tick: .res 2
 meter_bitmap_valid: .res 2
 meter_uniform: .res 2

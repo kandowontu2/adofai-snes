@@ -21,10 +21,17 @@ RATE=12000
 RING=32760
 MAX_NOTES=4352
 
+def note_control(note):
+    return (int(note['ccw']) | (2 if note['planets']==3 else 0)
+            | (4 if note.get('margin',100)>100 else 0)
+            | ((note.get('taps_needed',1)-1)<<3))
+
+
 def compile_chart(data):
     fs=data['floors'];n=len(fs)
     assert n<=MAX_NOTES
     assert all(f['numPlanets'] in (2,3) and f['holdLength']<=0 for f in fs)
+    assert all(1<=max(1,int(f.get('tapsNeeded',1)))<=32 for f in fs)
     tau=2*math.pi;beat=60/data['bpm'];times=[0.0]
     def arc(f):
         i=f['seqID']
@@ -61,6 +68,7 @@ def compile_chart(data):
                       'rate':round(rate*256),'ccw':bool(f['isCCW']),'speed':f['speed'],'flags':flags,
                       'exit_angle':f['exitangle']-math.pi/2,
                       'planets':f['numPlanets'],'margin':f.get('margin',100),
+                      'taps_needed':max(1,int(f.get('tapsNeeded',1))),
                       'stick_to_floor':sticking[i],
                       'spin_kind':'midspin' if f['midSpin'] else 'full' if i and i+1<n and abs(math.remainder(f['exitangle']-f['entryangle'],tau))<.00001 else 'normal',
                       'pause_frames':round(f['extraBeats']*beat/f['speed']*FPS)})
@@ -92,7 +100,7 @@ def compile_chart(data):
     # Offsets correspond to the fixed WRAM arrays in campaign.s.
     arrays += [words([v['x'] for v in notes]),words([v['y'] for v in notes]),words([v['frame'] for v in notes])]
     arrays += [bytes_([v['angle'] for v in notes]),bytes_([v['flags'] for v in notes]),words([v['rate'] for v in notes])]
-    arrays += [bytes_([round(v['step']*100/(n-1)) for v in notes]),bytes_([int(v['ccw']) for v in notes])]
+    arrays += [bytes_([round(v['step']*100/(n-1)) for v in notes]),bytes_([note_control(v) for v in notes])]
     arrays += [words([v['pause_frames'] for v in notes])]
     blob=b''.join(arrays)
     assert len(blob)==14*n
@@ -592,7 +600,7 @@ def main():
                 assets[f'track_map{n}']=(OUT/f'track_map{n}.bin').read_bytes()
                 assets[f'timeline{n}']=bytes(2)
                 size=len(c['notes']);original=assets[f'chart{n}']
-                assets[f'chart{n}']=original[:11*size]+bytes(int(v['ccw'])|(2 if v['planets']==3 else 0)|(4 if v.get('margin',100)>100 else 0) for v in c['notes'])+original[12*size:]
+                assets[f'chart{n}']=original[:11*size]+bytes(note_control(v) for v in c['notes'])+original[12*size:]
                 (OUT/f'level{n}.json').write_text(json.dumps(c,indent=2))
             music=encode_music(c);external_music[n]=music;assets[f'music{n}']=bytes(2) if msu else music
             print(c['code'],'cached track assets',flush=True);continue
@@ -642,7 +650,7 @@ def main():
         blob=common.word_data([v['x']+(v.get('position_track_offset',[0,0])[0] if not v.get('stick_to_floor',True) else 0) for v in c['notes']])+common.word_data([v['y']+(v.get('position_track_offset',[0,0])[1] if not v.get('stick_to_floor',True) else 0) for v in c['notes']])+blob[4*len(c['notes']):]
         if msu:
             size=len(c['notes']);assert size<=4352
-            blob=blob[:11*size]+bytes(int(v['ccw'])|(2 if v['planets']==3 else 0)|(4 if v.get('margin',100)>100 else 0) for v in c['notes'])+blob[12*size:]
+            blob=blob[:11*size]+bytes(note_control(v) for v in c['notes'])+blob[12*size:]
         c['map_offset_shift']=2
         assets[f'timeline{n}']=timeline
         (OUT/f'timeline{n}.bin').write_bytes(timeline)

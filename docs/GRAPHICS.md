@@ -32,6 +32,9 @@ Static HUD glyphs are monochrome: the loader preserves their silhouette and
 maps nontransparent pixels to color 3, keeping text separate from fade shades.
 Printable characters retain their ASCII tile numbers.
 
+Double-tap track tiles have an inset second border. Its spacing is editable
+with `multitap_border_inset` in `assets/graphics/track-shapes.json`.
+
 The Mode-7 OBJ sheet includes every planet zoom size. These are editable
 artwork, not regenerated thumbnails. The original-size planet occupies tile
 6 (a 16 by 16 sprite). Additional radius/starting-tile assignments are:

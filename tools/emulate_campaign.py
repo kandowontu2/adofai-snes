@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 from emulate import Emulator,ROOT
-from input_helpers import configure,verify_checkpoint_results
+from input_helpers import configure,verify_checkpoint_results,select_level
 
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--level',type=int,default=1)
@@ -19,17 +19,17 @@ def main():
     ap.add_argument('--speed',type=float,default=1.0);ap.add_argument('--time-attack',action='store_true')
     ap.add_argument('--fire-color',type=int);ap.add_argument('--ice-color',type=int)
     args=ap.parse_args();base=ROOT/'build/campaign' if args.pack=='main' else ROOT/f'build/packs/{args.pack}'
-    speed=round(args.speed*10);assert 5<=speed<=20 and abs(args.speed*10-speed)<1e-6
+    speed=round(args.speed*10);assert 5<=speed<=40 and abs(args.speed*10-speed)<1e-6
     pack=json.loads((base/'pack.json').read_text());global_level=pack['levels'][args.level-1]
     out=args.out or base/f'verification/{args.mode}-{args.level}';out.mkdir(exist_ok=True,parents=True)
     chart=json.loads((base/f'level{global_level}.json').read_text())
     em=Emulator(rom=base/'adofai.sfc',mute_taps=args.music_only);trace=[];audio_trace=[];prior=None;cal_last=-1;next_input=0
-    manual_notes=[n for n in chart['notes'][1:] if not(n['flags']&8)]
+    manual_notes=[n for n in chart['notes'][1:] if not(n['flags']&8) for _ in range(n.get('taps_needed',1))]
     try:
         for _ in range(120):em.run()
         if speed!=10 or args.time_attack or args.fire_color is not None or args.ice_color is not None or args.calibration is not None:
             configure(em,speed,args.time_attack,args.fire_color,args.ice_color,args.calibration)
-        for _ in range(args.level-1):em.run([5]);em.run()
+        select_level(em,global_level)
         em.capture(out/'title.png')
         if args.mode in ('watch','practice'):
             em.run([1 if args.mode=='watch' else 9]);em.run()

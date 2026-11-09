@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image,ImageDraw,ImageFilter,ImageChops
 import make_assets as common
 from track_motion import enabled,easing,ease_name,native_event_time,native_duration
-from track_geometry import piece
+from track_geometry import piece,STYLE
 from track_events import gameplay_actions
 
 APPEAR=['None','Assemble','Assemble_Far','Extend','Grow','Grow_Spin','Fade','Drop','Rise']
@@ -225,6 +225,8 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
         return True
     detail_starts=chart.get('readability_detail_starts',[0]*len(notes))
     detail_events=collections.defaultdict(list)
+    for i,note in enumerate(notes):
+        if note.get('taps_needed',1)>1:detail_events[note['frame']].append(i)
     if mode7:
         for i,at in enumerate(detail_starts):detail_events[at].append(i)
     def render_patch(dirty,frame):
@@ -248,6 +250,11 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             # two floors cross, while fully occluding lower-floor detail.
             contour=ImageChops.subtract(layer,layer.filter(ImageFilter.MinFilter(3)))
             material.paste(1,mask=layer);material.paste(3,mask=contour)
+            if notes[i].get('taps_needed',1)>1 and frame<notes[i]['frame']:
+                inset=STYLE.get('multitap_border_inset',3)
+                inner=layer.filter(ImageFilter.MinFilter(inset*2+1))
+                inner_border=ImageChops.subtract(inner,inner.filter(ImageFilter.MinFilter(3)))
+                material.paste(3,mask=inner_border)
             separators.paste(0,mask=layer)
             if chart.get('authored_visibility') and i+1<len(notes) and notes[i].get('spin_kind','normal')=='normal':
                 # A recessed join belongs to this piece, before higher pieces

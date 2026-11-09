@@ -1,5 +1,6 @@
 {
   "line_width": 15,
+  "multitap_border_inset": 3,
   "half_segment": 12,
   "normal_padding": 9,
   "spin_padding": 1,

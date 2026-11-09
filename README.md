@@ -53,6 +53,9 @@ SELECT opens calibration from the menu. Gameplay buttons
 provide rhythm input. Retry and result screens use START/SELECT to avoid an
 extra rhythm tap accidentally restarting the song.
 
+RJ-X's double-bordered tiles require two taps within the same timing window.
+Use two buttons together or tap twice; holding a button counts only once.
+
 Normal runs and speed trials do not display elapsed time. The playfield is
 up to 144 pixels tall (Mad Piano Party retains 128 to fit the hardware tile cache).
 The timing meter shows independently fading hit positions and a latest-hit

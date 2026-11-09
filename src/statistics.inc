@@ -1,4 +1,5 @@
 reset_clock:
+    stz note_taps
     stz meter_dirty
     stz meter_next_tick
     stz meter_bitmap_valid

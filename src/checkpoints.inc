@@ -99,6 +99,7 @@ retry_game:
     bne @countdown_start
     lda checkpoint_floor
     sta step
+    stz note_taps
     inc a
     sta f:SOUND_NOTE
     stz stream_ticks

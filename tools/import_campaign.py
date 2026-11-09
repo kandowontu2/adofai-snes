@@ -13,7 +13,7 @@ TITLES=['A DANCE OF FIRE AND ICE','OFFBEATS','THE WIND-UP','LOVE LETTERS',
         'THE MIDNIGHT TRAIN','PULSE','SPIN 2 WIN','JUNGLE CITY','CLASSIC PURSUIT',
         'BUTTERFLY PLANET','HERACLES','ARTIFICIAL CHARIOT']
 SCENES={1:8,2:9,4:10,6:11,7:13,8:14,9:15,10:16,11:17,12:18}
-FLOOR_FIELDS=('seqID','entryangle','exitangle','speed','isCCW','extraBeats','midSpin','holdLength','numPlanets')
+FLOOR_FIELDS=('seqID','entryangle','exitangle','speed','isCCW','extraBeats','midSpin','holdLength','numPlanets','tapsNeeded')
 
 def native_checkpoints(env):
     """Effects live on the same GameObject as their triggering scrFloor."""

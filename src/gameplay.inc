@@ -417,6 +417,22 @@ hit:
     lda timing_error
     sta last_error
     jsr meter_add_hit
+    ; A Multitap floor is still the next landing until all its required
+    ; presses arrive. Two simultaneous button edges are separate taps.
+    inc note_taps
+    lda step
+    inc a
+    tax
+    lda f:NOTE_CCW,x
+    and #$00F8
+    lsr a
+    lsr a
+    lsr a
+    inc a
+    cmp note_taps
+    beq :+
+    rts
+:
     inc combo
     lda autoplay
     bne @grade
@@ -432,6 +448,7 @@ hit:
     lda last_judgment
     jsr record_judgment
 advance:
+    stz note_taps
     inc step
     jsr activate_checkpoint
     lda step
