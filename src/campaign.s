@@ -555,6 +555,13 @@ hud_last_timer: .res 2
 meter_head: .res 2
 meter_count: .res 2
 meter_average: .res 2
+meter_dirty: .res 2
+meter_next_tick: .res 2
+meter_bitmap_valid: .res 2
+meter_uniform: .res 2
+meter_last_uniform: .res 2
+meter_uniform_bright: .res 2
+meter_bitmap_dirty: .res 2
 meter_positions: .res 32
 meter_times: .res 32
 meter_grades: .res 32
@@ -815,6 +822,35 @@ fast_reset:
     sta $420B
     rep #$20
     .a16
+.ifdef SA1_BUILD
+    ; Preserve the editable palette's bright text color. The two lower
+    ; planes of palette 7 are reserved for the meter's half/quarter fade.
+    lda f:PALETTE_ADDR+62
+    and #$7BDE
+    lsr a
+    sta scratch
+    and #$7BDE
+    lsr a
+    pha
+    sep #$20
+    .a8
+    lda #29
+    sta $2121
+    rep #$20
+    .a16
+    pla
+    sep #$20
+    .a8
+    sta $2122
+    xba
+    sta $2122
+    lda scratch
+    sta $2122
+    lda scratch+1
+    sta $2122
+    rep #$20
+    .a16
+.endif
     GFX BACKGROUND_CHR_ADDR,$4000,BACKGROUND_CHR_BYTES
     GFX BACKGROUND_MAP_ADDR,$7400,2048
     GFX FONT_ADDR,$5000,2048

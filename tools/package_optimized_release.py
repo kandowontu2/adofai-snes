@@ -36,6 +36,8 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
         primary[sha(rom)]=pack
         for extra in row.get('extras',[]):
             extra=Path(extra);parts.setdefault(sha(rom),[]).append(extra)
+            previous=row.get('extra_old_roms',{}).get(str(extra))
+            if previous:replacements[previous]=extra/'adofai.sfc'
             builds.append(dict(pack=extra.name,rom_sha256=sha(extra/'adofai.sfc'),msu_sha256=None))
     mapping = {old:sha(p) for old,p in replacements.items()}
     valid_roms = {r['rom_sha256'] for r in builds}

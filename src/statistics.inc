@@ -1,4 +1,7 @@
 reset_clock:
+    stz meter_dirty
+    stz meter_next_tick
+    stz meter_bitmap_valid
     stz meter_head
     stz meter_count
     lda #64

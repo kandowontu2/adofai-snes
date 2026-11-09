@@ -361,6 +361,8 @@ update_game:
     bcs @overload_fail
     lda #0
     jsr record_judgment
+    jsr classify_hit
+    jsr meter_add_hit
     lda timing_error
     sta last_error
     lda #20
@@ -457,6 +459,12 @@ fail:
     lda #9
 @record:
     jsr record_judgment
+    lda pressed
+    and #TAP_MASK
+    beq :+
+    jsr classify_hit
+    jsr meter_add_hit
+:
     lda #2
     sta state
     lda #$82

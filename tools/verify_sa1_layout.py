@@ -38,6 +38,12 @@ def verify(base,source):
         assert all(a[1]<=b[0] for a,b in zip(ranges,ranges[1:])), ranges
     offset=lambda addr:addr-0xc00000 if addr>=0xc00000 else addr
     checked=0;crossings=[]
+    meter={name:int(value,16) for name,value in re.findall(r'(METER_\w+)=\$([0-9A-Fa-f]+)',(base/'game.lst').read_text())}
+    if 'METER_HISTORY' in meter:
+        assert meter['METER_HISTORY']+512*4<=meter['METER_PIXELS']
+        assert meter['METER_PIXELS']+34<=meter['METER_LAST_PIXELS']
+        assert meter['METER_LAST_PIXELS']+34<=0x404000
+        assert 0x7FDC82<=meter['METER_BITMAP'] and meter['METER_BITMAP']+272<=0x7FE000
     for n in pack['levels']:
         chart=json.loads((base/f'level{n}.json').read_text())
         if labels.get('NOTE_X') == 0x7F8000:

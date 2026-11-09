@@ -21,9 +21,13 @@ your PR; builds read them directly and never regenerate them. CHR is raw SNES
 | `palette.bin` | 256 BGR555 colors (512 bytes) |
 
 In `font.chr`, tiles 1–2 are the menu arrows, 3–4 are the timing bar and
-perfect-center line, 8–15 are hit ticks at each horizontal pixel position,
-and 16–23 are the average-position marker. These glyphs are read directly
+perfect-center line, tile 8 is the hit tick (9–15 are legacy shifted copies),
+and 16–23 are the latest-hit arrow. These glyphs are read directly
 from the CHR file, so a graphics PR can change the meter without editing code.
+Tile 8 supplies the tick silhouette; the runtime composites independent fading
+columns into VRAM glyphs 128–144 so neighboring hits remain visible.
+The two dim tick shades derive from palette 7’s bright color (index 31);
+CGRAM entries 29–30 are reserved for those runtime fade shades.
 Printable characters retain their ASCII tile numbers.
 
 The Mode-7 OBJ sheet includes every planet zoom size. These are editable

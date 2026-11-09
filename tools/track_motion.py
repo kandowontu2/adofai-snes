@@ -129,6 +129,7 @@ def motion_schedule(data,chart):
             start=tile(a.get('startTile',[0,'ThisTile']),origin);end=tile(a.get('endTile',[0,'ThisTile']),origin)
             for j in range(min(start,end),max(start,end)+1,1+a.get('gapLength',0)):
                 add(j,t,a.get('duration',0)*beat(origin),a['positionOffset'],a.get('ease','Linear'))
+    density=collections.Counter((round(t*FPS),round(duration*FPS)) for events in commands for t,duration,pos,ease in events)
     changes=collections.defaultdict(dict)
     for i,value in enumerate(initial):
         if value!=(0.,0.):changes[0][i]=tuple(round(v) for v in value)
@@ -145,10 +146,14 @@ def motion_schedule(data,chart):
                 # A MoveTrack offset is relative to that authored start.
                 target=initial[i][axis]+pos*24*sign
                 stop=selected[k+1][0] if k+1<len(selected) else math.inf
-                frames=list(range(round(t*FPS),round((t+duration)*FPS),chart.get('motion_step',8) if chart.get('mode7') else 4))+[round((t+duration)*FPS)]
+                cadence=chart.get('motion_step',8) if chart.get('mode7') else 4
+                if 0<duration<=.25 and density[round(t*FPS),round(duration*FPS)]<=4:cadence=1
+                frames=list(range(round(t*FPS),round((t+duration)*FPS),cadence))+[round((t+duration)*FPS)]
                 for f in frames:
                     if f/FPS>stop+1/FPS:break
-                    phase=1 if not duration else max(0,min(1,(f/FPS-t)/duration))
+                    # The rounded final sample must reach the authored target,
+                    # even when the exact endpoint falls between video frames.
+                    phase=1 if not duration or f==round((t+duration)*FPS) else max(0,min(1,(f/FPS-t)/duration))
                     axes[axis][f]=round(start+(target-start)*easing(ease,phase))
         value=tuple(round(v) for v in initial[i])
         for frame in sorted(set(axes[0])|set(axes[1])):

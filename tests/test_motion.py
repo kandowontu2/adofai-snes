@@ -8,6 +8,21 @@ from import_official import normalize_json
 from make_assets import FPS
 
 class Motion(unittest.TestCase):
+    def test_short_sparse_tween_keeps_intermediate_frames(self):
+        d,c=self.fixture();c.update(mode7=True,motion_step=8)
+        d['track_actions']=[dict(floor=1,eventType='MoveTrack',positionOffset=[0,3],duration=.13636,ease='Linear')]
+        poses=[v[1] for v in motion_schedule(d,c).values() if 1 in v]
+        self.assertGreaterEqual(len(set(poses)),8)
+        self.assertEqual(poses[-1],(0,-72))
+
+    def test_dense_short_tween_keeps_bounded_upload_cadence(self):
+        d,c=self.fixture();c.update(mode7=True,motion_step=8)
+        c['notes']=[dict(time=float(i),speed=1) for i in range(8)]
+        d['track_actions']=[dict(floor=1,eventType='MoveTrack',startTile=[0,'Start'],
+                                endTile=[7,'Start'],positionOffset=[0,3],duration=.13636)]
+        poses=[v[1] for v in motion_schedule(d,c).values() if 1 in v]
+        self.assertLessEqual(len(set(poses)),3)
+
     def test_native_world_units_and_recomputed_event_time(self):
         d,c=self.fixture();d['native_tile_size']=1.5
         d['native_track_effects']=[dict(type='ffxMoveFloorPlus',floor=1,start=1,end=1,

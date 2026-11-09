@@ -54,8 +54,10 @@ provide rhythm input. Retry and result screens use START/SELECT to avoid an
 extra rhythm tap accidentally restarting the song.
 
 Normal runs and speed trials do not display elapsed time. The playfield is
-up to 144 pixels tall (Mad Piano Party retains 128 to fit the hardware tile cache). The timing meter shows recent hit positions and a smoothed
-average marker; the center line is perfect timing.
+up to 144 pixels tall (Mad Piano Party retains 128 to fit the hardware tile cache).
+The timing meter shows independently fading hit positions and a latest-hit
+arrow; the center line is perfect timing. Each hit lasts three seconds, with
+up to 512 records retained; neighboring markers do not erase one another.
 
 ## Renderer status
 

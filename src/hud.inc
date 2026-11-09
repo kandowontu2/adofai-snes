@@ -4,6 +4,8 @@ draw_hud:
     jne @refresh
     cmp hud_state
     jne @refresh
+    lda meter_dirty
+    jne @refresh
     lda step
     jeq @refresh
     cmp hud_last_step
@@ -43,12 +45,19 @@ draw_hud:
     jne @refresh
     lda meter_count
     beq @unchanged
+.ifdef SA1_BUILD
+    lda tick
+    sec
+    sbc meter_next_tick
+    bpl @refresh
+.else
     lda tick
     .repeat 4
     lsr a
     .endrepeat
     cmp hud_last_timer
     bne @refresh
+.endif
 @unchanged:
     rts
 @refresh:

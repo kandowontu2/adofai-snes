@@ -108,10 +108,33 @@ nmi_fast:
     ldx #HUD
     stx $4302
     stz $4304
+.ifdef SA1_BUILD
+    ; Only 28 HUD rows are visible. Reuse the saved DMA budget for the
+    ; composited meter glyphs (272 bytes); no full-font upload is needed.
+    ldx #1792
+.else
     ldx #2048
+.endif
     stx $4305
     lda #1
     sta $420B
+.ifdef SA1_BUILD
+    lda meter_bitmap_dirty
+    beq :+
+    ldx #$5400
+    stx $2116
+    ldx #$DE00
+    stx $4302
+    lda #$7F
+    sta $4304
+    ldx #272
+    stx $4305
+    lda #1
+    sta $420B
+    stz $4304
+    stz meter_bitmap_dirty
+:
+.endif
     stz hud_dirty
 @hud_done:
     lda #1
