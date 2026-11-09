@@ -146,11 +146,13 @@ See [GRAPHICS.md](GRAPHICS.md) for CHR, palette and tile assignments.
 For **static CHR or palette edits**, rebuild the existing SA-1 pack:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import sys; from pathlib import Path; sys.path.insert(0,'tools'); from build_sa1 import compile_engine; compile_engine(Path('build/sa1-demo'))"
+.\.venv\Scripts\python.exe -c "import sys; from pathlib import Path; sys.path.insert(0,'tools'); from build_sa1 import compile_engine; compile_engine(Path('build/sa1-demo'), generate_pcm=False)"
 ```
 
 For a standalone pack, replace `build/sa1-demo` with
 `build/packs/standalone-demo` in that command.
+The `generate_pcm=False` option keeps existing PCM music when only graphics
+or engine code changed. Omit it when intentionally rebuilding audio.
 
 For **track-shape or chart-generator edits**, repeat step 4 with fresh output
 folders, for example `build/demo-assets-v2` and `build/sa1-demo-v2`. Change both

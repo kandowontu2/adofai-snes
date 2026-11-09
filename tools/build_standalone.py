@@ -92,6 +92,8 @@ def prepare(key,title,levels):
         # Verification reads original timelines and pattern dictionaries.
         for name in (f'chart{n}.bin',f'track_chr{n}.bin',f'track_map{n}.bin',f'timeline{n}.bin',f'patterns{n}.bin',f'level{n}.brr',f'animation{n}.bin'):
             shutil.copyfile(source_for(n)/name,out/name)
+        for source in (source_for(n)/f'level{n}-audio.json',FAST_CACHE/f'level{n}-fast-audio.json'):
+            if source.exists():shutil.copyfile(source,out/source.name)
     for name,blob in ui.items():(out/(name+'.bin')).write_bytes(blob)
     (out/'payload0.bin').write_bytes(image[:0x408000])
     (out/'payload1.bin').write_bytes(image[0x410000:])

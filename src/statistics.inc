@@ -1,4 +1,8 @@
 reset_clock:
+    stz meter_head
+    stz meter_count
+    lda #64
+    sta meter_average
     lda #0
     stz input_sound_mask
     sta f:SOUND_PENDING
@@ -375,8 +379,6 @@ draw_results:
     jsr put2
     lda #'%'|$3C00
     sta HUD,y
-    ldy #22*64+7*2
-    jsr put_time
     lda speed_tenths
     ldy #22*64+25*2
     jsr put_speed

@@ -220,8 +220,16 @@ floor_position:
     asl a
     tax
     lda f:NOTE_X,x
+.ifdef SA1_BUILD
+    sec
+    sbc f:M7_ORIGIN_X
+.endif
     sta floor_x
     lda f:NOTE_Y,x
+.ifdef SA1_BUILD
+    sec
+    sbc f:M7_ORIGIN_Y
+.endif
     sta floor_y
 .ifdef MSU_BUILD
     rts

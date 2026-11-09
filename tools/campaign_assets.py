@@ -309,10 +309,10 @@ def ui_assets(pack_title='MAIN WORLDS 1-12',mode7=False):
     title=[(1,'A DANCE OF FIRE AND ICE',7),(3,pack_title,5)]
     title += [(16,'UP / DOWN SELECT A LEVEL',4),(19,'START TO PLAY',7),(21,'X PRACTICE    Y WATCH',5),
               (23,'SELECT CALIBRATE  B OPTIONS',6),(24,'L / R SPEED: 1.0X',5),(26,'OFFSET: +00 FRAMES  < >',4)]
-    huds=[hud(title),hud(common_lines+[(24,'START PAUSE   SELECT RETRY',4),(26,'A B X Y L R / D-PAD TO TAP',4)]),
+    huds=[hud(title),hud(common_lines),
           hud(common_lines+[(21,'RHYTHM LOST',6),(24,'START TO RETRY',7),(26,'SELECT TO MENU',4)]),
           hud([(1,'LEVEL COMPLETE!',5),(5,'JUDGMENT       COUNT  POINTS  ',4),
-               (18,'   TOTAL SCORE'.ljust(32),5),(20,'   ACCURACY'.ljust(32),7),(22,'  TIME           SPEED'.ljust(32),4),(24,'START RETRY  SELECT MENU',4)]),
+               (18,'   TOTAL SCORE'.ljust(32),5),(20,'   ACCURACY'.ljust(32),7),(22,'                 SPEED'.ljust(32),4),(24,'START RETRY  SELECT MENU',4)]),
           hud(common_lines+[(10,'PAUSED',7),(13,'START TO RESUME',5),(16,'SELECT TO RETURN TO TITLE',4)]),
           hud([(2,'AUDIO CALIBRATION',7),(5,'TAP ALONG WITH THE CLICK',5),(7,'A B X Y L R / D-PAD TO TAP',4),
                (17,'SAMPLES 000 / 016',7),(21,'KEEP TAPPING AT A STEADY BEAT',4),(24,'START RETRY   SELECT CANCEL',4)]),
@@ -322,21 +322,11 @@ def ui_assets(pack_title='MAIN WORLDS 1-12',mode7=False):
                (12,'FIRE ORB',4),(14,'ICE ORB',4),(16,'AUDIO OFFSET',4),(20,'UP / DOWN SELECT  < > CHANGE',4),
                (22,'A ON OFFSET TO CALIBRATE',4),(25,'B / START / SELECT BACK',5)]),
           hud([(1,'RUN RESULTS',6),(5,'JUDGMENT       COUNT  POINTS  ',4),(18,'   TOTAL SCORE'.ljust(32),5),(20,'   ACCURACY'.ljust(32),7),
-               (22,'  TIME           SPEED'.ljust(32),4),(24,'START RETRY  SELECT MENU',4),(26,'SELECT MENU',4)])]
+               (22,'                 SPEED'.ljust(32),4),(24,'START RETRY  SELECT MENU',4),(26,'SELECT MENU',4)])]
     for i,data in enumerate(huds):(OUT/f'hud{i}.bin').write_bytes(data)
     from graphics_sources import write_graphics
     return write_graphics(OUT, "mode7" if mode7 else "campaign")
 
-
-def menu_font(data):
-    """Reserve unused font codes 1/2 for unambiguous up/down page arrows."""
-    font=bytearray(data)
-    arrow=np.zeros((8,8),dtype=np.uint8)
-    for y,row in enumerate(('0001000','0011100','0111110','1111111','0001000','0001000','0001000')):
-        for x,p in enumerate(row):arrow[y,x]=3 if p=='1' else 0
-    for code,pixels in ((1,arrow),(2,np.flipud(arrow))):
-        font[code*16:(code+1)*16]=bytes(common.tile_bytes(pixels,2))
-    return bytes(font)
 
 def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     zero_pauses=[]
@@ -460,7 +450,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     config='''MEMORY {
  ZP: start=$0000,size=$0100,type=rw;
- STATE: start=$1800,size=$0410,type=rw;
+ STATE: start=$1800,size=$04A0,type=rw;
  PAY0: start=$800000,size=$408000,type=ro,file=%O,fill=yes;
  ROM: start=$008000,size=$7FB0,type=ro,file=%O,fill=yes,fillval=$FF;
  HDR: start=$00FFB0,size=$30,type=ro,file=%O,fill=yes;
@@ -485,7 +475,7 @@ SEGMENTS {
  ZP: start=$0000,size=$0100,type=rw;
  FASTIRAM: start=$003100,size=$0680,type=rw;
  POLLWRAM: start=$001000,size=$0800,type=rw;
- STATE: start=$1800,size=$0410,type=rw;
+ STATE: start=$1800,size=$04A0,type=rw;
  ROM: start=$008000,size=$7FB0,type=ro,file=%O,fill=yes,fillval=$FF;
  HDR: start=$00FFB0,size=$30,type=ro,file=%O,fill=yes;
  VEC: start=$00FFE0,size=$20,type=ro,file=%O,fill=yes;
@@ -532,10 +522,13 @@ def common_tables(charts=None, adaptive_audio=False):
     charts=charts or WORLDS[:12]
     placements=json.loads((OUT/'placements.json').read_text()) if (OUT/'placements.json').exists() else {}
     values.append('level_title_pointers: .word '+','.join('title'+str(i) for i in range(len(charts))))
+    values.append('level_view_insets: .byte '+','.join(str(c.get('viewport_inset',0)) for c in charts))
     for i,c in enumerate(charts):
         title=f'{c.get("code",str(c["id"])+"-X")} {c["title"]}'[:28]
         values.append(f'title{i}: .byte "{title}",0')
-    (OUT/'tables.inc').write_text('\n'.join(values)+'\n'+presentation.tables(FPS,compact=charts[0].get('mode7',False),adaptive_audio=adaptive_audio))
+    from menu_sets import tables as menu_tables,write_count as write_menu_count
+    write_menu_count(OUT,[c['id'] for c in charts])
+    (OUT/'tables.inc').write_text('\n'.join(values)+'\n'+presentation.tables(FPS,compact=charts[0].get('mode7',False),adaptive_audio=adaptive_audio)+menu_tables([c['id'] for c in charts]))
     from spc_campaign import assemble
     (OUT/'spc.bin').write_bytes(assemble(calibration_period=125))
 
@@ -558,6 +551,8 @@ def main():
     ap.add_argument('--raster-min-shift',type=int,choices=(0,1),default=0,help='Minimum texture reduction for charts whose dense transitions exceed atomic cache capacity')
     ap.add_argument('--camera-zoom',action='store_true',help='Experimental Mode 7 zoom; requires per-chart capacity and runtime PPU validation')
     ap.add_argument('--camera-position',action='store_true')
+    ap.add_argument('--reuse-motion-phase',action='store_true')
+    ap.add_argument('--viewport-inset',type=int,default=0,choices=(0,8),help='Letterbox for charts exceeding the Mode 7 pattern limit')
     ap.add_argument('--motion-step',type=int,choices=(1,2,4,8),default=8)
     args=ap.parse_args();msu=args.pack=='master'
     pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=[m['id'] for m in WORLDS+TECH+COMMUNITY]) if msu else PACKS[args.pack]
@@ -578,8 +573,8 @@ def main():
     if not args.chart_cache_only:(OUT/'pack.json').write_text(json.dumps(dict(pack,code=args.pack),indent=2))
     for n in pack['levels']:
         source=ROOT/f'assets/private/level{n}.json'
-        fingerprint=hashlib.sha256(bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,args.adaptive_motion_raster])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
-            (ROOT/'tools/track_visibility.py').read_bytes()+(ROOT/'tools/track_geometry.py').read_bytes()+(ROOT/'assets/graphics/track-shapes.json').read_bytes()+(ROOT/'tools/track_motion.py').read_bytes()+(ROOT/'tools/track_events.py').read_bytes()+(ROOT/'tools/track_mipmaps.py').read_bytes()+
+        fingerprint=hashlib.sha256(bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,args.adaptive_motion_raster,args.reuse_motion_phase,args.viewport_inset])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
+            (ROOT/'tools/track_visibility.py').read_bytes()+(ROOT/'tools/viewport_cells.py').read_bytes()+(ROOT/'tools/track_geometry.py').read_bytes()+(ROOT/'assets/graphics/track-shapes.json').read_bytes()+(ROOT/'tools/track_motion.py').read_bytes()+(ROOT/'tools/track_events.py').read_bytes()+(ROOT/'tools/raster_phase.py').read_bytes()+(ROOT/'tools/track_mipmaps.py').read_bytes()+
             ((ROOT/'tools/track_readability.py').read_bytes()+(ROOT/'tools/track_patterns.py').read_bytes()+(ROOT/'tools/track_camera.py').read_bytes() if msu or n in (26,31) or n>=40 else b'')+
             ((ROOT/'tools/track_colors.py').read_bytes() if msu else b'')+bytes([msu,1,args.preview_tiles,args.past_tiles,args.fixed_tile_positions,args.material_capacity,args.shared_contours,args.motion_step])+ (b'compact' if args.compact_graphics else b'')).hexdigest()
         stamp=OUT/f'level{n}-build.json'
@@ -592,6 +587,7 @@ def main():
             for a in names:assets[a]=(OUT/(a+'.bin')).read_bytes()
             if msu:
                 from animation_assets import generate
+                c['compiled_reference_sets']=True
                 generate(OUT,c,assets[f'timeline{n}'],(OUT/f'patterns{n}.bin').read_bytes())
                 assets[f'track_map{n}']=(OUT/f'track_map{n}.bin').read_bytes()
                 assets[f'timeline{n}']=bytes(2)
@@ -603,7 +599,10 @@ def main():
         data=json.loads((ROOT/f'assets/private/level{n}.json').read_text());c,blob=compile_chart(data)
         if msu:
             c['mode7']=True
+            c['compiled_reference_sets']=True
             c['motion_step']=args.motion_step
+            c['reuse_motion_phase']=args.reuse_motion_phase
+            c['viewport_inset']=args.viewport_inset
             c['adaptive_motion_raster']=args.adaptive_motion_raster
             c['authored_material_capacity']=args.material_capacity
             if args.shared_contours:c['shared_track_contour']=True

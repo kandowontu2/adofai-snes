@@ -1,4 +1,60 @@
 .segment "CAMERA"
+; Reject off-screen event symbols before starting a separate SA-1 IRQ.
+; Bounds enclose the rotated viewport plus a conservative sprite margin.
+camera_projection_limits:
+    lda f:M7_ROT_COS
+    bpl :+
+    eor #$FFFF
+    inc a
+:
+    sta scratch
+    lda f:M7_ROT_SIN
+    bpl :+
+    eor #$FFFF
+    inc a
+:
+    sta scratch2
+    lda scratch
+    asl a
+    clc
+    adc scratch2
+    .repeat 3
+    asl a
+    .endrepeat
+    clc
+    adc scratch2
+    jsr camera_projection_extent
+    sta project_limit_x
+    lda scratch2
+    asl a
+    clc
+    adc scratch
+    .repeat 3
+    asl a
+    .endrepeat
+    clc
+    adc scratch
+    jsr camera_projection_extent
+    sta project_limit_y
+    rtl
+camera_projection_extent:
+    clc
+    adc #31
+    .repeat 5
+    lsr a
+    .endrepeat
+    clc
+    adc #32
+    pha
+    lda f:M7_RASTER_SHIFT
+    beq @native
+    pla
+    asl a
+    rts
+@native:
+    pla
+    rts
+
 ; SA-1 cartridges keep the enlarged map staging buffer in cartridge RAM.
 ; The SA-1 arithmetic unit projects OBJ centers through the same matrix.
 mode7_rotation_bounds:
@@ -20,7 +76,7 @@ mode7_rotation_bounds:
     sta f:M7_RASTER_X
     lda cam_y
     clc
-    adc #96
+    adc #104
     pha
     lda f:M7_RASTER_SHIFT
     beq @native_y
@@ -32,7 +88,7 @@ mode7_rotation_bounds:
     pla
 @raster_y:
     sec
-    sbc #96
+    sbc #104
     sta f:M7_RASTER_Y
     lda f:M7_ROT_COS
     bpl :+
@@ -50,10 +106,16 @@ mode7_rotation_bounds:
     asl a
     clc
     adc f:ROT_Y
+    .repeat 3
+    asl a
+    .endrepeat
     clc
-    adc #3
+    adc f:ROT_Y
+    clc
+    adc #31
+    .repeat 5
     lsr a
-    lsr a
+    .endrepeat
     sta f:ROT_SUM
     lda f:M7_RASTER_X
     clc
@@ -77,14 +139,20 @@ mode7_rotation_bounds:
     asl a
     clc
     adc f:ROT_X
+    .repeat 3
+    asl a
+    .endrepeat
     clc
-    adc #3
+    adc f:ROT_X
+    clc
+    adc #31
+    .repeat 5
     lsr a
-    lsr a
+    .endrepeat
     sta f:ROT_SUM
     lda f:M7_RASTER_Y
     clc
-    adc #96
+    adc #104
     sec
     sbc f:ROT_SUM
     .repeat 3
@@ -110,6 +178,11 @@ mode7_rotation_bounds:
     lda #10
     bra @limit
 @large_view:
+    cmp #37
+    bcc :+
+    lda #4
+    bra @limit
+:
     ; Wide rotated views can need 37 scattered map spans. Reserve enough
     ; VBlank for their per-span setup even when all eight slots are dirty.
     lda #6
@@ -125,19 +198,23 @@ mode7_rotate_project:
     sec
     sbc #128
     sta f:ROT_X
-    clc
-    adc #512
-    cmp #1025
+    bpl :+
+    eor #$FFFF
+    inc a
+:
+    cmp project_limit_x
     jcs @hidden
     lda floor_y
     sec
     sbc cam_y
     sec
-    sbc #96
+    sbc #104
     sta f:ROT_Y
-    clc
-    adc #512
-    cmp #1025
+    bpl :+
+    eor #$FFFF
+    inc a
+:
+    cmp project_limit_y
     jcs @hidden
     lda #0
     sta f:SA1_DONE
@@ -158,7 +235,7 @@ mode7_rotate_project:
     sta sprite_x
     lda f:$40002E
     clc
-    adc #88
+    adc #96
     sta sprite_y
     rtl
 @hidden:

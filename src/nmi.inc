@@ -193,13 +193,13 @@ nmi_fast:
     sta vblank_first_queue
 .ifdef SA1_BUILD
     lda m7_row_count
-    sta f:$41FCD0
+    sta f:VBLANK_DIAG_ROWS
     lda m7_row_span
-    sta f:$41FCD2
+    sta f:VBLANK_DIAG_SPAN
     lda m7_upload_slots
-    sta f:$41FCD4
+    sta f:VBLANK_DIAG_SLOTS
     lda f:M7_UPLOAD_LIMIT
-    sta f:$41FCD6
+    sta f:VBLANK_DIAG_LIMIT
 .endif
 @overrun_count:
     inc pattern_vblank_overruns

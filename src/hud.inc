@@ -41,11 +41,12 @@ draw_hud:
     lda last_error
     cmp hud_last_error
     jne @refresh
-    lda time_attack
+    lda meter_count
     beq @unchanged
-    lda run_centis
+    lda tick
+    .repeat 4
     lsr a
-    lsr a
+    .endrepeat
     cmp hud_last_timer
     bne @refresh
 @unchanged:
@@ -76,9 +77,10 @@ draw_hud:
     sta hud_last_risk
     lda last_error
     sta hud_last_error
-    lda run_centis
+    lda tick
+    .repeat 4
     lsr a
-    lsr a
+    .endrepeat
     sta hud_last_timer
     lda state
     cmp hud_state
@@ -169,7 +171,7 @@ draw_hud:
     bne @dynamic
     lda speed_tenths
 .ifdef MSU_BUILD
-    ldy #20*64+24*2
+    ldy #26*64+24*2
 .else
     ldy #5*64+24*2
 .endif
@@ -189,7 +191,7 @@ draw_hud:
     lda #.loword(text_time_attack)
 @static_mode:
 .ifdef MSU_BUILD
-    ldy #20*64+12*2
+    ldy #26*64+3*2
 .else
     ldy #5*64+12*2
 .endif
@@ -270,16 +272,6 @@ draw_hud:
 @playing:
     cmp #4
     jeq @done
-    lda time_attack
-    beq @erase_begin
-    lda run_centis
-    sta finish_cs
-.ifdef MSU_BUILD
-    ldy #20*64+1*2
-.else
-    ldy #5*64+1*2
-.endif
-    jsr put_time
 @erase_begin:
     ldx #0
     lda #0
@@ -288,7 +280,7 @@ draw_hud:
     sta HUD+8*64+10*2,x
     sta HUD+10*64+10*2,x
 .endif
-    sta HUD+21*64+10*2,x
+    sta HUD+22*64+10*2,x
     inx
     inx
     cpx #24
@@ -307,7 +299,7 @@ draw_hud:
     bcc @count_in
     lda #.loword(text_wait)
 .ifdef MSU_BUILD
-    ldy #21*64+10*2
+    ldy #22*64+10*2
 .else
     ldy #8*64+10*2
 .endif
@@ -329,7 +321,7 @@ draw_hud:
     sta scratch
     lda #.loword(text_ready)
 .ifdef MSU_BUILD
-    ldy #21*64+10*2
+    ldy #22*64+10*2
 .else
     ldy #8*64+12*2
 .endif
@@ -359,7 +351,7 @@ draw_hud:
     adc #'0'
     ora #$3C00
 .ifdef MSU_BUILD
-    sta HUD+21*64+20*2
+    sta HUD+22*64+20*2
 .else
     sta HUD+10*64+15*2
 .endif
@@ -368,7 +360,7 @@ draw_hud:
     lda checkpoint_flash
     beq @hit_feedback
     lda #.loword(text_checkpoint)
-    ldy #21*64+10*2
+    ldy #22*64+10*2
     jsr put_text
     bra @meter
 @hit_feedback:
@@ -379,58 +371,14 @@ draw_hud:
     asl a
     tax
     lda live_judgments,x
-    ldy #21*64+10*2
+    ldy #22*64+10*2
     jsr put_text
 @meter:
-    lda #.loword(text_meter)
-    ldy #22*64+7*2
-    jsr put_text
-    lda #.loword(text_risk)
-    ldy #23*64+10*2
-    jsr put_text
-    lda overload
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    cmp #5
-    bcc @risk_count
-    lda #4
-@risk_count:
-    tax
-    ldy #23*64+16*2
-@risk:
-    cpx #0
-    beq @risk_done
-    lda #'#'|$3800
-    sta HUD,y
-    iny
-    iny
-    dex
-    bra @risk
-@risk_done:
-    lda feedback_time
-    beq @done
-    lda last_error
-    cmp #$FFF8
-    bcs @mark
-    cmp #9
-    bcs @done
-@mark:
-    clc
-    adc #8
-    asl a
-    clc
-    adc #22*64+7*2
-    tay
-    lda #'+'|$3800
-    sta HUD,y
+    jsr draw_hit_meter
 @done:
     rts
 @title:
-    lda selected_level
+    lda menu_selection
     sec
     sbc menu_first
     clc
@@ -496,8 +444,40 @@ draw_hud:
     jmp put_offset
 
 draw_menu_list:
+    lda #.loword(menu_root_name)
+    ldx menu_depth
+    beq @heading
+    lda menu_group
+    asl a
+    tax
+    lda menu_set_name_ptrs,x
+@heading:
+    ldy #3*64+4*2
+    jsr put_text
+    lda #.loword(menu_open_hint)
+    ldx menu_depth
+    beq @hint
+    lda #.loword(menu_play_hint)
+.if MENU_SET_COUNT = 1
+    lda #.loword(menu_single_hint)
+.endif
+@hint:
+    ldy #19*64
+    jsr put_text
+    lda #.loword(menu_controls)
+.if MENU_SET_COUNT > 1
+    ldx menu_depth
+    beq :+
+    lda #.loword(menu_back_controls)
+:
+.endif
+    ldy #23*64
+    jsr put_text
+    lda #.loword(menu_navigation)
+    ldy #16*64
+    jsr put_text
     stz menu_first
-    lda selected_level
+    lda menu_selection
 @page:
     cmp #9
     bcc @first
@@ -516,12 +496,12 @@ draw_menu_list:
     lda #6*64+2*2
     sta menu_row
 @line:
+    jsr menu_item_count
+    cmp menu_i
+    beq @done
+    bcc @done
     lda menu_i
-    cmp #LEVEL_COUNT
-    bcs @done
-    asl a
-    tax
-    lda level_title_pointers,x
+    jsr menu_title_pointer
     ldy menu_row
     jsr put_text
     lda menu_row
@@ -539,10 +519,12 @@ draw_menu_list:
     lda #1|$3C00
     sta HUD+5*64+30*2
 @below:
+    jsr menu_item_count
+    sta scratch
     lda menu_first
     clc
     adc #9
-    cmp #LEVEL_COUNT
+    cmp scratch
     bcs @indicators_done
     lda #2|$3C00
     sta HUD+15*64+30*2

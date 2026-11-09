@@ -7,7 +7,7 @@ from emulate import Emulator,ROOT
 from campaign_assets import FPS,RATE
 from check_campaign_audio import decode_brr
 from official_catalog import PACKS
-from input_helpers import verify_checkpoint_results,configure
+from input_helpers import verify_checkpoint_results,configure,select_level,press
 
 def shared_audio_peaks(curves,playback=1):
     """Resolve repeated tones using one measured lag across all windows."""
@@ -32,8 +32,8 @@ def verify(pack,local,speed=10):
         for _ in range(120):em.run()
         if speed!=10:configure(em,speed)
         playback=em.read('speed_pitch')/1536
-        for _ in range(local-1):em.run([5]);em.run()
-        em.run([3])
+        select_level(em,n)
+        press(em,3)
         for frame in range(round(chart['duration']*FPS)+len(chart['checkpoints'])*700+1500):
             state=em.read('state');step=em.read('step');buttons=[]
             cp=chart['checkpoints'][index] if index<len(chart['checkpoints']) else None

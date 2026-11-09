@@ -44,11 +44,18 @@ Physical-cartridge compatibility has not been established.
 
 ## Controls
 
-Up/down select a song; left/right or L/R adjust applicable settings. START
+Up/down select a set or song; START opens the selected set. B returns from a
+song list to the set list and opens options from the set list. Single-set
+cartridges open directly to their songs. Left/right or L/R adjust applicable
+settings, including playback speed from 0.5x to 4.0x in 0.1x steps. START
 starts or resumes play. X selects practice and Y selects autoplay on the menu.
-SELECT opens calibration from the menu; B opens options. Gameplay buttons
+SELECT opens calibration from the menu. Gameplay buttons
 provide rhythm input. Retry and result screens use START/SELECT to avoid an
 extra rhythm tap accidentally restarting the song.
+
+Normal runs and speed trials do not display elapsed time. The playfield is
+up to 144 pixels tall (Mad Piano Party retains 128 to fit the hardware tile cache). The timing meter shows recent hit positions and a smoothed
+average marker; the center line is perfect timing.
 
 ## Renderer status
 
@@ -67,8 +74,9 @@ tracks retain authored timing with the original sample-specific advances.
 Playback speed changes affect
 the complete mix, including percussion pitch. Input judgments remain separate.
 
-This audio update requires dataset 24 and regenerated PCM tracks; updating only
-the ROM is insufficient. `tools/audit_music_hits.py` screens every source song,
+Current builds require dataset 25: replace both the ROM and `.msu` data file.
+PCM tracks from the dataset-24 audio release are unchanged and can be kept.
+`tools/audit_music_hits.py` screens every source song,
 `tools/verify_sample_mixes.py` checks every hit's placement, and
 `tools/verify_music_locked_hits.py` compares whole-run emulator audio with the
 mixed reference through the later 1-X sections.

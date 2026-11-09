@@ -184,6 +184,9 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
         from track_motion import nearby_motion
         render_motion=nearby_motion(chart,motion,initial,changes)
     else:render_motion=motion
+    if chart.get('reuse_motion_phase'):
+        from raster_phase import motion as shift_motion
+        render_motion=shift_motion(chart,render_motion)
     for i in {i for updates in rotations.values() for i in updates}:
         for x,y in piece_cells(i,0,0):cells[x,y].add(i)
     for updates in render_motion.values():
@@ -200,14 +203,25 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
     viewport=view_events.get(0)
     transforms={int(f):v for f,v in chart.get('render_transforms',{}).items()}
     transform=transforms.get(0)
+    precise=None
+    if chart.get('precise_viewport_cells'):
+        from viewport_cells import sampled_cells
+        camera_rows=chart['camera_follow_versions']
+        sampling=chart.get('camera_world_sampling_versions',chart.get('camera_sampling_versions',chart.get('camera_rotation_versions',[])))
+        def sampled(frame):
+            _,x,y=next(r for r in reversed(camera_rows) if r[0]<=frame)
+            c,s=next((r[1:] for r in reversed(sampling) if r[0]<=frame),(256,0))
+            return sampled_cells(x,y,c,s,chart.get('viewport_center_y',96),chart.get('viewport_bottom',160),chart.get('viewport_top',32))
+        precise=sampled(0)
     def in_view(x,y):
+        if precise is not None:return (x,y) in precise
         if viewport is not None and not (viewport[0]<=x<viewport[0]+viewport[2] and viewport[1]<=y<viewport[1]+viewport[3]):return False
         if transform and transform[:2] not in ((256,0),[256,0]):
             c,s,cx,cy=transform;dx=x*8+4-cx;dy=y*8+4-cy
             # Conservative transformed tile bounds include every pixel the
             # fixed-point PPU can sample, but exclude invisible AABB corners.
             radius=4*(abs(c)+abs(s))+512
-            if abs(c*dx-s*dy)>128*256+radius or abs(s*dx+c*dy)>64*256+radius:return False
+            if abs(c*dx-s*dy)>128*256+radius or abs(s*dx+c*dy)>(72-chart.get('viewport_inset',0))*256+radius:return False
         return True
     detail_starts=chart.get('readability_detail_starts',[0]*len(notes))
     detail_events=collections.defaultdict(list)
@@ -315,6 +329,7 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
         if frame in view_events:
             old=rectangle(viewport);viewport=view_events[frame]
             transform=transforms.get(frame,transform)
+            if precise is not None:precise=sampled(frame)
             dirty.update(old ^ rectangle(viewport))
         for i in detail_events.get(frame,[]):
             if alpha[i]:dirty.update(piece_cells(i,*offsets_xy[i]))
@@ -343,6 +358,9 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
     print(chart['code'],f'visibility grid {grid}: {len(tiles)} CHR tiles, {len(history)} cells',flush=True)
     if chart.get('readability_window') and chart.get('allow_pattern_cache'):
         from track_patterns import cache_patterns
+        if chart.get('precise_viewport_cells'):
+            from viewport_cells import share_clipped_patterns
+            history=share_clipped_patterns(chart,tiles,history)
         while True:
             try:
                 tiles,history=cache_patterns(chart,tiles,history)
@@ -361,6 +379,9 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
                 if pinned:
                     chart['pattern_pinned_limit']=pinned//2 if pinned>6 else 0
                     continue
+                if chart.get('authored_visibility') and not chart.get('adaptive_raster') and not chart.get('precise_viewport_cells'):
+                    chart['precise_viewport_cells']=True
+                    return animated_track(chart,initial,changes,8,motion,color_data,authored)
                 if chart.get('authored_visibility') and chart.get('authored_material_capacity',48)>1:
                     chart['authored_material_capacity']=max(1,chart.get('authored_material_capacity',48)//2)
                     chart['pattern_pinned_limit']=0

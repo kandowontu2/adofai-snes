@@ -15,6 +15,17 @@ update_title:
     lda pressed
     bit #$8000
     beq @calibrate
+.if MENU_SET_COUNT > 1
+    lda menu_depth
+    beq @options
+    stz menu_depth
+    lda menu_group
+    sta menu_selection
+    lda #$FFFF
+    sta hud_state
+    rts
+@options:
+.endif
     lda #7
     sta state
     rts
@@ -27,24 +38,26 @@ update_title:
 @up:
     bit #$0800
     beq @down
-    lda selected_level
+    lda menu_selection
     bne @previous
-    lda #LEVEL_COUNT
-    sta selected_level
+    jsr menu_item_count
+    sta menu_selection
 @previous:
-    dec selected_level
+    dec menu_selection
+    jsr menu_sync_song
     lda #$FFFF
     sta hud_state
 @down:
     lda pressed
     bit #$0400
     beq @left
-    inc selected_level
-    lda selected_level
-    cmp #LEVEL_COUNT
-    bcc @changed
-    stz selected_level
+    inc menu_selection
+    jsr menu_item_count
+    cmp menu_selection
+    bne @changed
+    stz menu_selection
 @changed:
+    jsr menu_sync_song
     lda #$FFFF
     sta hud_state
 @left:
@@ -77,7 +90,7 @@ update_title:
     bit #$0010
     beq @start_mode
     lda speed_tenths
-    cmp #20
+    cmp #40
     beq @start_mode
     inc speed_tenths
     jsr prepare_speed
@@ -101,8 +114,82 @@ update_title:
     lda pressed
     bit #START
     beq @done
+    lda menu_depth
+    bne @play
+    lda menu_selection
+    sta menu_group
+    stz menu_selection
+    inc menu_depth
+    jsr menu_sync_song
+    lda #$FFFF
+    sta hud_state
+    rts
+@play:
     jmp start_game
 @done:
+    rts
+
+init_menu:
+    stz menu_group
+    stz menu_selection
+.if MENU_SET_COUNT = 1
+    lda #1
+    sta menu_depth
+.else
+    stz menu_depth
+.endif
+    jmp menu_sync_song
+
+menu_item_count:
+    lda menu_depth
+    bne @songs
+    lda #MENU_SET_COUNT
+    rts
+@songs:
+    lda menu_group
+    asl a
+    tax
+    lda menu_set_counts,x
+    rts
+
+; A is a row within the current set. Return the actual chart index.
+menu_song_index:
+    asl a
+    pha
+    lda menu_group
+    asl a
+    tax
+    pla
+    clc
+    adc menu_set_starts,x
+    tax
+    lda menu_level_indices,x
+    rts
+
+menu_sync_song:
+    lda menu_depth
+    beq @done
+    lda menu_selection
+    jsr menu_song_index
+    sta selected_level
+@done:
+    rts
+
+menu_title_pointer:
+    pha
+    lda menu_depth
+    bne @song
+    pla
+    asl a
+    tax
+    lda menu_set_name_ptrs,x
+    rts
+@song:
+    pla
+    jsr menu_song_index
+    asl a
+    tax
+    lda level_title_pointers,x
     rts
 
 update_game:
@@ -327,6 +414,7 @@ hit:
     sta HIT_TIMES,x
     lda timing_error
     sta last_error
+    jsr meter_add_hit
     inc combo
     lda autoplay
     bne @grade

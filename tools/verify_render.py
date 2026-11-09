@@ -3,7 +3,7 @@ import argparse,bisect,ctypes as C,hashlib,json,struct
 from pathlib import Path
 import numpy as np
 from emulate import Emulator,ROOT
-from input_helpers import configure
+from input_helpers import configure,select_level,press
 
 def inflate_chr(data,mode7=False):
     raw=bytearray();i=0
@@ -130,12 +130,13 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
                     expected=resolved(value,current)
                     assert cache[address]==expected,('Stale Mode 7 CPU cache',frame,wx,wy,cache[address],expected,em.snapshot())
         zoom=abs(em.read('display_zoom',True))/256
-        cx=em.read('display_cam_x',True)+128;cy=em.read('display_cam_y',True)+96
+        center=chart.get('viewport_center_y',96);half=chart.get('viewport_bottom',160)-center
+        cx=em.read('display_cam_x',True)+128;cy=em.read('display_cam_y',True)+center
         shift=next((v for f,v in reversed(chart.get('camera_raster_shift_versions',[])) if f<=displayed),0)
         cx//=1<<shift;cy//=1<<shift
         # Native pixels occupy x=0..255 and y=32..159. The first pixel of
         # the next HUD band (y=160) and x=256 must not enter the live set.
-        left,right=cx-128,cx+127;top,bottom=cy-64,cy+63
+        left,right=cx-128,cx+127;top,bottom=cy-half,cy+half-1
         rotation_c,rotation_s=256,0
         if em.sa1:
             rotation_c=C.c_int16.from_address(em.cache_ram+0x1fcb4).value
@@ -144,8 +145,8 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
             expected_zoom=next(((z,i) for f,z,i in reversed(chart.get('camera_zoom_versions',[])) if f<=displayed),(256,256)) if chart.get('mode7_zoom_enabled') else (256,256)
             assert (em.read('display_zoom'),em.read('display_inverse'))==expected_zoom,('Displayed zoom disagrees with chart',frame,displayed,expected_zoom)
             assert (rotation_c,rotation_s)==expected_rotation,('Camera matrix disagrees with chart',frame,displayed,rotation_c,rotation_s,expected_rotation)
-            ex=(2*abs(rotation_c)+abs(rotation_s)+3)//4
-            ey=(abs(rotation_c)+2*abs(rotation_s)+3)//4
+            ex=(128*abs(rotation_c)+half*abs(rotation_s)+255)//256
+            ey=(half*abs(rotation_c)+128*abs(rotation_s)+255)//256
             left,right=cx-ex,cx+ex-1;top,bottom=cy-ey,cy+ey-1
         used={}
         if zoom:
@@ -158,6 +159,7 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
                         by=C.c_int16.from_address(em.cache_ram+0x1fcca).value
                         address=(wy-by)*128+wx-bx
                     expected=resolved(tile(wx,wy),displayed)
+                    assert 0<=address<16384,('Visible map outside PPU cache',frame,displayed,wx,wy,bx,by,cx,cy,{n:em.read(n) for n in ('vblank_first_time','vblank_first_queue','vblank_first_state')},list(np.frombuffer(C.string_at(em.cache_ram+0x1fca0,64),dtype='<u2')),em.snapshot())
                     assert actual[address*2]==physical[expected],('Stale visible Mode 7 PPU map',frame,wx,wy,int(actual[address*2]),physical[expected],expected,displayed,em.snapshot())
                     used.setdefault(expected,[]).append((wx,wy))
         for slot in used:
@@ -189,7 +191,7 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
     assert checked_chr and samples and trails and not flashes,(checked_chr,samples,trails,flashes)
     result=dict(code=chart['code'],**em.evidence(),
                 mode7=True,cache_samples=samples,max_objects_per_line=max_objects,ppu_chr_match=True,ppu_pattern_scope='visible track; unused prefetch may be pending',trails=trails,tile_flashes=flashes,
-                zoom_values=len(zooms),clipped_pattern_differences=clipped_differences,visible_pixel_bounds=[0,32,255,159],map_deferrals=em.read('m7_map_deferrals'),pattern_peak_queued=em.read('pattern_peak_queued'),
+                zoom_values=len(zooms),clipped_pattern_differences=clipped_differences,visible_pixel_bounds=[0,chart.get("viewport_top",32),255,chart.get("viewport_bottom",160)-1],map_deferrals=em.read('m7_map_deferrals'),pattern_peak_queued=em.read('pattern_peak_queued'),
                 vblank_overruns=em.read('pattern_vblank_overruns'),speed=em.read('speed_tenths')/10,
                 final_state=em.read('state'),combo=em.read('combo'),expected_hits=chart['hits'],published_samples=published_samples)
     assert result['pattern_peak_queued']<=32 and result['vblank_overruns']==0,result
@@ -234,8 +236,8 @@ def main():
     try:
         for _ in range(120):em.run()
         if args.speed!=1.:configure(em,round(args.speed*10))
-        for _ in range(args.level-1):em.run([5]);em.run()
-        em.run([1]);em.run();em.run([3])
+        select_level(em,n)
+        press(em,1);press(em,3)
         if chart.get('mode7'):
             verify_mode7(em,base,chart,tile,timeline,args.frames or round(chart['duration']*60.099/args.speed)+180,1 if args.every_frame else 20,not args.frames)
             return

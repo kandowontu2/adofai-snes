@@ -44,4 +44,18 @@ class Mode7Zoom(unittest.TestCase):
             self.assertEqual(len(snap),224)
             self.assertEqual(c['animation_format'],12)
 
+    def test_checkpoint_retains_raster_origin_without_moving_planet_coordinates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder);(out/'track_map77.bin').write_bytes(b'')
+            c=dict(id=77,mode7=True,notes=[],visibility_cells=0,visibility_offsets=[],cell_coordinates=[],map_height=0,
+                   checkpoints=[dict(origin_frame=64)],camera_follow_versions=[[0,100,200]],
+                   camera_rotation_versions=[[0,0,-256]],camera_rotation_phase_versions=[[0,192]],
+                   reuse_motion_phase=True,raster_origin_versions=[[0,0,0],[20,3,5]])
+            generate(out,c,b'',b'')
+            snap=(out/'animation77-checkpoint-0.bin').read_bytes()
+            self.assertEqual(snap[:4],b'ADS9')
+            self.assertEqual(struct.unpack_from('<HHhhHHHhhHHH',snap,14),
+                             (100,200,0,-256,192,256,256,0,-256,0,3,5))
+            self.assertEqual(len(snap),230)
+
 if __name__=='__main__':unittest.main()

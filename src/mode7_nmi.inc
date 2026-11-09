@@ -34,6 +34,17 @@ mode7_prime_hdma:
     lda #$1620
     sta M7_HDMA_DISPLAY
     ldx #.loword(hdma_mode7)
+    phx
+    ldx selected_level
+    lda level_view_insets,x
+    and #255
+    plx
+    cmp #0
+    beq :+
+    lda #$1628
+    sta M7_HDMA_DISPLAY
+    ldx #.loword(hdma_mode7_inset)
+:
     stx $4362
     ldx #M7_HDMA_DISPLAY
     bra @pointer
@@ -347,7 +358,7 @@ mode7_commit_camera:
     sec
     sbc scratch
     clc
-    adc #96
+    adc #104
 .else
     lda cam_y
     clc

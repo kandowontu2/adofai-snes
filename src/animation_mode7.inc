@@ -41,6 +41,8 @@ load_patterns:
     sta f:M7_ROT_SIN
     sta f:M7_PROJECT_SIN
     sta f:M7_RASTER_SHIFT
+    sta f:M7_ORIGIN_X
+    sta f:M7_ORIGIN_Y
     sta f:M7_ROT_PHASE
 .endif
     lda chart_time
@@ -304,7 +306,7 @@ update_pattern_cache:
     ; every preceding kind for each sparse map, palette, and camera event.
     lda animation_kind
     and #255
-    cmp #23
+    cmp #24
     bcs @unknown_kind
     asl a
     tax
@@ -319,6 +321,15 @@ update_pattern_cache:
     .word @floor_run, @floor_run, @floor_run
     .word @pattern_batch
     .word @catchup, @jump_span
+    .word @raster_origin
+@raster_origin:
+.ifdef SA1_BUILD
+    lda animation_index
+    sta f:M7_ORIGIN_X
+    lda animation_value
+    sta f:M7_ORIGIN_Y
+.endif
+    jmp @record
 @catchup:
     lda animation_mode
     beq :+
@@ -1020,9 +1031,13 @@ restore_pattern_cache:
     sta f:M7_ROT_SIN
     sta f:M7_PROJECT_SIN
     sta f:M7_RASTER_SHIFT
+    sta f:M7_ORIGIN_X
+    sta f:M7_ORIGIN_Y
     sta f:M7_ROT_PHASE
     sta f:M7_SNAPSHOT_EXTRA
     lda snapshot_header+2
+    cmp #$3953
+    beq @rotation_snapshot
     cmp #$3853
     beq @rotation_snapshot
     cmp #$3753
@@ -1079,7 +1094,11 @@ restore_pattern_cache:
     sta f:M7_SNAPSHOT_EXTRA
     lda snapshot_header+2
     cmp #$3853
-    bne @old_snapshot
+.ifdef ROM_DATA_BUILD
+    jcc @old_snapshot
+.else
+    bcc @old_snapshot
+.endif
     sep #$20
     .a8
     data_read8
@@ -1089,6 +1108,23 @@ restore_pattern_cache:
     rep #$20
     .a16
     lda #16
+    sta f:M7_SNAPSHOT_EXTRA
+    lda snapshot_header+2
+    cmp #$3953
+    bne @old_snapshot
+    sep #$20
+    .a8
+    data_read8
+    sta f:M7_ORIGIN_X
+    data_read8
+    sta f:M7_ORIGIN_X+1
+    data_read8
+    sta f:M7_ORIGIN_Y
+    data_read8
+    sta f:M7_ORIGIN_Y+1
+    rep #$20
+    .a16
+    lda #20
     sta f:M7_SNAPSHOT_EXTRA
 @old_snapshot:
 .endif

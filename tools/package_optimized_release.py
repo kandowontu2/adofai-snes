@@ -19,10 +19,11 @@ def atomic_copy(source, target):
     temp = target.with_name(target.name+'.new')
     shutil.copyfile(source, temp); temp.replace(target)
 
-def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=None, dataset_version=23):
+def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=None, dataset_version=23, inputs_path=None, base=None, media_files=None):
     note = release_note or NOTE
-    inputs = json.loads((ROOT/'build/optimized-release-inputs.json').read_text())
-    replacements = {}; builds = []; masters = {}
+    media_files=media_files or {}
+    inputs = json.loads((inputs_path or ROOT/'build/optimized-release-inputs.json').read_text())
+    replacements = {}; builds = []; masters = {}; parts = {}; primary = {}
     for row in inputs:
         pack = Path(row['pack']); rom = pack/'adofai.sfc'
         replacements[row['old_rom']] = rom
@@ -32,10 +33,15 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
             masters[sha(rom)] = pack/'adofai.msu'
         builds.append(dict(pack=pack.name, rom_sha256=sha(rom),
                            msu_sha256=sha(pack/'adofai.msu') if row['old_msu'] else None))
+        primary[sha(rom)]=pack
+        for extra in row.get('extras',[]):
+            extra=Path(extra);parts.setdefault(sha(rom),[]).append(extra)
+            builds.append(dict(pack=extra.name,rom_sha256=sha(extra/'adofai.sfc'),msu_sha256=None))
     mapping = {old:sha(p) for old,p in replacements.items()}
     valid_roms = {r['rom_sha256'] for r in builds}
     valid_msu = {r['msu_sha256'] for r in builds if r['msu_sha256']}
-    base = ROOT/'build/packs/sa1-scheduled-hits'
+    extra_hashes={sha(part/'adofai.sfc') for group in parts.values() for part in group}
+    base = base or ROOT/'build/packs/sa1-scheduled-hits'
     pcm_files = pcm_files or {}
     pcm_hashes = {name:sha(path) for name,path in pcm_files.items()}
     pcm_zip = zipfile.ZipFile(pcm_archive) if pcm_archive else None
@@ -111,6 +117,33 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
         if Path(name).name == 'verification.json':
             return json.dumps(report,indent=2).encode()
         for old,new in mapping.items(): text=text.replace(old,new)
+        if Path(name).name=='catalog.json':
+            catalog=json.loads(text)
+            if isinstance(catalog,dict) and 'roms' in catalog:
+                updated=[]
+                for row in catalog['roms']:
+                    digest=row.get('rom_sha256');pack=primary.get(digest)
+                    if digest in extra_hashes:continue
+                    if pack:
+                        for number,part in enumerate([pack,*parts.get(digest,[])],1):
+                            item=dict(row);meta=json.loads((part/'pack.json').read_text())
+                            item.update(levels=meta['levels'],title=meta['title'],rom_sha256=sha(part/'adofai.sfc'),codes=[json.loads((part/f'level{n}.json').read_text())['code'] for n in meta['levels']])
+                            if number>1:
+                                path=Path(item['file']);item['file']=str(path.with_name(path.stem+f'-part{number}'+path.suffix)).replace('\\','/')
+                                item['key']+=f'-part{number}'
+                            updated.append(item)
+                    else:updated.append(row)
+                catalog['roms']=updated;text=json.dumps(catalog,indent=2)
+        if Path(name).name=='SHA256SUMS.txt':
+            additions=[]
+            for line in text.splitlines():
+                match=re.match(r'^([0-9a-f]{64})\s+\*?(.+\.sfc)$',line)
+                if match:
+                    for number,part in enumerate(parts.get(match[1],[]),2):
+                        path=Path(match[2]);target=path.with_name(path.stem+f'-part{number}'+path.suffix)
+                        line=sha(part/'adofai.sfc')+'  '+str(target).replace('\\','/')
+                        if line not in text:additions.append(line)
+            if additions:text=text.rstrip()+'\n'+'\n'.join(additions)+'\n'
         if Path(name).name=='SHA256SUMS.txt' and pcm_files:
             def pcm_sum(match):
                 filename=Path(match[2]).name
@@ -124,6 +157,8 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
         text=text.replace('dataset version 22','dataset version 23').replace('dataset 22','dataset 23')
         if dataset_version!=23:
             text=text.replace('dataset version 23',f'dataset version {dataset_version}').replace('dataset 23',f'dataset {dataset_version}')
+        if dataset_version>24:
+            text=text.replace('dataset version 24',f'dataset version {dataset_version}').replace('dataset 24',f'dataset {dataset_version}')
         text=text.replace('Full-catalog checks for the final startup-clear fix are still running.\n','')
         if Path(name).name.lower().startswith('readme'):
             while re.match(r'^20\d\d-\d\d-\d\d ',text) and 'update' in text.split('\n',1)[0]:
@@ -144,11 +179,15 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
 
     metadata={'catalog.json','verification.json','SHA256SUMS.txt','README.txt','README.md','RELEASE-NOTES.txt'}
     for path in DIST.rglob('*'):
-        if path.suffix in ('.sfc','.msu'):
+        if path.is_file() and path.name in media_files:
+            atomic_copy(media_files[path.name],path)
+        elif path.suffix in ('.sfc','.msu'):
             old=sha(path)
             if old in replacements and mapping[old] != old:
                 atomic_copy(replacements[old],path)
             assert sha(path) in valid_roms|valid_msu, path
+            for number,part in enumerate(parts.get(sha(path),[]),2):
+                atomic_copy(part/'adofai.sfc',path.with_name(path.stem+f'-part{number}'+path.suffix))
         elif path.suffix=='.pcm' and pcm_files:
             assert path.name in pcm_files, path
             atomic_copy(pcm_files[path.name],path)
@@ -177,6 +216,9 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
                     digest=hashlib.sha256(data).hexdigest()
                     assert digest in (valid_roms if ext=='.sfc' else valid_msu),(path,name,old)
                     expected[name]=digest;output.writestr(entry,data)
+                    for number,part in enumerate(parts.get(digest,[]),2):
+                        filename=Path(name);extra_name=str(filename.with_name(filename.stem+f'-part{number}'+filename.suffix)).replace('\\','/')
+                        if extra_name not in names:needed[extra_name]=part/'adofai.sfc'
                     if ext=='.sfc' and digest in masters:
                         msuname=str(Path(name).with_suffix('.msu')).replace('\\','/')
                         if msuname not in names:needed[msuname]=masters[digest]
@@ -186,6 +228,8 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
                     expected[name]=pcm_hashes[Path(name).name]
                 elif Path(name).name in metadata:
                     output.writestr(entry,update_text(name,source.read(entry)))
+                elif Path(name).name in media_files:
+                    output.writestr(entry,media_files[Path(name).name].read_bytes())
                 else:
                     # Copy the local header, compressed bytes and optional descriptor
                     # verbatim. ZipFile writes a new central directory on close.

@@ -337,22 +337,41 @@ mode7_orbit_position:
 
 ; Fixed Mode 1 HUD bands around a native-scale Mode 7 track.
 mode7_prepare_view:
+.ifdef SA1_BUILD
+    jsl camera_projection_limits
+.endif
     stz m7_window_left
     lda #255
     sta m7_window_right
     lda #32
     sta m7_vtop
-    lda #159
+    lda #175
     sta m7_vbottom
     lda #$1620
     sta M7_HDMA_STAGE
     lda #$117F
     sta M7_HDMA_STAGE+2
-    lda #$1101
+    lda #$1111
     sta M7_HDMA_STAGE+4
-    lda #$1640
+    lda #$1630
     sta M7_HDMA_STAGE+6
     stz M7_HDMA_STAGE+8
+    ldx selected_level
+    lda level_view_insets,x
+    and #255
+    beq :+
+    lda #40
+    sta m7_vtop
+    lda #167
+    sta m7_vbottom
+    lda #$1628
+    sta M7_HDMA_STAGE
+    lda #$1101
+    sta M7_HDMA_STAGE+4
+    lda #$1638
+    sta M7_HDMA_STAGE+6
+
+:
  .ifdef SA1_BUILD
     jsl camera_orb_radius
  .else
@@ -499,7 +518,7 @@ mode7_build_track_view:
     sta map_x
     lda cam_y
     clc
-    adc #96
+    adc #104
     jsr mode7_floor8
     sec
     sbc #9
@@ -1321,14 +1340,14 @@ mode7_prepare_dma:
     sta math_b
     lda cam_y
     clc
-    adc #96
+    adc #104
     sec
     sbc math_b
     jsr mode7_floor8
     sta view_y
     lda cam_y
     clc
-    adc #96
+    adc #104
     clc
     adc math_b
     jsr mode7_floor8
@@ -1489,7 +1508,8 @@ mode7_collect_spans:
 .endif
 .segment "RODATA"
 mode7_bit_masks: .byte 1,2,4,8,16,32,64,128
-hdma_mode7: .byte 32,9,127,7,1,7,64,9,0
+hdma_mode7: .byte 32,9,127,7,17,7,48,9,0
+hdma_mode7_inset: .byte 40,9,127,7,1,7,56,9,0
 hdma_mode1: .byte 127,9,97,9,0
 .segment "CODE"
 

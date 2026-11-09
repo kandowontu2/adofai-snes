@@ -72,20 +72,16 @@ def streak_tiles(sheet,compact=False):
 def tables(fps,compact=False,adaptive_audio=False):
     values=[]
     def words(name,items):values.append(name+': .word '+','.join(str(x&65535) for x in items))
-    pitches=[round(1536*n/10) for n in range(5,21)]
-    if adaptive_audio:pitches=[p if n<=10 else round(p/3)*3 for n,p in zip(range(5,21),pitches)]
+    pitches=[round(1536*n/10) for n in range(5,41)]
+    if adaptive_audio:pitches=[p if n<=10 else round(p/3)*3 for n,p in zip(range(5,41),pitches)]
     words('speed_pitches',pitches)
     if adaptive_audio:
-        audio_pitches=[p if n<=10 else p//3*2 for n,p in zip(range(5,21),pitches)]
+        audio_pitches=[p if n<=10 else p//3*2 for n,p in zip(range(5,41),pitches)]
         words('audio_speed_pitches',audio_pitches)
         words('audio_speed_streams',[p*3 for p in audio_pitches])
     words('speed_scales',[round(fps*.004*p/1536*65536) for p in pitches])
     baseline=8 if compact else 0
     limit=30 if compact else 8
-    words('speed_offset_bases',[i*(limit*2+1)*2 for i in range(16)])
-    offsets=[round((c+baseline)*p/1536*65536) for p in pitches for c in range(-limit,limit+1)]
-    words('speed_offsets',[v>>16 for v in offsets])
-    words('speed_offsets_frac',[v&65535 for v in offsets])
     words('judgment_weights',WEIGHTS)
     values.append('trail_angles: .byte '+','.join(str(round(math.atan(i/128)*16/math.pi)) for i in range(129)))
     words('trail_tiles',[128+i if compact else 128+(i//8)*32+(i%8)*2 for i in range(16)])

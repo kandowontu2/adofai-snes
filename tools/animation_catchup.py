@@ -35,7 +35,7 @@ def unpack_events(data, chart):
                 x,y=chart['cell_coordinates'][i+j]
                 put(t,9,i+j,1,struct.pack('<HHB',x,y,value))
         else:
-            assert k in (1,2,3,4,6,7,10,11,12,13,14,15,16),k
+            assert k in (1,2,3,4,6,7,10,11,12,13,14,15,16,23),k
             put(t,k,i,v,payload)
     return events
 

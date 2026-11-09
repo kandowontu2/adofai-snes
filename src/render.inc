@@ -590,6 +590,11 @@ render_inner:
     sta orbit_x
 @two_planets:
 .endif
+.ifdef SA1_BUILD
+    stz event_cursor
+    lda event_count
+    jeq @portal
+.else
     lda step
     clc
 .ifdef MSU_BUILD
@@ -609,7 +614,13 @@ render_inner:
     lda #0
 @begin:
     sta render_i
+.endif
 @symbol:
+.ifdef SA1_BUILD
+    ldx event_cursor
+    lda f:TRACK_SYMBOL_FLOORS,x
+    sta render_i
+.endif
     ldx render_i
     lda f:NOTE_FLAGS,x
     bit #128
@@ -652,7 +663,6 @@ render_inner:
     lda #$32
 @speed:
     sta sprite_attr
-    jsr tile_position
     jsr sprite
 @reverse:
     ldx render_i
@@ -667,7 +677,6 @@ render_inner:
     sta sprite_tile
     lda #$36
     sta sprite_attr
-    jsr tile_position
     ldx render_i
     lda f:NOTE_FLAGS,x
     and #3
@@ -724,10 +733,18 @@ render_inner:
 @flag_draw:
     jsr sprite
 @next:
+.ifdef SA1_BUILD
+    inc event_cursor
+    inc event_cursor
+    lda event_cursor
+    cmp event_count
+    jcs @portal
+.else
     inc render_i
     lda event_end
     cmp render_i
     jcc @portal
+.endif
     jmp @symbol
 @portal:
     lda state

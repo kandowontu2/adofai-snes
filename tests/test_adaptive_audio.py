@@ -9,7 +9,8 @@ class AdaptiveAudio(unittest.TestCase):
         fps=60.0988118623;t=tables(fps,compact=True,adaptive_audio=True)
         logical=self.words(t,'speed_pitches');actual=self.words(t,'audio_speed_pitches')
         streams=self.words(t,'audio_speed_streams');scales=self.words(t,'speed_scales')
-        for i,n in enumerate(range(5,21)):
+        self.assertEqual(len(logical),36)
+        for i,n in enumerate(range(5,41)):
             rate=12000 if n<=10 else 8000
             playback=(32000*actual[i]/4096)/rate
             self.assertAlmostEqual(playback,logical[i]/1536)
@@ -21,5 +22,5 @@ class AdaptiveAudio(unittest.TestCase):
         b=tables(60.0988118623,compact=True)
         for name in ('speed_pitches','speed_scales'):
             self.assertEqual(self.words(a,name)[:6],self.words(b,name)[:6])
-        for name in ('speed_offsets','speed_offsets_frac'):
-            self.assertEqual(self.words(a,name)[:366],self.words(b,name)[:366])
+        # Runtime calibration follows the actual logical pitch. Faster
+        # adaptive rates have a different pitch-quantization step.

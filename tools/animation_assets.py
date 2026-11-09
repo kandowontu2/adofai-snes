@@ -86,6 +86,8 @@ def generate(out,chart,timeline,patterns):
             events.append((frame,15,c&65535,s&65535,b''))
     for frame,shift in chart.get('camera_raster_shift_versions',[]):
         events.append((frame,16,shift,0,b''))
+    for frame,x,y in chart.get('raster_origin_versions',[]):
+        events.append((frame,23,x,y,b''))
     for frame,index,value in chart.get('track_palette_versions',[]):
         events.append((frame,7,index,value,b''))
     for frame,x,y in chart.get('camera_follow_versions',[]):
@@ -156,6 +158,7 @@ def generate(out,chart,timeline,patterns):
     positions.append(len(blob));blob+=struct.pack('<HBHH',65535,255,0,0)
     (out/f'animation{n}.bin').write_bytes(blob)
     state=[0]*cells;alpha=[3]*count;xs=[x['x']+(x.get('position_track_offset',[0,0])[0] if not x.get('stick_to_floor',True) else 0) for x in chart['notes']];ys=[x['y']+(x.get('position_track_offset',[0,0])[1] if not x.get('stick_to_floor',True) else 0) for x in chart['notes']];chr_slots=[0]*(256 if mode7 else 1024);cursor=0;zoom=inverse=256;palette=[0]*96;camera_x=camera_y=256;rotation_c=256;rotation_s=rotation_phase=0;projection_c=256;projection_s=0;raster_shift=0
+    origin_x=origin_y=0
     for at,i,cp in sorted((max(0,c['origin_frame']-32),i,c) for i,c in enumerate(chart['checkpoints'])):
         while cursor<len(events) and events[cursor][0]<=at:
             frame,kind,index,value,data=events[cursor]
@@ -171,14 +174,22 @@ def generate(out,chart,timeline,patterns):
             elif kind==10:camera_x,camera_y=index,value
             elif kind==11:rotation_c,rotation_s=index,value
             elif kind==13:rotation_phase=index
+            elif kind==23:origin_x,origin_y=index,value
             cursor+=1
         words=lambda values:struct.pack('<'+'H'*len(values),*values)
         # Static worlds need no mutable CHR image. Cached worlds store the
         # currently prefetched slots, so a retry needs one linear DMA read.
         image=(b''.join(patterns[p*64:p*64+64] for p in chr_slots) if mode7 else b''.join(patterns[p*16:p*16+16]+bytes(16) for p in chr_slots)) if chart.get('pattern_versions') else b''
-        snapshot=((b'ADS8' if chart.get('adaptive_raster') else b'ADS7' if chart.get('mode7_zoom_enabled') else b'ADS6' if chart.get('camera_rotation_versions') else b'ADS5') if mode7 else b'ADS1')+struct.pack('<IHHH',positions[cursor],cells,count,len(image))
-        snapshot+=(struct.pack('<HH',camera_x,camera_y)+(words([rotation_c,rotation_s,rotation_phase,zoom,inverse,projection_c,projection_s]+([raster_shift] if chart.get('adaptive_raster') else [])) if chart.get('mode7_zoom_enabled') else words([rotation_c,rotation_s,rotation_phase]) if chart.get('camera_rotation_versions') else b'')+words(palette)+bytes(state) if mode7 else words(state))+words(xs)+words(ys)+bytes(alpha)+image
+        phase=bool(chart.get('reuse_motion_phase'))
+        snapshot=((b'ADS9' if phase else b'ADS8' if chart.get('adaptive_raster') else b'ADS7' if chart.get('mode7_zoom_enabled') else b'ADS6' if chart.get('camera_rotation_versions') else b'ADS5') if mode7 else b'ADS1')+struct.pack('<IHHH',positions[cursor],cells,count,len(image))
+        camera_extra=(words([rotation_c,rotation_s,rotation_phase,zoom,inverse,
+                            projection_c if chart.get('mode7_zoom_enabled') else rotation_c,
+                            projection_s if chart.get('mode7_zoom_enabled') else rotation_s,
+                            raster_shift,origin_x,origin_y]) if phase else
+                      words([rotation_c,rotation_s,rotation_phase,zoom,inverse,projection_c,projection_s]+([raster_shift] if chart.get('adaptive_raster') else [])) if chart.get('mode7_zoom_enabled') else
+                      words([rotation_c,rotation_s,rotation_phase]) if chart.get('camera_rotation_versions') else b'')
+        snapshot+=(struct.pack('<HH',camera_x,camera_y)+camera_extra+words(palette)+bytes(state) if mode7 else words(state))+words(xs)+words(ys)+bytes(alpha)+image
         (out/f'animation{n}-checkpoint-{i}.bin').write_bytes(snapshot)
     chart['animation_bytes']=len(blob)
     chart['animation_streamed']=True
-    chart['animation_format']=(13 if chart.get('adaptive_raster') else 12 if chart.get('mode7_zoom_enabled') else 11 if chart.get('camera_rotation_versions') else 10) if mode7 else 2
+    chart['animation_format']=(14 if chart.get('reuse_motion_phase') else 13 if chart.get('adaptive_raster') else 12 if chart.get('mode7_zoom_enabled') else 11 if chart.get('camera_rotation_versions') else 10) if mode7 else 2

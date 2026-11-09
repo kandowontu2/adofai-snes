@@ -10,12 +10,13 @@ from build import command
 ROOT=Path(__file__).resolve().parent
 
 def refresh_menu_font(out,sa1=False):
-    """Keep page-arrow glyphs current even when reusing compiled chart assets."""
+    """Refresh editable font art, including arrows and the timing meter."""
     import json
-    from tools.campaign_assets import menu_font
     placements=json.loads((out/'placements.json').read_text())
     cpu=placements['font'];offset=cpu-0xC00000 if cpu>=0xC00000 else cpu+0x400000 if 0x3E8000<=cpu<0x400000 else cpu
-    font=menu_font((ROOT/'build/font.chr').read_bytes())
+    variant='mode7' if 'MSU_BUILD = 1' in (out/'addresses.inc').read_text() else 'campaign'
+    font=(ROOT/'assets/graphics'/variant/'font.chr').read_bytes()
+    assert len(font)==2048
     path=out/('sa1_payload.bin' if sa1 else 'payload0.bin' if offset<0x408000 else 'payload1.bin')
     start=offset-0x10000 if sa1 else offset if offset<0x408000 else offset-0x410000
     data=bytearray(path.read_bytes());data[start:start+len(font)]=font;path.write_bytes(data)

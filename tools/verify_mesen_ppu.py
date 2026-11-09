@@ -24,7 +24,9 @@ def verify(base,level,folder):
         assert (c,s)==expected_rotation,(path,'rotation',time,(c,s),expected_rotation)
         indices=[vs[bisect.bisect_right(ts,time)-1] for ts,vs in versions]
         shift=next((v for f,v in reversed(chart.get('camera_raster_shift_versions',[])) if f<=time),0)
-        cx=(cx+128)//(1<<shift);cy=(cy+96)//(1<<shift);ex=(2*abs(c)+abs(s)+3)//4;ey=(abs(c)+2*abs(s)+3)//4
+        center=chart.get('viewport_center_y',96);half=chart.get('viewport_bottom',160)-center
+        cx=(cx+128)//(1<<shift);cy=(cy+center)//(1<<shift)
+        ex=(128*abs(c)+half*abs(s)+255)//256;ey=(half*abs(c)+128*abs(s)+255)//256
         left,right,top,bottom=cx-ex,cx+ex-1,cy-ey,cy+ey-1
         for wy in range(top//8,bottom//8+1):
             for wx in range(left//8,right//8+1):

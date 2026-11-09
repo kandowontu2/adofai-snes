@@ -11,7 +11,7 @@ def main():
     ap.add_argument('--levels',type=int,nargs='+');ap.add_argument('--pack',default='main');ap.add_argument('--all',action='store_true');ap.add_argument('--checkpoints',action='store_true')
     ap.add_argument('--speed',type=float,default=1.0);ap.add_argument('--time-attack',action='store_true');ap.add_argument('--resume',action='store_true')
     ap.add_argument('--trace-frame',type=int);ap.add_argument('--graphics-dumps',action='store_true');ap.add_argument('--capture-steps',type=int,nargs='+');ap.add_argument('--autoplay',action='store_true');args=ap.parse_args()
-    speed=round(args.speed*10);assert 5<=speed<=20 and abs(speed-args.speed*10)<1e-6
+    speed=round(args.speed*10);assert 5<=speed<=40 and abs(speed-args.speed*10)<1e-6
     assert not(args.checkpoints and args.time_attack)
     for pack in PACKS if args.all else [args.pack]:
       base=ROOT/'build/campaign' if pack=='main' else ROOT/f'build/packs/{pack}'
@@ -42,13 +42,22 @@ def main():
         cpconfig=''
         if args.checkpoints:cpconfig=',checkpoints={'+','.join('{trigger='+str(c['trigger'])+',floor='+str(c['floor'])+',origin='+str(c['origin_frame'])+'}' for c in chart['checkpoints'])+'}'
         actions=''
-        if suffix:
+        if suffix or 'menu_depth' in labels:
             seq={90:'b'};f=96
             if args.time_attack:seq[f]='right';f+=4
             seq[f]='down';f+=4
             for _ in range(abs(speed-10)):seq[f]='right' if speed>10 else 'left';f+=4
             seq[f]='start';f+=8
-            for _ in range(level-1):seq[f]='down';f+=4
+            if 'menu_depth' in labels:
+                from menu_sets import groups
+                sets=groups(levels)
+                group=next(i for i,(_,indices) in enumerate(sets) if level-1 in indices)
+                if len(sets)>1:
+                    for _ in range(group):seq[f]='down';f+=4
+                    seq[f]='start';f+=8
+                selection=sets[group][1].index(level-1)
+            else:selection=level-1
+            for _ in range(selection):seq[f]='down';f+=4
             seq[f+12]='start'
             actions=',menu_actions={'+','.join('['+str(k)+']="'+v+'"' for k,v in seq.items())+'}'
         pitch=round(1536*speed/10)

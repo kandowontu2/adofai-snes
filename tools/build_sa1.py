@@ -6,7 +6,9 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--out',type=Path,default=ROOT/'build/packs/sa1-master')
-    ap.add_argument('--source',type=Path,default=ROOT/'build/packs/master');args=ap.parse_args()
+    ap.add_argument('--source',type=Path,default=ROOT/'build/packs/master')
+    ap.add_argument('--no-pcm',action='store_true',help='Build ROM/data without regenerating unchanged PCM music')
+    args=ap.parse_args()
     out=args.out.resolve();source=args.source.resolve();out.mkdir(parents=True,exist_ok=True)
     if not (out/'pack.json').exists():
         for p in source.iterdir():
@@ -24,7 +26,7 @@ def main():
     if any(c.get('camera_rotation_versions') for c in charts):
         with (out/'adofai.msu').open('r+b') as f:
             f.seek(12);f.write(bytes([20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13,0]))
-    compile_engine(out)
+    compile_engine(out,generate_pcm=not args.no_pcm)
 
 def compile_engine(out, *, generate_pcm=True):
     # Cached packs embed the SPC driver in the payload, not spc.bin. Refresh
@@ -47,6 +49,15 @@ def compile_engine(out, *, generate_pcm=True):
     table_path=out/'tables.inc'
     colors=re.search(r'^orb_colors:.*$',presentation_tables(assets.FPS),re.M).group(0)
     current=table_path.read_text()
+    adaptive='audio_speed_pitches:' in current
+    speed_tables=presentation_tables(assets.FPS,compact=True,adaptive_audio=adaptive).split('judgment_weights:')[0]
+    current=re.sub(r'speed_pitches:.*?(?=judgment_weights:)',lambda _:speed_tables,current,flags=re.S)
+    from menu_sets import tables as menu_tables,write_count as write_menu_count
+    menu_levels=json.loads((out/'pack.json').read_text())['levels']
+    current=re.sub(r'^level_view_insets:.*\n','',current,flags=re.M)
+    current='level_view_insets: .byte '+','.join(str(json.loads((out/f'level{n}.json').read_text()).get('viewport_inset',0)) for n in menu_levels)+'\n'+current
+    current=current.split('MENU_SET_COUNT =')[0].split('; MENU_SET_TABLES')[0]+menu_tables(menu_levels)
+    write_menu_count(out,menu_levels)
     assert re.search(r'^orb_colors:.*$',current,re.M), 'Missing planet color table'
     table_path.write_text(re.sub(r'^orb_colors:.*$',lambda _:colors,current,flags=re.M))
     from hit_timing import patch_pack as patch_hit_timing
@@ -65,7 +76,7 @@ def compile_engine(out, *, generate_pcm=True):
     # layout before compiling the new banked camera helper as well.
     config=out/'sa1.cfg'
     if config.exists():
-        text=config.read_text().replace('size=$0600,type=rw','size=$0680,type=rw').replace('FASTIRAM: start=$001000','FASTIRAM: start=$003100').replace('STATE: start=$1800,size=$0404','STATE: start=$1800,size=$0410')
+        text=config.read_text().replace('STATE: start=$1800,size=$0420','STATE: start=$1800,size=$04A0').replace('STATE: start=$1800,size=$0410','STATE: start=$1800,size=$04A0').replace('size=$0600,type=rw','size=$0680,type=rw').replace('FASTIRAM: start=$001000','FASTIRAM: start=$003100').replace('STATE: start=$1800,size=$0404','STATE: start=$1800,size=$04A0')
         if 'CAMERAEXT:' not in text:
             text=text.replace('WORKER: start=$018000,size=$8000,type=ro,file=%O,fill=yes;',
                 'WORKER: start=$018000,size=$7000,type=ro,file=%O,fill=yes;\n CAMERAEXT: start=$01F000,size=$1000,type=ro,file=%O,fill=yes;')

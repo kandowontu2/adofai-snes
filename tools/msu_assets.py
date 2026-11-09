@@ -5,7 +5,7 @@ import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
 RATE=44100
 
-def generate(out,charts,music):
+def generate(out,charts,music,*,generate_pcm=True):
     descriptors=bytearray();manifest=[];stem=out/'adofai'
     with stem.with_suffix('.msu').open('wb') as data:
         data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
@@ -22,6 +22,9 @@ def generate(out,charts,music):
             end=data.tell();data.seek(table_offset)
             data.write(b''.join(struct.pack('<I',s) for s in snapshots));data.seek(end)
             descriptors+=struct.pack('<IHHIIHHI',offset,track,1000+n*32,animation_offset,table_offset,c.get('visibility_cells',0),int(bool(c.get('pattern_versions'))),timeline_offset)
+            if not generate_pcm:
+                manifest.append(dict(id=n,code=c['code'],title=c['title'],data_offset=offset,brr_bytes=len(music[n])))
+                continue
             from embedded_hit_audio import mix_hits, fingerprint
             wav=ROOT/f'assets/private/{n}-X.wav'
             prefix=c['countdown']*60/c['bpm'] if c['separate_countdown'] else 0

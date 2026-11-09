@@ -61,6 +61,10 @@ BEST_SCORES=$0700
 DESC=$0460
 HUD=$0800
 TRACK=$1000
+.ifdef SA1_BUILD
+TRACK_SYMBOL_FLOORS=$40A000
+.assert TRACK_SYMBOL_FLOORS+4352*2 <= $40C800, error, "Track symbol index overlaps pause data"
+.endif
 .ifdef MSU_BUILD
 .ifdef LARGE_CHART_BUILD
 ; Keep moving coordinates in DMA-accessible WRAM. Each array reserves
@@ -178,6 +182,12 @@ M7_RASTER_X=$41FCD2
 M7_RASTER_Y=$41FCD4
 M7_RASTER_DISPLAY_X=$41FCD6
 M7_RASTER_DISPLAY_Y=$41FCD8
+M7_ORIGIN_X=$41FCDA
+M7_ORIGIN_Y=$41FCDC
+VBLANK_DIAG_ROWS=$41FCDE
+VBLANK_DIAG_SPAN=$41FCE0
+VBLANK_DIAG_SLOTS=$41FCE2
+VBLANK_DIAG_LIMIT=$41FCE4
 ROT_X=$400020
 ROT_Y=$400022
 ROT_SUM=$400024
@@ -443,6 +453,11 @@ rom_data_ptr: .res 3
 speed_tenths: .res 2
 speed_pitch: .res 2
 speed_scale: .res 2
+event_count: .res 2
+event_cursor: .res 2
+menu_selection: .res 2
+menu_group: .res 2
+menu_depth: .res 2
 speed_stream: .res 2
 speed_offset: .res 2
 speed_offset_frac: .res 2
@@ -537,6 +552,14 @@ hud_last_checkpoint_on: .res 2
 hud_last_risk: .res 2
 hud_last_error: .res 2
 hud_last_timer: .res 2
+meter_head: .res 2
+meter_count: .res 2
+meter_average: .res 2
+meter_positions: .res 32
+meter_times: .res 32
+meter_grades: .res 32
+project_limit_x: .res 2
+project_limit_y: .res 2
 camera_delta: .res 2
 map_scan_valid: .res 2
 map_scan_x: .res 2
@@ -746,6 +769,7 @@ fast_reset:
     lda #10
     sta speed_tenths
     jsr prepare_speed
+    jsr init_menu
     jsr update_orb_colors
     jsr set_difficulty
     sep #$20
@@ -1207,6 +1231,30 @@ load_chart_arrays:
     lda chart_array
     cmp #18
     bcc @array
+.ifdef SA1_BUILD
+    ; A sparse event list avoids scanning thousands of ordinary floors in
+    ; every frame, while letting icons share the full authored visibility.
+    stz event_count
+    ldx #0
+@event_index:
+    lda f:NOTE_FLAGS,x
+    and #255
+    bit #128
+    bne @event_next
+    and #119
+    beq @event_next
+    txa
+    phx
+    ldx event_count
+    sta f:TRACK_SYMBOL_FLOORS,x
+    plx
+    inc event_count
+    inc event_count
+@event_next:
+    inx
+    cpx chart_count
+    bcc @event_index
+.endif
     rts
 
 start_game:
@@ -1310,6 +1358,7 @@ start_game:
 .include "src/render.inc"
 .include "src/effects.inc"
 .include "src/hud.inc"
+.include "src/hit_meter.inc"
 .include "src/audio.inc"
 .ifdef MSU_BUILD
 .include "src/msu.inc"

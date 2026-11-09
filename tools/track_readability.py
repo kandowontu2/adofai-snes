@@ -20,17 +20,27 @@ def depth_schedule(chart,initial,changes,motion=None,camera_data=None):
         chart['motion_bounds']=[max(x for x,y in positions)+bx,max(y for x,y in positions)+by]
     from track_camera import follow_schedule
     camera=follow_schedule(chart,motion,camera_data)
+    raster_camera=camera
+    if chart.get('reuse_motion_phase'):
+        from raster_phase import schedule,camera as shift_camera
+        chart['raster_origin_versions']=schedule(motion)
+        raster_camera=shift_camera(camera,chart['raster_origin_versions'])
+        chart['camera_follow_versions']=raster_camera
     rotations={f:(c,s) for f,c,s in chart.get('camera_world_sampling_versions',chart.get('camera_sampling_versions',chart.get('camera_rotation_versions',[])))}
-    extents={};views={};transforms={};c,s=256,0;x,y=camera[0][1:];positions={f:(x,y) for f,x,y in camera}
+    extents={};views={};transforms={};c,s=256,0;x,y=raster_camera[0][1:];positions={f:(x,y) for f,x,y in raster_camera}
     for frame in sorted(set(positions)|set(rotations)):
         if frame in positions:x,y=positions[frame]
         if frame in rotations:c,s=rotations[frame]
-        ex=(2*abs(c)+abs(s)+3)//4;ey=(abs(c)+2*abs(s)+3)//4
+        half=72-chart.get('viewport_inset',0)
+        ex=(128*abs(c)+half*abs(s)+255)//256;ey=(half*abs(c)+128*abs(s)+255)//256
         extents[frame]=(ex+20,ey+20)
         norm=c*c+s*s
-        transforms[frame]=(round(c*65536/norm),round(s*65536/norm),x+128,y+96)
-        views[frame]=((x+128-ex)//8,(y+96-ey)//8,(2*ex+14)//8,(2*ey+14)//8)
+        transforms[frame]=(round(c*65536/norm),round(s*65536/norm),x+128,y+104)
+        views[frame]=((x+128-ex)//8,(y+104-ey)//8,(2*ex+14)//8,(2*ey+14)//8)
 
+    chart['viewport_center_y']=104
+    chart['viewport_top']=32+chart.get('viewport_inset',0)
+    chart['viewport_bottom']=176-chart.get('viewport_inset',0)
     chart['render_viewports']=views
     if rotations:chart['render_transforms']=transforms
     chart['authored_visibility']=True
@@ -43,7 +53,7 @@ def depth_schedule(chart,initial,changes,motion=None,camera_data=None):
                                     past=None,outline_preview=False,
                                     preview_bounds=[148,84])
     authored=list(initial);offsets=[(0,0)]*count;center=0
-    centers={f:(x+128,y+96) for f,x,y in camera}
+    centers={f:(x+128,y+104) for f,x,y in camera}
     center=centers[0];bounds=extents[0]
     for i,v in motion.get(0,{}).items():offsets[i]=v
     def value(i):

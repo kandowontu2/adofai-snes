@@ -16,7 +16,7 @@ def follow_schedule(chart,motion,data=None):
         while i+1<len(notes) and notes[i+1]['frame']<=frame:i+=1
         dx,dy=offsets[i] if notes[i].get('stick_to_floor',True) else notes[i].get('position_track_offset',(0,0))
         x+=(notes[i]['x']+dx-x)*.25;y+=(notes[i]['y']+dy-y)*.25
-        p=(round(x)-128,round(y)-96)
+        p=(round(x)-128,round(y)-104)
         if p!=last:result.append((frame,*p));last=p
     if data is not None:result=position_schedule(data,chart,motion,result)
     chart['camera_follow_versions']=[list(p) for p in result]
@@ -33,6 +33,20 @@ def position_schedule(data,chart,motion,follow):
         if a['eventType']=='RepeatEvents':
             for tag in a.get('tag','').split():repeats[a['floor'],tag]=a
     commands=[]
+    # Built-in Unity worlds use ffxCameraPlus components rather than JSON
+    # MoveCamera actions. Native coordinates are Unity units, not tile units.
+    movement_names=('Player','Tile','Global','LastPosition','LastPositionNoRotation')
+    for e in data.get('native_camera_effects',[]):
+        if not (e.get('positionUsed',True) or e.get('movementTypeUsed',True)):continue
+        a={'ease':ease_name(e.get('ease','Linear'))}
+        if e.get('movementTypeUsed',True):
+            kind=e.get('movementType',0)
+            a['relativeTo']=movement_names[kind] if isinstance(kind,int) else kind
+        if e.get('positionUsed',True):
+            size=data.get('native_tile_size',1.5)
+            a['position']=[e['targetPos'][axis]/size for axis in ('x','y')]
+        commands.append((max(0,round(native_event_time(data,chart,e)*FPS)),
+                         native_duration(data,chart,e)*FPS,e['floor'],a))
     for a in actions:
         if a['eventType']!='MoveCamera' or not ('position' in a or 'relativeTo' in a):continue
         floor=a['floor'];repeat=next((repeats[floor,t] for t in a.get('eventTag','').split() if (floor,t) in repeats),{})
@@ -47,9 +61,10 @@ def position_schedule(data,chart,motion,follow):
             commands.append((max(0,round(t*FPS)),a.get('duration',0)*beat*FPS,origin,a))
     commands.sort(key=lambda row:row[0]);cursor=0
     mode=settings.get('relativeTo','Player');parent=[0.,0.]
+    follow_player=mode=='Player'
     offset=settings.get('position',[0,0]);world=[notes[0]['x'],notes[0]['y']]
     parent=[(world[j] if mode!='Player' else 0)+(offset[j] or 0)*24*(1 if j==0 else -1) for j in range(2)]
-    tweens=[None,None];positions={f:(x+128,y+96) for f,x,y in follow};player=positions[0]
+    tweens=[None,None];positions={f:(x+128,y+104) for f,x,y in follow};player=positions[0]
     initial_offsets=motion.get(0,{})
     rotations={f:(c,s) for f,c,s in chart.get('camera_projection_versions',chart.get('camera_rotation_versions',[]))}
     cosine,sine=256,0;constrained=0
@@ -71,8 +86,10 @@ def position_schedule(data,chart,motion,follow):
             used=[changed or (pos is not None and pos[j] is not None) for j in range(2)]
             for j in range(2):
                 if used[j] and tweens[j]:parent[j]=tweens[j][3];tweens[j]=None
-            if (mode=='Player')!=(newmode=='Player'):
-                for j in range(2):parent[j]+=player[j]*(1 if mode=='Player' else -1)
+            newfollow=True if newmode=='Player' else False if newmode in ('Tile','Global') else follow_player
+            if follow_player!=newfollow:
+                for j in range(2):parent[j]+=player[j]*(1 if follow_player else -1)
+            follow_player=newfollow
             previous=list(parent);mode=newmode
             base=[0.,0.] if mode=='Player' else [notes[floor]['x']+initial_offsets.get(floor,(0,0))[0],notes[floor]['y']+initial_offsets.get(floor,(0,0))[1]] if mode=='Tile' else world if mode=='Global' else previous
             if settings.get('legacyCamRelativeTo',False) and not changed:base=previous
@@ -82,16 +99,9 @@ def position_schedule(data,chart,motion,follow):
                 target=base[j]+value*24*(1 if j==0 else -1)
                 tweens[j]=(at,duration,parent[j],target,a.get('ease','Linear'))
                 parent[j]=evaluate(tweens[j],frame)
-        center=[parent[j]+(player[j] if mode=='Player' else 0) for j in range(2)]
-        # Keep the orbit within the shorter SNES playfield. The projection
-        # matrix includes inverse zoom in experimental zoom builds.
-        dx,dy=center[0]-player[0],center[1]-player[1]
-        sx=(cosine*dx-sine*dy)/256;sy=(sine*dx+cosine*dy)/256
-        cx=max(-88,min(88,sx));cy=max(-24,min(24,sy))
-        if (cx,cy)!=(sx,sy):
-            constrained+=1;norm=(cosine*cosine+sine*sine)/256
-            center=[player[0]+(cosine*cx+sine*cy)/norm,player[1]+(-sine*cx+cosine*cy)/norm]
-        p=tuple(round(center[j])-(128 if j==0 else 96) for j in range(2))
+        # Free-camera sections intentionally let the planets leave the view.
+        center=[parent[j]+(player[j] if follow_player else 0) for j in range(2)]
+        p=tuple(round(center[j])-(128 if j==0 else 104) for j in range(2))
         if p!=last:result.append((frame,*p));last=p
     chart['camera_position_events']=len(commands)
     chart['camera_position_constrained_frames']=constrained

@@ -16,19 +16,44 @@ prepare_speed:
 .endif
     lda speed_scales,x
     sta speed_scale
-    lda speed_offset_bases,x
-    sta scratch
+    ; Calculate the signed 16.16 calibration offset instead of storing a
+    ; large speed-by-calibration table in the executable ROM bank.
     lda calibration
+.ifdef MSU_BUILD
     clc
-    adc #CALIBRATION_LIMIT
-    asl a
-    clc
-    adc scratch
-    tax
-    lda speed_offsets,x
+    adc #8
+.endif
+    pha
+    bpl :+
+    eor #$FFFF
+    inc a
+:
+    sta math_a
+    lda speed_pitch
+    sta math_b
+    jsr multiply_points
+    lda #1536
+    sta math_b
+    jsr divide32
+    lda math_lo
     sta speed_offset
-    lda speed_offsets_frac,x
+    lda math_rem
+    sta math_hi
+    lda #768
+    sta math_lo
+    jsr divide32
+    lda math_lo
     sta speed_offset_frac
+    pla
+    bpl :+
+    lda #0
+    sec
+    sbc speed_offset_frac
+    sta speed_offset_frac
+    lda #0
+    sbc speed_offset
+    sta speed_offset
+:
     jmp set_difficulty
 
 apply_audio_speed:
@@ -142,7 +167,7 @@ update_settings:
     adc scratch2
     cmp #5
     bcc @done
-    cmp #21
+    cmp #41
     bcs @done
     sta speed_tenths
     jmp prepare_speed

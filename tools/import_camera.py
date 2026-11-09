@@ -11,8 +11,9 @@ ROOT=Path(__file__).resolve().parents[1]
 def native(game,scene):
     env=UnityPy.load(str(game/f'A Dance of Fire and Ice_Data/level{scene}'))
     gen=TypeTreeGenerator(env.objects[0].assets_file.unity_version);gen.load_local_game(str(game));env.typetree_generator=gen
-    floors={};effects=[];initial=1.
+    floors={};effects={};objects={};initial=1.
     for o in env.objects:
+        if o.type.name=='GameObject':objects[o.path_id]=o.read_typetree()
         if o.type.name!='MonoBehaviour':continue
         b=o.read_typetree(nodes=get_typetree_node(114,o.version),wrap=True,check_read=False)
         cls=b.m_Script.deref().read().m_ClassName
@@ -20,8 +21,16 @@ def native(game,scene):
         d=o.read_typetree()
         if cls=='scrFloor':floors[d['m_GameObject']['m_PathID']]=d['seqID']
         elif cls=='scrCamera':initial=d.get('zoomSize',1.)
-        elif d.get('m_Enabled',1):effects.append(d)
-    return initial,[dict(d,floor=floors[d['m_GameObject']['m_PathID']]) for d in effects if d['m_GameObject']['m_PathID'] in floors]
+        elif d.get('m_Enabled',1):effects[o.path_id]=d
+    # Unity calls components in the GameObject's component order. Asset
+    # object enumeration can be reversed, changing simultaneous tweens.
+    ordered=[]
+    for game_object,floor in sorted(floors.items(),key=lambda row:row[1]):
+        for order,component in enumerate(objects[game_object]['m_Component']):
+            pointer=component.get('component',component)
+            effect=effects.get(pointer['m_PathID'])
+            if effect is not None:ordered.append(dict(effect,floor=floor,component_order=order))
+    return initial,ordered
 
 def main():
     game=Path(DEFAULT_GAME);catalog={m['id']:m for m in WORLDS}

@@ -97,11 +97,13 @@ def patch_pack(out, *, generate_pcm=True):
     import campaign_assets as assets
     previous_out = assets.OUT
     assets.OUT = out
+    data_version=24
     try:
         descriptors = (out/'msu_descriptors.bin').read_bytes()
         placements = json.loads((out/'placements.json').read_text())
         for n in levels:
             chart = json.loads((out/f'level{n}.json').read_text())
+            if chart.get('viewport_center_y')==104 or chart.get('reuse_motion_phase'):data_version=25
             old = (out/f'level{n}.brr').read_bytes()
             updated = assets.encode_music(chart)
             assert len(old) == len(updated), 'Music patch would move animation data'
@@ -171,9 +173,9 @@ def patch_pack(out, *, generate_pcm=True):
         if not pack.get('standalone'):
             with (out/'adofai.msu').open('r+b') as f:
                 f.seek(12)
-                f.write(struct.pack('<H',24))
+                f.write(struct.pack('<H',data_version))
             addresses = out/'addresses.inc'
-            addresses.write_text(re.sub(r'MSU_DATA_VERSION = \d+', 'MSU_DATA_VERSION = 24', addresses.read_text()))
+            addresses.write_text(re.sub(r'MSU_DATA_VERSION = \d+', f'MSU_DATA_VERSION = {data_version}', addresses.read_text()))
         addresses = out/'addresses.inc'
         text = addresses.read_text()
         if 'HITS_IN_MUSIC = 1' not in text:

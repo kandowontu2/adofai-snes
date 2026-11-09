@@ -15,6 +15,13 @@ def verify(base,source):
     worker=(base/'sa1_worker.bin').read_bytes()
     assert len(worker) in (0x7000,0x8000)
     assert rom[0x8000:0x8000+len(worker)]==worker
+    camera_state=('M7_RASTER_SHIFT','M7_RASTER_X','M7_RASTER_Y','M7_RASTER_DISPLAY_X','M7_RASTER_DISPLAY_Y','M7_ORIGIN_X','M7_ORIGIN_Y')
+    diagnostics=('VBLANK_DIAG_ROWS','VBLANK_DIAG_SPAN','VBLANK_DIAG_SLOTS','VBLANK_DIAG_LIMIT')
+    constants={name:int(value,16) for name,value in re.findall(r'^(\w+)=\$([0-9A-Fa-f]+)$',(base/'sa1_layout.inc').read_text(),re.M)}
+    if all(name in constants for name in diagnostics):
+        addresses=[constants[name] for name in (*camera_state,*diagnostics)]
+        assert len(set(addresses))==len(addresses),'VBlank diagnostics overlap live camera state'
+        assert all(0x41FCD0<=address<0x41FD00 and address%2==0 for address in addresses)
     if len(worker)==0x7000:
         for name in ('mode7_rotation_bounds','camera_scale_sprite'):
             assert 0x01F000<=labels[name]<0x020000,(name,labels[name])
@@ -44,11 +51,20 @@ def verify(base,source):
             assert rom[start:start+len(expected)]==expected,(n,prefix,start)
             checked+=1
         if not pack.get('standalone'):continue
+        from animation_bulk import batch
+        expected_stream=batch((source/f'animation{n}.bin').read_bytes())[0]
+        snapshot_mapping=None
+        source_chart=json.loads((source/f'level{n}.json').read_text())
+        if chart.get('catchup_format') and not source_chart.get('catchup_format'):
+            from animation_catchup import compile_stream
+            expected_stream,snapshot_mapping,_=compile_stream(expected_stream,chart)
         for suffix,name in [('music',f'level{n}.brr'),('animation',f'animation{n}.bin')]+[(f'cp{i}',f'animation{n}-checkpoint-{i}.bin') for i in range(len(chart['checkpoints']))]:
             expected=(source/name).read_bytes();start=offset(loc[f'romdata{n}_{suffix}'])
             if suffix=='animation':
-                from animation_bulk import batch
-                expected=batch(expected)[0]
+                expected=expected_stream
+            elif suffix.startswith('cp') and snapshot_mapping is not None:
+                expected=bytearray(expected);cursor=struct.unpack_from('<I',expected,4)[0]
+                struct.pack_into('<I',expected,4,snapshot_mapping[cursor])
             assert rom[start:start+len(expected)]==expected,(n,suffix,hex(start),'embedded data differs from source')
             if start//0x100000!=(start+len(expected)-1)//0x100000:crossings.append([n,suffix,start,len(expected)])
             checked+=1

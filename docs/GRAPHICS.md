@@ -20,6 +20,12 @@ your PR; builds read them directly and never regenerate them. CHR is raw SNES
 | `background.map` | SNES tilemap words |
 | `palette.bin` | 256 BGR555 colors (512 bytes) |
 
+In `font.chr`, tiles 1–2 are the menu arrows, 3–4 are the timing bar and
+perfect-center line, 8–15 are hit ticks at each horizontal pixel position,
+and 16–23 are the average-position marker. These glyphs are read directly
+from the CHR file, so a graphics PR can change the meter without editing code.
+Printable characters retain their ASCII tile numbers.
+
 The Mode-7 OBJ sheet includes every planet zoom size. These are editable
 artwork, not regenerated thumbnails. The original-size planet occupies tile
 6 (a 16 by 16 sprite). Additional radius/starting-tile assignments are:
