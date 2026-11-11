@@ -40,6 +40,9 @@ def main():
         subprocess.run([command('ld65'),'-C',str(out/('sa1.cfg' if sa1 else 'exhirom.cfg')),'-o',str(out/'adofai.sfc'),'-m',str(out/'adofai.map'),'-Ln',str(out/'adofai.lbl'),str(out/'game.o')],check=True)
         dest=out/'adofai.sfc';rom=bytearray(dest.read_bytes());assert len(rom)==0x800000
         if not sa1:rom[0x8000:0x10000]=rom[0x408000:0x410000]
+        if sa1 and 'SA1_FASTROM_MIRROR = 1' in (out/'addresses.inc').read_text():
+            assert not any(rom[0x200000:0x208000]),'FastROM code mirror overlaps packed data'
+            rom[0x200000:0x208000]=rom[:0x8000]
         header=0x7FDC if sa1 else 0x40FFDC
         rom[header:header+4]=bytes(4);checksum=(sum(rom)+0x1FE)&65535
         struct.pack_into('<HH',rom,header,checksum^65535,checksum);dest.write_bytes(rom)

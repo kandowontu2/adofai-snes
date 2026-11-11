@@ -2,6 +2,14 @@
 import bisect,collections,heapq
 
 def cache_patterns(chart,tiles,history):
+    # Rasterization can create intermediate textures outside the sampled
+    # viewport. They need no global IDs or cartridge snapshot storage.
+    used=sorted({0}|{v&0xfffff for rows in history.values() for _,v in rows})
+    if len(used)<len(tiles):
+        remap={old:new for new,old in enumerate(used)}
+        chart['unreferenced_patterns_removed']=len(tiles)-len(used)
+        tiles=[tiles[i] for i in used]
+        history={cell:[(f,(v&~0xfffff)|remap[v&0xfffff]) for f,v in rows] for cell,rows in history.items()}
     events=collections.defaultdict(list)
     for cell,versions in history.items():
         for frame,value in versions:events[frame].append((cell,value&0xfffff))
@@ -70,6 +78,12 @@ def cache_patterns(chart,tiles,history):
         start,end,slot=rows[at];assert start<=frame<=end
         return slot if chart.get('mode7') else slot|(((value>>20)&7)<<10)|(((value>>23)&3)<<14)
     converted={cell:[(f,physical(v,f)) for f,v in rows] for cell,rows in history.items()}
+    if chart.get('id')==60:
+        preloads=[]
+        for start,end,p in intervals:
+            if start<40:continue
+            preloads.append([max(1,start-40),p,start,end])
+        chart['bitmap_prefetch_versions']=sorted(preloads)
     chart['pattern_initial']=initial
     chart['pattern_versions']=versions
     chart['pattern_count']=len(tiles)

@@ -8,6 +8,26 @@ from import_official import normalize_json
 from make_assets import FPS
 
 class Motion(unittest.TestCase):
+    def test_native_rotation_and_scale_tweens(self):
+        from track_motion import rotation_schedule,scale_schedule
+        d,c=self.fixture();c.update(mode7=True,motion_step=1)
+        d['native_track_effects']=[dict(type='ffxMoveFloorPlus',floor=1,start=1,end=1,
+            rotationUsed=True,targetRot=90,scaleUsed=True,targetScaleV2={'x':0,'y':0},duration=.1,ease='Linear')]
+        turns=rotation_schedule(d,c);scales=scale_schedule(d,c)
+        self.assertGreater(len(turns),3)
+        self.assertEqual(list(turns.values())[-1][1],90)
+        self.assertEqual(list(scales.values())[-1][1],(0,0))
+        self.assertTrue(any(0<v[1][0]<1 for v in scales.values()))
+
+    def test_json_scale_to_zero_and_restore(self):
+        from track_motion import scale_schedule
+        d,c=self.fixture();c.update(mode7=True,motion_step=1)
+        d['track_actions']=[dict(floor=1,eventType='MoveTrack',scale=[0,0],duration=.1),
+                            dict(floor=2,eventType='MoveTrack',startTile=[-1,'ThisTile'],scale=[100,100],duration=.1)]
+        poses=[v[1] for v in scale_schedule(d,c).values() if 1 in v]
+        self.assertIn((0,0),poses)
+        self.assertEqual(poses[-1],(1,1))
+
     def test_short_sparse_tween_keeps_intermediate_frames(self):
         d,c=self.fixture();c.update(mode7=True,motion_step=8)
         d['track_actions']=[dict(floor=1,eventType='MoveTrack',positionOffset=[0,3],duration=.13636,ease='Linear')]

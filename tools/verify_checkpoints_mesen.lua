@@ -5,12 +5,15 @@ local W=emu.memType.snesWorkRam
 local function word(name) local a=C.addr[name];return emu.read(a,W)+256*emu.read(a+1,W) end
 local frame,index,lastInput=0,1,-1
 local nextInput,tapSerial=1,0
+local neoInput,neoHeld=1,0
 local stage,deathAt='reach',0
 local frozen={}
 local rows={}
+local pendingRetryCapture=false
 local function capture_ppu()
   local step=word("step")
-  if C.graphics_dumps and word("commits")%30==0 and word("display_state")==1 then
+  if C.graphics_dumps and (pendingRetryCapture or word("commits")%30==0) and word("display_state")==1 then
+    pendingRetryCapture=false
     local S=emu.memType.snesSaveRam
     local V=emu.memType.snesVideoRam
     local function sw(a) return emu.read(a,S)+256*emu.read(a+1,S) end
@@ -19,7 +22,9 @@ local function capture_ppu()
       bytes[#bytes+1]=string.char(value%256,math.floor(value/256))
     end
     for a=0x1f100,0x1f1ff do bytes[#bytes+1]=string.char(emu.read(a,S)) end
-    for a=0,32767 do bytes[#bytes+1]=string.char(emu.read(a,V)) end
+    for a=0,65535 do bytes[#bytes+1]=string.char(emu.read(a,V)) end
+    for a=0,511 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesCgRam)) end
+    for a=0,543 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesSpriteRam)) end
     local h=io.open(C.out..'/ppu-'..frame..'.bin','wb');h:write(table.concat(bytes));h:close()
   end
 end
@@ -33,6 +38,7 @@ local function finish(good,reason)
   local f=io.open(C.out..'/result.txt','w')
   f:write(string.format('state=%d step=%d checkpoint retries=%d/%d %s\n',word('state'),word('step'),index-1,#C.checkpoints,reason or ''))
   if C.palette_samples then f:write('palette_samples='..C.palette_samples..'\n') end
+  if C.addr.pattern_vblank_overruns then f:write('vblank_overruns='..word('pattern_vblank_overruns')..'\n') end
   f:write(table.concat(rows,'\n'));f:write(good and '\nPASS\n' or '\nFAIL\n');f:close()
   emu.stop(good and 0 or 1)
 end
@@ -46,16 +52,32 @@ emu.addEventCallback(function()
   end
   if state==1 then
     if stage=='retry' then
+      pendingRetryCapture=true
       if step~=cp.floor or word('music_origin')~=cp.origin or word('checkpoint_preroll')~=1 then finish(false,'wrong restart');return end
       rows[#rows+1]=string.format('checkpoint %d trigger=%d restart=%d origin=%d',index,cp.trigger,step,word('music_origin'))
       if C.manual_steps then
         nextInput=1
         while C.manual_steps[nextInput] and C.manual_steps[nextInput]<=cp.floor do nextInput=nextInput+1 end
       end
+      if C.neo_events then
+        neoInput=1;neoHeld=0
+        while C.neo_events[neoInput] and C.neo_events[neoInput][3]<=cp.floor do neoInput=neoInput+1 end
+      end
       index=index+1;stage='reach';lastInput=-1;cp=C.checkpoints[index]
     end
     if stage=='reach' and cp and word('checkpoint_floor')==cp.floor and step>=cp.trigger then stage='die' end
-    if C.manual_times then
+    if C.neo_events then
+      local delta=(word('nmi_audio_ticks')-word('audio_ticks')+32768)%65536-32768
+      local offset=word('speed_offset');if offset>=32768 then offset=offset-65536 end
+      local current=word('elapsed')+delta*.004*60.0988118623*C.pitch/1536-offset
+      while stage~='die' and word('checkpoint_preroll')==0 and C.neo_events[neoInput] and current+1>=C.neo_events[neoInput][1] do
+        neoHeld=C.neo_events[neoInput][2];neoInput=neoInput+1
+      end
+      if stage~='die' and word('checkpoint_preroll')==0 then
+        if neoHeld%2==1 then buttons.a=true end
+        if math.floor(neoHeld/2)%2==1 then buttons.b=true end
+      end
+    elseif C.manual_times then
       local delta=(word('nmi_audio_ticks')-word('audio_ticks')+32768)%65536-32768
       local offset=word('speed_offset');if offset>=32768 then offset=offset-65536 end
       local current=word('elapsed')+delta*.004*60.0988118623*C.pitch/1536-offset

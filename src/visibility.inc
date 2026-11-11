@@ -8,15 +8,15 @@ load_visibility:
     clc
     adc visibility_middle
     tax
-    lda visibility_descriptors,x
+    lda f:visibility_descriptors,x
     sta visibility_index_ptr
     sep #$20
     .a8
-    lda visibility_descriptors+2,x
+    lda f:visibility_descriptors+2,x
     sta visibility_index_ptr+2
     rep #$20
     .a16
-    lda visibility_descriptors+3,x
+    lda f:visibility_descriptors+3,x
     sta visibility_nodes
 .ifdef MSU_BUILD
     asl a
@@ -32,7 +32,7 @@ load_visibility:
     rep #$20
     .a16
 .endif
-    lda visibility_descriptors+5,x
+    lda f:visibility_descriptors+5,x
     and #255
     sta moving_tiles
     lda #$FFFF
@@ -219,6 +219,31 @@ floor_position:
     sta position_i
     asl a
     tax
+.ifdef ROM_NATIVE_ADDR
+    lda f:NATIVE_READY
+    beq @ordinary_position
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne @ordinary_position
+    lda state
+    cmp #1
+    beq @native_position
+    cmp #2
+    beq @native_position
+    cmp #4
+    bne @ordinary_position
+@native_position:
+    lda f:SYMBOL_X,x
+    sec
+    sbc f:M7_ORIGIN_X
+    sta floor_x
+    lda f:SYMBOL_Y,x
+    sec
+    sbc f:M7_ORIGIN_Y
+    sta floor_y
+    rts
+@ordinary_position:
+.endif
     lda f:NOTE_X,x
 .ifdef SA1_BUILD
     sec

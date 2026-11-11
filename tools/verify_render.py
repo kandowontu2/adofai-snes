@@ -31,6 +31,17 @@ def map_reader(data,height,shift=0):
         return spans[pos][x%32]
     return tile
 
+
+def object_scanlines(oam, high):
+    counts=np.zeros(224,dtype=int);tiles=np.zeros(224,dtype=int)
+    for i,(_,y,_,_) in enumerate(oam):
+        if y>=224:continue
+        size=16 if high[i//4]&(2<<(2*(i%4))) else 8
+        counts[int(y):min(224,int(y)+size)]+=1
+        tiles[int(y):min(224,int(y)+size)]+=size//8
+    assert max(counts)<=32 and max(tiles)<=34,('PPU scanline limits',int(max(counts)),int(max(tiles)))
+    return int(max(counts))
+
 def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
     """Compare the hardware's separate map/pixel bytes to authored time."""
     patterns=(base/f'patterns{chart["id"]}.bin').read_bytes()
@@ -83,10 +94,8 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
         assert not len(markers),('Removed upcoming circle appeared',frame,markers.tolist())
         diamonds=oam[(oam[:,2]==78)&((oam[:,3]&14)==14)&(oam[:,1]<224)]
         assert not len(diamonds),('Removed double-hit diamonds appeared',frame,diamonds.tolist())
-        ys=oam[:,1].astype(int);ys=ys[ys<224]
-        counts=np.convolve(np.bincount(ys,minlength=240),np.ones(16,dtype=int))[:224]
-        max_objects=max(max_objects,int(max(counts)))
-        assert max(counts)<=17,('PPU scanline tile limit',frame,max(counts))
+        high=C.string_at(em.ram+0x400,32) if ready else bytes(32)
+        max_objects=max(max_objects,object_scanlines(oam,high))
         badges=oam[(oam[:,2]>=192)&(oam[:,2]<=206)&((oam[:,3]&14)==14)&(oam[:,1]<224)]
         assert not len(badges),('Removed numbered pointers appeared',frame,badges.tolist())
         trails|=bool(np.any((oam[:,2]>=128)&(oam[:,1]<224)))
@@ -204,7 +213,8 @@ def verify_mode7(em,base,chart,tile,timeline,frames,stride=20,complete=False):
         result['first_vblank_overrun']={name:em.read(name) for name in ('vblank_first_time','vblank_first_queue','vblank_first_state')}
         if em.sa1:
             result['first_vblank_overrun'].update(zip(('rows','span','slots','limit'),struct.unpack('<4H',C.string_at(em.cache_ram+0x1fcde,8))))
-    assert result['pattern_peak_queued']<=32 and result['vblank_overruns']==0,result
+    # Background batches use a 64-entry immutable queue without HUD/OAM DMA.
+    assert result['pattern_peak_queued']<=64 and result['vblank_overruns']==0,result
     if 'mode7_cache_prepare' in em.labels:
         result.update(versioned_ppu_cache=True,cache_capacity_errors=C.c_uint16.from_address(em.cache_ram+0x1fc50).value,
                       cache_wait_frames=C.c_uint16.from_address(em.cache_ram+0x1fc52).value,

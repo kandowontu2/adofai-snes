@@ -5,6 +5,9 @@
 ; If a render overruns, retain the entire previous PPU frame. Never DMA an
 ; OAM buffer being cleared or a partially built HUD/track map.
 nmi:
+.ifdef SA1_FASTROM_MIRROR
+    jml $800000+nmi_fast
+.endif
 .ifdef MSU_BUILD
 .ifndef SA1_BUILD
     jml $C00000+nmi_fast
@@ -73,7 +76,33 @@ nmi_fast:
     ldx #OAM
     stx $4302
     stz $4304
+.ifdef SA1_BUILD
+    rep #$20
+    .a16
+    lda oam_pos
+    cmp f:OAM_PREVIOUS_COUNT
+    bcs :+
+    lda f:OAM_PREVIOUS_COUNT
+:
+    cmp #0
+    beq @oam_high
+    sta $4305
+    lda oam_pos
+    sta f:OAM_PREVIOUS_COUNT
+    lda #$C001
+    sta $420B
+@oam_high:
+    sep #$20
+    .a8
+    stz $2102
+    lda #1
+    sta $2103
+    ldx #OAM+512
+    stx $4302
+    ldx #32
+.else
     ldx #544
+.endif
     stx $4305
     lda #1
     sta $420B
@@ -85,8 +114,16 @@ nmi_fast:
     .a16
     jsr mode7_commit_map
     jsr mode7_commit_patterns
+.ifdef SA1_BUILD
+    jsr spill_upload
+.endif
     sep #$20
     .a8
+.endif
+.ifdef SA1_BUILD
+    jsr hud_upload_frame
+.else
+.ifdef MSU_BUILD
     stz $4304
     lda pattern_queue_count
     cmp #17
@@ -136,6 +173,7 @@ nmi_fast:
 :
 .endif
     stz hud_dirty
+.endif
 @hud_done:
     lda #1
     sta $4300
@@ -169,6 +207,9 @@ nmi_fast:
     stx $4305
     lda #1
     sta $420B
+.ifdef NEO_BUILD
+    jsl upload_third_palette
+.endif
     stz palette_dirty
 @camera:
 .ifdef MSU_BUILD
@@ -186,13 +227,20 @@ nmi_fast:
     stx $4302
     lda #$7F
     sta $4304
-    ldx #192
-    stx $4305
+    rep #$20
+    .a16
+    lda f:TRACK_PALETTE_DIRTY
+    sta $4305
+    sep #$20
+    .a8
     lda #1
     sta $420B
     lda #0
     sta f:TRACK_PALETTE_DIRTY
 @track_palette_done:
+.ifdef SA1_BUILD
+    jsr spill_palette
+.endif
 .endif
     ; VRAM, OAM and CGRAM must finish in VBlank. The Mode 7 registers
     ; and remaining HDMA table data may finish in the fixed top HUD band.
@@ -342,6 +390,13 @@ nmi_fast:
     rep #$20
     .a16
 @clock_done:
+.ifdef NEO_BUILD
+    lda $4218
+    eor #$FFFF
+    and joy
+    and #TAP_MASK
+    sta input_releases
+.endif
     lda joy
     eor #$FFFF
     and $4218
@@ -363,6 +418,19 @@ nmi_fast:
     beq @input_done
     lda input_edges
     and #TAP_MASK
+.ifdef NEO_BUILD
+    beq @release_event
+    jsr neo_queue_event
+@release_event:
+    lda state
+    cmp #1
+    bne @input_done
+    lda input_releases
+    beq @input_done
+    ora #2
+    jsr neo_queue_event
+    bra @input_done
+.else
     beq @input_done
     ldx tap_head
     sta tap_buttons,x
@@ -390,6 +458,7 @@ nmi_fast:
     cmp tap_queue_peak
     bcc @input_done
     sta tap_queue_peak
+.endif
 @input_done:
     jsr service_tap_sounds
     jsr update_menu_repeat
@@ -403,6 +472,31 @@ nmi_fast:
     pla
     plp
     rti
+
+.ifdef NEO_BUILD
+; Both edges retain their audio timestamp. A stalled renderer must not turn
+; a short hold into a missing release or judge it using a later video frame.
+neo_queue_event:
+    ldx tap_head
+    sta tap_buttons,x
+    lda nmi_audio_ticks
+    sta tap_stamps,x
+    txa
+    clc
+    adc #2
+    and #TAP_QUEUE_MASK
+    sta tap_head
+    cmp tap_tail
+    bne @done
+    inc tap_overruns
+    lda tap_tail
+    clc
+    adc #2
+    and #TAP_QUEUE_MASK
+    sta tap_tail
+@done:
+    rts
+.endif
 irq:
     rti
 
@@ -410,6 +504,17 @@ irq:
 ; START/SELECT retain rising-edge behavior.
 .ifdef SA1_BUILD
 .segment "CODE"
+.ifdef NEO_BUILD
+; Rare settings upload lives in ROM to preserve the fixed fast-NMI RAM budget.
+upload_third_palette:
+    ldx #third_palette
+    stx $4302
+    ldx #32
+    stx $4305
+    lda #1
+    sta $420B
+    rtl
+.endif
 .endif
 update_menu_repeat:
     lda state

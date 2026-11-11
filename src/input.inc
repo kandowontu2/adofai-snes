@@ -1,6 +1,9 @@
 ; Each rising button edge is a tap, including chords in a single poll.
 ; The graphics publisher can miss a frame without changing the tap judgment.
 pop_tap:
+.ifdef NEO_BUILD
+    stz tap_release
+.endif
     stz tap_latency
     lda pressed
     and #($FFFF-TAP_MASK)
@@ -21,13 +24,18 @@ pop_tap:
     sta tap_delta
     sta tap_latency
     lda tap_buttons,x
+.ifdef NEO_BUILD
+    and #2
+    sta tap_release
+    lda tap_buttons,x
+.endif
     and #TAP_MASK
     sta tap_mask_remaining
     dec a
     and tap_mask_remaining
     pha
     lda tap_buttons,x
-    and #1
+    and #3
     ora 1,s
     sta tap_buttons,x
     pla

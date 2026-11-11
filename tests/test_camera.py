@@ -11,6 +11,24 @@ class Camera(unittest.TestCase):
         return {'bpm':60,'camera_actions':[]},{'notes':[{'time':float(i),'speed':1} for i in range(8)]}
     def at(self,rows,frame):
         return next((m,i) for f,m,i in reversed(rows) if f<=frame)
+    def test_native_follow_uses_two_beat_landing_tween(self):
+        from track_camera import follow_schedule
+        c=dict(bpm=60,native_follow_timing=True,notes=[
+            dict(x=0,y=0,frame=0,speed=1),dict(x=240,y=0,frame=round(FPS),speed=1)])
+        rows=follow_schedule(c,{})
+        value=lambda frame:next((x+128,y+104) for f,x,y in reversed(rows) if f<=frame)
+        self.assertLess(value(round(FPS))[0],10)
+        self.assertAlmostEqual(value(round(2*FPS))[0],120,delta=4)
+        self.assertEqual(value(round(3*FPS))[0],240)
+
+    def test_hold_camera_follows_moving_tail(self):
+        from track_camera import follow_schedule
+        c=dict(notes=[dict(x=0,y=0,frame=0,hold_length=1,exit_angle=0),
+                      dict(x=72,y=0,frame=100)])
+        rows=follow_schedule(c,{50:{1:(216,0)}})
+        x,y=next((x+128,y+104) for f,x,y in reversed(rows) if f<=50)
+        self.assertEqual((x,y),(132,0))
+
     def test_initial_zoom_and_duration_endpoint(self):
         d,c=self.fixture();d['camera_initial']=2
         d['camera_actions']=[dict(floor=1,eventType='MoveCamera',zoom=100,duration=1)]

@@ -100,6 +100,12 @@ retry_game:
     lda checkpoint_floor
     sta step
     stz note_taps
+.ifdef NEO_BUILD
+    stz neo_hold_keys
+    jsr neo_reset_free
+    stz neo_cam_active
+    stz neo_return_until
+.endif
     inc a
     sta f:SOUND_NOTE
     stz stream_ticks

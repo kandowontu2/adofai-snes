@@ -172,20 +172,20 @@ mode7_rotation_bounds:
     bcs @large_view
     cmp #21
     bcs @medium_view
-    lda #16
+    lda #24
     bra @limit
 @medium_view:
-    lda #10
+    lda #16
     bra @limit
 @large_view:
     cmp #37
     bcc :+
-    lda #4
+    lda #6
     bra @limit
 :
     ; Wide rotated views can need 37 scattered map spans. Reserve enough
     ; VBlank for their per-span setup even when all eight slots are dirty.
-    lda #6
+    lda #10
 @limit:
     sta f:M7_UPLOAD_LIMIT
     rtl

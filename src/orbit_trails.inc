@@ -27,19 +27,6 @@ draw_trails:
     lda #1
     sta object_small
     jsr pivot_position
-.ifdef SA1_BUILD
-    ; The last projected center is ready. Prepare the next track map in
-    ; parallel with the remaining OAM-only arc drawing. Initial loading
-    ; must first populate the map and therefore stays synchronous.
-    lda state
-    cmp #1
-    bne :+
-    lda m7_loading
-    bne :+
-    jsl mode7_rotation_bounds
-    jsr sa1_cache_begin
-:
-.endif
     lda sprite_x
     clc
     adc #8
@@ -193,6 +180,13 @@ orbit_trail_direction:
     rts
 
 draw_orbit_arc:
+.ifdef SA1_BUILD
+    lda camera_inverse
+    cmp #256
+    bne :+
+    jmp sa1_draw_arc
+:
+.endif
     stz trail_stroke
 @piece:
     lda trail_stroke

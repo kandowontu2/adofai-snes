@@ -256,6 +256,18 @@ update_game:
 @timing:
     jsr pop_tap
 @next_note:
+.ifdef NEO_BUILD
+    jsr neo_free_input
+    bcc @not_free
+    lda state
+    cmp #1
+    jne @done
+    lda tap_tail
+    cmp tap_head
+    jne @timing
+    rts
+@not_free:
+.endif
 .ifdef MSU_BUILD
     jsr prepare_note_margin
 .endif
@@ -267,6 +279,13 @@ update_game:
     sec
     sbc f:NOTE_TIME,x
     sta timing_error
+.ifdef NEO_BUILD
+    lda autoplay
+    bne :+
+    lda f:NOTE_PAUSE-2,x
+    bmi @manual
+:
+.endif
     lda step
     inc a
     tax
@@ -313,10 +332,94 @@ update_game:
     jne @done
     jmp @timing
 @human:
+.ifdef NEO_BUILD
+    ; Releases are input events only for a currently held note. Ordinary
+    ; floors and calibration retain rising-edge-only judgment.
+    lda tap_release
+    beq @hold_press
+    lda pressed
+    and #TAP_MASK
+    and neo_hold_keys
+    beq @discard_release
+    eor #$FFFF
+    and neo_hold_keys
+    sta neo_hold_keys
+    bne @discard_release
     lda step
     asl a
     tax
     lda f:NOTE_PAUSE,x
+    bpl @discard_release
+    lda timing_error
+    bpl @hold_release_in_window
+    eor #$FFFF
+    inc a
+    cmp input_rough_window
+    bcc @hold_release_in_window
+    stz fail_reason
+    jmp fail
+@hold_release_in_window:
+    lda f:NOTE_PAUSE+2,x
+    bmi @discard_release
+    lda step
+    inc a
+    tax
+    lda f:NOTE_FLAGS,x
+    and #16
+    beq :+
+    ; Release through an immediate midspin to the real landing. The spin
+    ; itself neither consumes another edge nor adds a scored tap.
+    inc step
+    jsr activate_checkpoint
+    lda step
+    inc a
+    asl a
+    tax
+    lda tap_clock
+    sec
+    sbc f:NOTE_TIME,x
+    sta timing_error
+:
+    jmp @judge
+@discard_release:
+    lda tap_tail
+    cmp tap_head
+    jne @timing
+    rts
+@hold_press:
+    lda step
+    asl a
+    tax
+    lda f:NOTE_PAUSE,x
+    bpl @ordinary_input
+    lda step
+    cmp checkpoint_floor
+    bne @held_exit
+    lda neo_hold_keys
+    bne @held_exit
+    lda timing_error
+    bmi @discard_release
+    stz timing_error
+    jsr hit
+    jmp @timing
+@held_exit:
+    lda f:NOTE_PAUSE+2,x
+    bmi @ordinary_input
+    ; The end of a non-chained hold requires releasing its initiating key.
+    ; A second down edge cannot substitute for that release.
+    lda pressed
+    and #TAP_MASK
+    bne @discard_release
+    jmp @late
+@ordinary_input:
+.endif
+    lda step
+    asl a
+    tax
+    lda f:NOTE_PAUSE,x
+.ifdef NEO_BUILD
+    and #$3FFF
+.endif
     beq @input
     clc
     adc f:NOTE_TIME,x
@@ -450,6 +553,18 @@ hit:
 advance:
     stz note_taps
     inc step
+.ifdef NEO_BUILD
+    stz neo_hold_keys
+    lda step
+    asl a
+    tax
+    lda f:NOTE_PAUSE,x
+    bpl :+
+    lda pressed
+    and #TAP_MASK
+    sta neo_hold_keys
+:
+.endif
     jsr activate_checkpoint
     lda step
     cmp last_note

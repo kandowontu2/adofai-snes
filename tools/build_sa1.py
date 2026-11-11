@@ -20,8 +20,14 @@ def main():
     for c in charts:
         n=c['id']
         for prefix in ('chart','track_chr','track_map'):blobs[f'{prefix}{n}']=(out/f'{prefix}{n}.bin').read_bytes()
+        if c.get('resident_pattern_format'):
+            for prefix in ('resident_raw','resident_future'):blobs[f'{prefix}{n}']=(out/f'{prefix}{n}.bin').read_bytes()
+        if c.get('native_stream_format'):blobs[f'resident_animation{n}']=(out/f'resident_animation{n}.bin').read_bytes()
         blobs[f'music{n}']=blobs[f'timeline{n}']=bytes(2)
         blobs[f'checkpoints{n}']=bytes(max(2,14*len(c['checkpoints'])))
+    if any(c.get('neo_cosmos') for c in charts):
+        from neo_runtime_assets import binary_tables
+        blobs['neo_tables']=binary_tables(out,[c['id'] for c in charts])[0]
     assets.pack_payload(blobs,charts,msu=True,sa1=True);assets.common_tables(charts)
     if any(c.get('camera_rotation_versions') for c in charts):
         with (out/'adofai.msu').open('r+b') as f:
@@ -34,6 +40,9 @@ def compile_engine(out, *, generate_pcm=True):
     from spc_campaign import assemble as assemble_spc
     driver = assemble_spc(calibration_period=125)
     addresses = (out/'addresses.inc').read_text()
+    if 'SA1_WRAM_RENDERER' not in addresses:
+        addresses+='\nSA1_WRAM_RENDERER = 1\n'
+        (out/'addresses.inc').write_text(addresses)
     expected = int(re.search(r'SPC_DRIVER_BYTES = (\d+)', addresses).group(1))
     assert len(driver) == expected, 'SPC driver size changed; regenerate pack assets'
     location = json.loads((out/'placements.json').read_text())['spc_driver']
@@ -55,8 +64,14 @@ def compile_engine(out, *, generate_pcm=True):
     from menu_sets import tables as menu_tables,write_count as write_menu_count
     menu_levels=json.loads((out/'pack.json').read_text())['levels']
     current=re.sub(r'^level_view_insets:.*\n','',current,flags=re.M)
+    current=re.sub(r'^level_bitmap_prefetch:.*\n','',current,flags=re.M)
+    bitmap_enabled=lambda c:bool(c.get('bitmap_prefetch_versions')) and c.get('bitmap_prefetch_enabled',True)
+    current='level_bitmap_prefetch: .byte '+','.join(str(int(bitmap_enabled(json.loads((out/f'level{n}.json').read_text())))) for n in menu_levels)+'\n'+current
     current='level_view_insets: .byte '+','.join(str(json.loads((out/f'level{n}.json').read_text()).get('viewport_inset',0)) for n in menu_levels)+'\n'+current
     current=current.split('MENU_SET_COUNT =')[0].split('; MENU_SET_TABLES')[0]+menu_tables(menu_levels)
+    if 'NEO_BUILD = 1' in addresses:
+        from neo_runtime_assets import tables as neo_tables
+        current+=neo_tables(out,menu_levels)
     write_menu_count(out,menu_levels)
     assert re.search(r'^orb_colors:.*$',current,re.M), 'Missing planet color table'
     table_path.write_text(re.sub(r'^orb_colors:.*$',lambda _:colors,current,flags=re.M))
@@ -68,6 +83,8 @@ def compile_engine(out, *, generate_pcm=True):
     patch_animation(out)
     from animation_catchup import patch_pack as patch_catchup
     patch_catchup(out)
+    from animation_sparse import patch_pack as patch_sparse
+    patch_sparse(out)
     from embedded_hit_audio import patch_pack as patch_embedded_audio
     patch_embedded_audio(out, generate_pcm=generate_pcm)
     from planet_assets import patch_pack
@@ -76,7 +93,7 @@ def compile_engine(out, *, generate_pcm=True):
     # layout before compiling the new banked camera helper as well.
     config=out/'sa1.cfg'
     if config.exists():
-        text=config.read_text().replace('STATE: start=$1800,size=$0420','STATE: start=$1800,size=$04A0').replace('STATE: start=$1800,size=$0410','STATE: start=$1800,size=$04A0').replace('size=$0600,type=rw','size=$0680,type=rw').replace('FASTIRAM: start=$001000','FASTIRAM: start=$003100').replace('STATE: start=$1800,size=$0404','STATE: start=$1800,size=$04A0')
+        text=config.read_text().replace('STATE: start=$1800,size=$0420','STATE: start=$1800,size=$04A0').replace('STATE: start=$1800,size=$0410','STATE: start=$1800,size=$04A0').replace('FASTIRAM: start=$003100,size=$0600','FASTIRAM: start=$003100,size=$0680').replace('FASTIRAM: start=$001000','FASTIRAM: start=$003100').replace('STATE: start=$1800,size=$0404','STATE: start=$1800,size=$04A0')
         if 'CAMERAEXT:' not in text:
             text=text.replace('WORKER: start=$018000,size=$8000,type=ro,file=%O,fill=yes;',
                 'WORKER: start=$018000,size=$7000,type=ro,file=%O,fill=yes;\n CAMERAEXT: start=$01F000,size=$1000,type=ro,file=%O,fill=yes;')
@@ -86,17 +103,27 @@ def compile_engine(out, *, generate_pcm=True):
             text=text.replace(' STATE:', ' POLLWRAM: start=$001000,size=$0800,type=rw;\n STATE:')
             text=text.replace(' BSS: load=STATE,type=bss;', ' BSS: load=STATE,type=bss;\n FASTWRAM: load=ROM,run=POLLWRAM,type=ro,define=yes;')
         text=text.replace('FASTWRAM: load=ROM,','FASTWRAM: load=CAMERAEXT,')
+        if 'SA1_WRAM_RENDERER = 1' in (out/'addresses.inc').read_text():
+            text=text.replace('FASTIRAM: start=$003100,size=$0680','FASTIRAM: start=$000800,size=$0600')
+            text=text.replace('FASTIRAM: start=$000800,size=$0800','FASTIRAM: start=$000800,size=$0600')
+            text=text.replace('FASTIRAM: start=$000800,size=$0680','FASTIRAM: start=$000800,size=$0600')
+            text=text.replace('POLLWRAM: start=$001000,size=$0800','POLLWRAM: start=$000E00,size=$0A00')
+        text=text.replace('ZP: start=$000000,size=$00FF','ZP: start=$000000,size=$0100')
+        text=text.replace('STATE: start=$1800,size=$04A0','STATE: start=$1800,size=$0500')
+        if 'NEO_BUILD' in addresses and 'NEOBANK:' not in text:
+            text=text.replace(' PAY: start=$810000,size=$7F0000',
+                ' NEOBANK: start=$028000,size=$2000,type=ro,file=%O,fill=yes;\n PAY: start=$812000,size=$7EE000')
+            text=text.replace(' SA1PAYLOAD:', ' NEOCODE: load=NEOBANK,type=ro;\n SA1PAYLOAD:')
         config.write_text(text)
     if not (out/'sa1_worker.bin').exists():(out/'sa1_worker.bin').write_bytes(bytes(32768))
     subprocess.run([sys.executable,str(ROOT/'build_campaign.py'),'--pack','master','--out',str(out),'--skip-assets'],cwd=ROOT,check=True)
-    # Data labels retain the main engine's layout; the worker's absolute
-    # temporary accesses use bank $40, and its direct page is private IRAM.
-    layout=(ROOT/'src/campaign.s').read_text().split('.segment "ZEROPAGE"')[0]
-    layout=layout.replace('M7_CACHE_READY=M7_SHARED_BASE+$FC46','M7_CACHE_READY=$400004')
+    # Resolve engine labels before relocating worker-private temporaries.
+    # Explicit shared buffers carry jobs; each CPU keeps its own scratch.
+    from sa1_layout import worker_layout, worker_symbols, worker_config
+    layout=worker_layout((ROOT/'src/campaign.s').read_text())
     (out/'sa1_layout.inc').write_text(layout)
-    labels=re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)',(out/'adofai.lbl').read_text())
-    (out/'sa1_symbols.inc').write_text('\n'.join(f'{name} = ${int(value,16):04X}' for value,name in labels if int(value,16)<0x100 or 0x1800<=int(value,16)<0x2000))
-    (out/'sa1_worker.cfg').write_text('MEMORY { ROM: start=$8000,size=$7000,type=ro,file=%O,fill=yes; }\nSEGMENTS { CODE: load=ROM,type=ro; }\n')
+    (out/'sa1_symbols.inc').write_text(worker_symbols((out/'adofai.lbl').read_text()))
+    (out/'sa1_worker.cfg').write_text(worker_config())
     sys.path.insert(0,str(ROOT));from build import command
     subprocess.run([command('ca65'),'--cpu','65816','-I',str(out),'-I',str(ROOT/'src'),'-g','-o',str(out/'sa1_worker.o'),str(ROOT/'src/sa1_worker.s')],check=True)
     subprocess.run([command('ld65'),'-C',str(out/'sa1_worker.cfg'),'-o',str(out/'sa1_worker.bin'),'-Ln',str(out/'sa1_worker.lbl'),str(out/'sa1_worker.o')],check=True)

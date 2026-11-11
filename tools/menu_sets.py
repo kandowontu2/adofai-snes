@@ -1,5 +1,6 @@
 """Song-set navigation shared by clean builds, cached builds and UI tests."""
 from official_catalog import PACKS
+from neo_catalog import NEO
 import re
 
 
@@ -11,7 +12,8 @@ def groups(levels):
           ('COLLABORATIONS',PACKS['collab']['levels']),
           ('JOKE WORLDS',PACKS['jokes']['levels']),
           ('FEATURED TECH',range(40,62)),
-          ('COMMUNITY',range(62,1000))]
+          ('COMMUNITY',[n for n in range(62,1000) if n not in {m['id'] for m in NEO}]),
+          ('NEO COSMOS',[m['id'] for m in NEO])]
     result=[(name,[i for i,n in enumerate(levels) if n in members]) for name,members in sets]
     result=[row for row in result if row[1]]
     assert sorted(i for _,indices in result for i in indices)==list(range(len(levels)))

@@ -24,6 +24,19 @@ class Viewport(unittest.TestCase):
    result=share_clipped_patterns(chart,tiles,history)
   self.assertEqual(len({rows[0][1] for rows in result.values()}),255)
   self.assertTrue(all(tiles[rows[0][1]][0]==5 for rows in result.values()))
+ def test_complementary_clipped_cells_can_share_a_new_bitmap(self):
+  from unittest.mock import patch
+  from viewport_cells import share_clipped_patterns
+  tiles=[bytes(64),bytes([5,1])+bytes(62),bytes([2,9])+bytes(62)]
+  tiles += [bytes([3,4,i])+bytes(61) for i in range(254)]
+  history={(i,0):[(0,i+1)] for i in range(256)}
+  masks={(i,0):(1 if i==0 else 2 if i==1 else (1<<64)-1) for i in range(256)}
+  chart=dict(notes=[dict(frame=1)],camera_follow_versions=[[0,0,0]],code='TEST')
+  with patch('viewport_cells.pixel_masks',return_value=masks):result=share_clipped_patterns(chart,tiles,history)
+  self.assertEqual(len({rows[0][1] for rows in result.values()}),255)
+  self.assertEqual(tiles[result[0,0][0][1]][0],5)
+  self.assertEqual(tiles[result[1,0][0][1]][1],9)
+
  def test_visible_differences_cannot_share(self):
   from unittest.mock import patch
   from viewport_cells import share_clipped_patterns

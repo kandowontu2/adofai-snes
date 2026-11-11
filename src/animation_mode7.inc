@@ -33,6 +33,19 @@ mode7_landing_time:
 ; MSU animation format 9: byte cell states, translated floors, authored
 ; alpha and tile palettes. Camera sampling and sprite projection are distinct matrices.
 load_patterns:
+.ifdef ROM_NATIVE_ADDR
+    lda #0
+    sta f:NATIVE_READY
+.endif
+.ifdef SA1_BUILD
+    jsr reset_symbol_index
+.endif
+.ifdef SA1_BUILD
+    jsr bitmap_prefetch_reset
+.endif
+.ifdef SA1_BUILD
+    jsr symbol_coords_reset
+.endif
 .ifdef SA1_BUILD
     lda #256
     sta f:M7_ROT_COS
@@ -170,6 +183,18 @@ animation_read_xy:
     rts
 
 update_pattern_cache:
+.ifdef ROM_NATIVE_ADDR
+    lda animation_mode
+    bne :+
+    lda state
+    cmp #1
+    bne :+
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+    jmp native_animation_update
+:
+.endif
     lda #1
     sta msu_data_busy
     stz pattern_queue_count
@@ -306,7 +331,7 @@ update_pattern_cache:
     ; every preceding kind for each sparse map, palette, and camera event.
     lda animation_kind
     and #255
-    cmp #24
+    cmp #30
     bcs @unknown_kind
     asl a
     tax
@@ -321,7 +346,101 @@ update_pattern_cache:
     .word @floor_run, @floor_run, @floor_run
     .word @pattern_batch
     .word @catchup, @jump_span
-    .word @raster_origin
+    .word @raster_origin, @bitmap_prefetch
+    .word @raw_tags, @skip_raw
+    .word @raw_tag_single
+    .word @symbol_set
+    .word @sparse_cells
+@sparse_cells:
+.ifdef SA1_BUILD
+    jsr animation_sparse_cells
+.endif
+    jmp @record
+@symbol_set:
+.ifdef SA1_BUILD
+    jsr animation_symbol_set
+.else
+    lda animation_value
+    jsr animation_advance
+    inc animation_seek_dirty
+.endif
+    jmp @record
+@raw_tag_single:
+    lda animation_index
+    asl a
+    tax
+    lda animation_value
+    sta f:PATTERN_CURRENT,x
+.ifdef ROM_PATTERN_ADDR
+    jsr animation_restore_raw_pattern
+.endif
+    lda animation_index
+    tax
+    lda f:M7_VISIBLE_PATTERNS,x
+    and #255
+    jeq @record
+    lda #1
+    sta f:M7_CACHE_DIRTY
+    sta f:M7_POOL_DIRTY
+    jmp @record
+@raw_tags:
+    lda animation_value
+    pha
+    lda animation_index
+    sta animation_bytes
+    jsr animation_read_begin
+@raw_tag:
+    sep #$20
+    .a8
+    data_read8
+    sta animation_index
+    data_read8
+    sta animation_index+1
+    data_read8
+    sta animation_value
+    data_read8
+    sta animation_value+1
+    rep #$20
+    .a16
+    lda animation_index
+    asl a
+    tax
+    lda animation_value
+    sta f:PATTERN_CURRENT,x
+.ifdef ROM_PATTERN_ADDR
+    jsr animation_restore_raw_pattern
+.endif
+    lda animation_index
+    tax
+    lda f:M7_VISIBLE_PATTERNS,x
+    and #255
+    beq :+
+    lda #1
+    sta f:M7_CACHE_DIRTY
+    sta f:M7_POOL_DIRTY
+:
+    dec animation_bytes
+    jne @raw_tag
+    pla
+    jsr animation_advance
+    lda #1
+    sta animation_seek_dirty
+    stz msu_data_busy
+    jmp @record
+@skip_raw:
+    lda animation_value
+    jsr animation_advance
+    inc animation_seek_dirty
+    jmp @record
+@bitmap_prefetch:
+.ifdef SA1_BUILD
+    jsr bitmap_prefetch_read
+.else
+    lda #64
+    jsr animation_advance
+    inc animation_seek_dirty
+.endif
+    jmp @record
 @raster_origin:
 .ifdef SA1_BUILD
     lda animation_index
@@ -426,6 +545,12 @@ update_pattern_cache:
     tax
     lda animation_value
     sta f:NOTE_X,x
+.ifdef SA1_BUILD
+    lda animation_index
+    asl a
+    ldx #2
+    jsr symbol_coords_changed
+.endif
     jmp @record
 @y:
     lda animation_index
@@ -433,6 +558,12 @@ update_pattern_cache:
     tax
     lda animation_value
     sta f:NOTE_Y,x
+.ifdef SA1_BUILD
+    lda animation_index
+    asl a
+    ldx #2
+    jsr symbol_coords_changed
+.endif
     jmp @record
 @run:
     jsr animation_cell_run
@@ -449,8 +580,7 @@ update_pattern_cache:
     tax
     lda animation_value
     sta f:TRACK_PALETTE,x
-    lda #1
-    sta f:TRACK_PALETTE_DIRTY
+    jsr animation_palette_dirty
     jmp @record
 @colors:
     ; One short DMA reserves the MSU port for all color changes at this
@@ -487,12 +617,11 @@ update_pattern_cache:
     iny
     lda [transfer_ptr],y
     sta f:TRACK_PALETTE,x
+    jsr animation_palette_dirty
     iny
     iny
     dec animation_bytes
     bne @color_word
-    lda #1
-    sta f:TRACK_PALETTE_DIRTY
     jmp @record
 @pattern:
     lda animation_index
@@ -565,6 +694,18 @@ animation_floor_run_size:
     rts
 
 animation_floor_run:
+.ifdef SA1_BUILD
+    lda animation_kind
+    cmp #19
+    beq :+
+    lda animation_value
+    asl a
+    tax
+    lda animation_index
+    asl a
+    jsr symbol_coords_changed
+:
+.endif
     lda animation_value
     asl a
     sta transfer_len
@@ -629,15 +770,17 @@ animation_pattern_batch:
     rep #$20
     .a16
     lda animation_index
-    asl a
-    tax
-    lda animation_value
-    sta f:PATTERN_CURRENT,x
-    lda animation_index
     jsr mode7_pattern_destination
     lda #64
     sta transfer_len
     jsr animation_dma
+    ; Publish the generation only after all bitmap bytes are available.
+    ; A new tag must never describe the previous contents of this slot.
+    lda animation_index
+    asl a
+    tax
+    lda animation_value
+    sta f:PATTERN_CURRENT,x
     jsr audio_pump
     dec animation_bytes
     bne @stream
@@ -833,10 +976,14 @@ animation_spatial_run:
     tay
     ldx animation_index
     lda m7_run_index
+.ifdef SA1_BUILD
+    jsr animation_wram_to_cartridge
+.else
     dec a
     phb
     mvn #$7F,#.bankbyte(M7_MAP)
     plb
+.endif
     lda animation_index
     clc
     adc m7_run_index
@@ -890,7 +1037,12 @@ animation_reference_set:
     jsr animation_dma
     lda transfer_len
     jsr animation_advance
-    stz msu_data_busy
+.ifdef SA1_BUILD
+    ldx #.loword(M7_RUN_VALUES)
+    ldy #.loword(M7_VISIBLE_LIST)
+    lda transfer_len
+    jsr animation_wram_to_cartridge
+.else
     phb
     ldx #.loword(M7_RUN_VALUES)
     ldy #.loword(M7_VISIBLE_LIST)
@@ -898,12 +1050,42 @@ animation_reference_set:
     dec a
     mvn #$7F,#.bankbyte(M7_VISIBLE_LIST)
     plb
+.endif
+    stz msu_data_busy
     lda #1
     sta f:M7_POOL_DIRTY
     sta f:M7_CACHE_DIRTY
     rts
 
 .segment "CODE"
+.ifdef SA1_BUILD
+; Copy a WRAM-$7F span into cartridge RAM-$41 through the WRAM data
+; port. DMA takes eight master clocks per byte; CPU MVN took 56 or more.
+; X=WRAM offset, Y=cartridge offset, A=length. Both callers own the map.
+animation_wram_to_cartridge:
+    pha
+    lda #1
+    sta msu_data_busy
+    pla
+    sta $4305
+    stx $2181
+    sty $4302
+    lda #1
+    sep #$20
+    .a8
+    sta $2183
+    lda #$80
+    sta $4300
+    sta $4301
+    lda #$41
+    sta $4304
+    lda #1
+    sta $420B
+    rep #$20
+    .a16
+    stz msu_data_busy
+    rts
+.endif
 animation_dma:
 .ifdef LARGE_CHART_BUILD
     lda transfer_wbank
@@ -975,7 +1157,7 @@ reset_pattern_epoch:
     lda #0
     ldx #0
 @selected:
-    sta f:M7_PATTERN_SELECTED,x
+    sta M7_PATTERN_SELECTED,x
     inx
     inx
     cpx #256
@@ -986,6 +1168,12 @@ restore_pattern_cache:
 .endif
 restore_pattern_cache:
     lda #256
+.ifdef ROM_NATIVE_ADDR
+    pha
+    lda #0
+    sta f:NATIVE_READY
+    pla
+.endif
     sta camera_zoom
     sta camera_inverse
     lda #0
@@ -1169,7 +1357,7 @@ restore_pattern_cache:
     lda #1
     sta transfer_wbank
     jsr animation_dma
-    lda #1
+    lda #192
     sta f:TRACK_PALETTE_DIRTY
     lda snapshot_header+8
     sta transfer_len
@@ -1270,3 +1458,342 @@ mode7_finish_snapshot:
     jsr reset_pattern_epoch
 @done:
     rts
+
+.ifdef SA1_BUILD
+bitmap_prefetch_reset:
+    lda #0
+    sta f:M7_BITMAP_HEAD
+    sta f:M7_BITMAP_TAIL
+    jsr spill_reset
+    ldx selected_level
+    lda level_bitmap_prefetch,x
+    and #255
+    sta f:M7_BITMAP_ENABLED
+.ifdef ROM_FUTURE_COUNT
+    beq :+
+    lda #ROM_FUTURE_COUNT
+    sta f:M7_BITMAP_HEAD
+:
+.endif
+    lda #$FFFF
+    ldx #0
+@tag:
+    sta f:M7_FUTURE_TAGS,x
+    sta f:M7_FUTURE_DEADLINES,x
+    inx
+    inx
+    cpx #512
+    bcc @tag
+    rts
+
+bitmap_prefetch_read:
+    lda animation_mode
+    jne @skip
+    lda f:M7_BITMAP_HEAD
+    inc a
+    cmp #M7_BITMAP_COUNT
+    bcc :+
+    lda #0
+:
+    cmp f:M7_BITMAP_TAIL
+    jeq @skip
+    pha
+    lda f:M7_BITMAP_HEAD
+    asl a
+    asl a
+    asl a
+    tax
+    lda animation_index
+    sta f:M7_BITMAP_META,x
+    lda animation_value
+    sta f:M7_BITMAP_META+2,x
+    jsr animation_read_coord
+    lda m7_coord
+    sta f:M7_BITMAP_META+4,x
+    lda #.loword(M7_BITMAP_BUFFER)
+    sta transfer_dest
+    lda #1
+    sta transfer_wbank
+    lda #64
+    sta transfer_len
+    jsr animation_read_begin
+    jsr animation_dma
+    lda #.loword(M7_BITMAP_BUFFER)
+    sta $2181
+    sep #$20
+    .a8
+    lda #1
+    sta $2183
+    lda #$80
+    sta $4340
+    sta $4341
+    rep #$20
+    .a16
+    lda f:M7_BITMAP_HEAD
+    .repeat 6
+    asl a
+    .endrepeat
+    clc
+    adc #.loword(M7_BITMAP_SRAM)
+    sta $4342
+    lda #.bankbyte(M7_BITMAP_SRAM)
+    adc #0
+    sep #$20
+    .a8
+    sta $4344
+    rep #$20
+    .a16
+    lda #64
+    sta $4345
+    lda #$C010
+    sta $420B
+    lda #64
+    jsr animation_advance
+    stz msu_data_busy
+    pla
+    sta f:M7_BITMAP_HEAD
+    rts
+@skip:
+    lda #66
+    jsr animation_advance
+    lda #1
+    sta animation_seek_dirty
+    rts
+.endif
+
+animation_palette_dirty:
+    txa
+    inc a
+    inc a
+    cmp f:TRACK_PALETTE_DIRTY
+    bcc @done
+    sta f:TRACK_PALETTE_DIRTY
+@done:
+    rts
+
+.ifdef ROM_PATTERN_ADDR
+; During checkpoint replay the restored WRAM image must follow raw tags
+; as well. Ordinary play uploads resident ROM tiles directly, so it needs
+; no shadow copy. Snapshot-only FE identities retain their WRAM source.
+animation_restore_raw_pattern:
+    lda animation_mode
+    cmp #1
+    jne @done
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    jne @done
+    lda msu_data_busy
+    pha
+    lda #1
+    sta msu_data_busy
+    lda animation_value
+    .repeat 10
+    lsr a
+    .endrepeat
+    clc
+    adc #.bankbyte(ROM_PATTERN_ADDR)
+    sta transfer_ptr+2
+    lda animation_value
+    .repeat 6
+    asl a
+    .endrepeat
+    clc
+    adc #.loword(ROM_PATTERN_ADDR)
+    sta transfer_ptr
+    bcc :+
+    inc transfer_ptr+2
+:
+    lda animation_index
+    jsr mode7_pattern_destination
+.ifdef ROM_PATTERN_PAGED
+    ; Checkpoint replay runs with the worker idle. Its C0 selection also
+    ; updates the mailbox, keeping the next cartridge DMA's page current.
+    lda transfer_ptr+2
+    and #255
+    pha
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    inc a
+    pha
+    dec a
+    sep #$20
+    .a8
+    sta $2220
+    rep #$20
+    .a16
+    pla
+    sta f:SA1_ROM_CURRENT
+    pla
+    and #15
+    ora #$C0
+    sta transfer_ptr+2
+.endif
+    lda transfer_dest
+    sta $2181
+    lda transfer_ptr
+    sta $4302
+    lda #64
+    sta $4305
+    sep #$20
+    .a8
+    lda transfer_wbank
+    sta $2183
+    lda transfer_ptr+2
+    sta $4304
+    stz $4300
+    lda #$80
+    sta $4301
+    lda #1
+    sta $420B
+    rep #$20
+    .a16
+    pla
+    sta msu_data_busy
+@done:
+    rts
+.endif
+
+.ifdef SA1_BUILD
+; Sparse changes share one data transfer and one SA-1 job. The CPU retains
+; the complete checkpoint state; the worker updates wrapped map cells.
+animation_sparse_cells:
+    lda animation_index
+    sta animation_bytes
+    lda animation_value
+    pha
+    sta transfer_len
+    lda #.loword(M7_RUN_VALUES)
+    sta transfer_dest
+    lda #1
+    sta transfer_wbank
+    jsr animation_read_begin
+    jsr animation_dma
+    lda #.loword(M7_RUN_VALUES)
+    sta transfer_ptr
+    sep #$20
+    .a8
+    lda #^M7_RUN_VALUES
+    sta transfer_ptr+2
+    rep #$20
+    .a16
+    ldy #0
+@state:
+    lda [transfer_ptr],y
+    tax
+    iny
+    iny
+    iny
+    iny
+    lda [transfer_ptr],y
+    sep #$20
+    .a8
+    sta f:CELL_STATE,x
+    rep #$20
+    .a16
+    iny
+    dec animation_bytes
+    bne @state
+    lda animation_mode
+    bne @done
+    lda #.loword(M7_RUN_VALUES)
+    sta $2181
+    sep #$20
+    .a8
+    lda #(^M7_RUN_VALUES)&1
+    sta $2183
+    lda #$80
+    sta $4340
+    sta $4341
+    lda #^M7_SPARSE_BATCH
+    sta $4344
+    rep #$20
+    .a16
+    lda #.loword(M7_SPARSE_BATCH)
+    sta $4342
+    lda transfer_len
+    sta $4345
+    lda #$C010
+    sta $420B
+    lda animation_index
+    sta a:SA1_LOCAL_EVENTS
+    lda #0
+    sta f:SA1_DONE
+    lda #5
+    sta f:SA1_COMMAND
+    sep #$20
+    .a8
+    lda #$80
+    sta $2202
+    sta $2200
+    rep #$20
+    .a16
+@wait:
+    jsr audio_pump
+    lda $2300
+    and #$80
+    beq @wait
+@done:
+    pla
+    jsr animation_advance
+    lda #1
+    sta animation_seek_dirty
+    stz msu_data_busy
+    rts
+
+animation_symbol_set:
+    lda animation_value
+    sta event_count
+    sta animation_bytes
+    stz m7_run_index
+    jeq @done
+@chunk:
+    lda animation_bytes
+    cmp #257
+    bcc :+
+    lda #256
+:
+    sta transfer_len
+    lda #.loword(M7_RUN_VALUES)
+    sta transfer_dest
+    lda #1
+    sta transfer_wbank
+    jsr animation_read_begin
+    jsr animation_dma
+    lda #.loword(M7_RUN_VALUES)
+    sta $2181
+    sep #$20
+    .a8
+    lda #1
+    sta $2183
+    lda #$80
+    sta $4340
+    sta $4341
+    lda #.bankbyte(TRACK_SYMBOL_FLOORS)
+    sta $4344
+    rep #$20
+    .a16
+    lda m7_run_index
+    clc
+    adc #.loword(TRACK_SYMBOL_FLOORS)
+    sta $4342
+    lda transfer_len
+    sta $4345
+    lda #$C010
+    sta $420B
+    lda transfer_len
+    jsr animation_advance
+    lda m7_run_index
+    clc
+    adc transfer_len
+    sta m7_run_index
+    lda animation_bytes
+    sec
+    sbc transfer_len
+    sta animation_bytes
+    bne @chunk
+@done:
+    stz msu_data_busy
+    rts
+.endif

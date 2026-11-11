@@ -88,7 +88,40 @@ mode7_upload_chr:
     sta $420B
     rep #$20
     .a16
+    jsr mode7_clear_stage
     jmp mode7_cache_reset
+
+; The CPU staging image mirrors every low VRAM map byte, including cells
+; outside the first viewport. This lets later frames upload only changes.
+mode7_clear_stage:
+    lda #0
+    ldx #0
+@clear:
+    sta f:M7_STAGE_MAP,x
+    inx
+    inx
+    cpx #M7_STAGE_MASK+1
+    bcc @clear
+    stz $2116
+    lda #.loword(M7_STAGE_MAP)
+    sta $4302
+    lda #M7_STAGE_MASK+1
+    sta $4305
+    sep #$20
+    .a8
+    stz $2115
+    stz $4300
+    lda #$18
+    sta $4301
+    lda #^M7_STAGE_MAP
+    sta $4304
+    lda #1
+    sta $420B
+    lda #$80
+    sta $2115
+    rep #$20
+    .a16
+    rts
 
 mode7_upload_map:
     stz $2116
@@ -137,6 +170,9 @@ mode7_invalidate:
     txa
     asl a
     tay
+.ifdef ROM_PACKED_COORDS
+    lda [visibility_index_ptr],y
+.else
     lda [visibility_ptr],y
     and #127
     .repeat 7
@@ -146,6 +182,7 @@ mode7_invalidate:
     lda [visibility_index_ptr],y
     and #127
     ora m7_coord
+.endif
     tay
     plx
     pla
@@ -265,6 +302,7 @@ mode7_update_cell:
     asl a
     tay
     lda [visibility_index_ptr],y
+.ifndef ROM_PACKED_COORDS
     sta m7_cell_x
     lda [visibility_ptr],y
     sta m7_cell_y
@@ -277,6 +315,7 @@ mode7_update_cell:
     lda m7_cell_x
     and #127
     ora m7_coord
+.endif
     sta m7_coord
     ldx m7_coord
     sep #$20
@@ -325,6 +364,9 @@ mode7_project:
 mode7_orbit_position:
     lda step
     jsr floor_position
+.ifdef NEO_BUILD
+    jsr neo_offset_pivot
+.endif
     lda floor_x
     clc
     adc orbit_x
@@ -347,13 +389,13 @@ mode7_prepare_view:
     sta m7_vtop
     lda #175
     sta m7_vbottom
-    lda #$1620
+    lda #$0620
     sta M7_HDMA_STAGE
     lda #$117F
     sta M7_HDMA_STAGE+2
     lda #$1111
     sta M7_HDMA_STAGE+4
-    lda #$1630
+    lda #$0630
     sta M7_HDMA_STAGE+6
     stz M7_HDMA_STAGE+8
     ldx selected_level
@@ -488,7 +530,30 @@ mode7_orb_piece:
 
 mode7_build_track_view:
 .ifdef SA1_BUILD
+    lda f:SA1_PENDING
+    beq :+
+    jmp sa1_cache_finish
+:
     jsl mode7_rotation_bounds
+.endif
+.ifdef ROM_PATTERN_COUNT
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne @ordinary_scroll
+    lda map_last_x
+    cmp #$FFFF
+    beq @ordinary_scroll
+    ; Fully dynamic resident charts already stream the exact wrapped map,
+    ; including departing cells. Keep the initial/checkpoint reconstruction
+    ; but do not decode those same exposed cells again during ordinary play.
+    lda f:M7_VIEW_X
+    sta map_x
+    sta map_last_x
+    lda f:M7_VIEW_Y
+    sta map_y
+    sta map_last_y
+    jmp mode7_cache_prepare
+@ordinary_scroll:
 .endif
     stz map_scan_valid
     ; The cache is in raster coordinates, which may differ from gameplay
@@ -1141,7 +1206,7 @@ mode7_prepare_patterns:
     sep #$20
     .a8
     lda #1
-    sta f:M7_PATTERN_SELECTED,x
+    sta M7_PATTERN_SELECTED,x
     rep #$20
     .a16
     inc m7_upload_slots
@@ -1177,7 +1242,7 @@ mode7_prepare_patterns:
     sep #$20
     .a8
     lda #1
-    sta f:M7_PATTERN_SELECTED,x
+    sta M7_PATTERN_SELECTED,x
     rep #$20
     .a16
     inc m7_upload_slots
@@ -1208,13 +1273,13 @@ mode7_prepare_patterns:
     sta pattern_hi
 @scan:
     ldx pattern_hi
-    lda f:M7_PATTERN_SELECTED,x
+    lda M7_PATTERN_SELECTED,x
     and #255
     jeq @scan_next
     sep #$20
     .a8
     lda #0
-    sta f:M7_PATTERN_SELECTED,x
+    sta M7_PATTERN_SELECTED,x
     rep #$20
     .a16
     lda pattern_raw

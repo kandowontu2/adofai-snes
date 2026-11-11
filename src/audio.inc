@@ -49,6 +49,18 @@ spc_upload:
     bne @boot
     rep #$20
     .a16
+.ifdef MSU_BUILD
+    ; Channel 1 is reserved for three-byte SPC stream packets. Keep its
+    ; fixed destination separate from graphics and MSU/WRAM DMA channels.
+    lda #$4104
+    sta $4310
+    sep #$20
+    .a8
+    lda #.bankbyte(AUDIO_FIFO)
+    sta $4314
+    rep #$20
+    .a16
+.endif
     rts
 play_hit_sound:
 .ifdef HIT_SOUND_BANKS
@@ -659,18 +671,18 @@ audio_pump:
     .a16
     pha
     lda music_active
-    jeq @done
+    jeq audio_pump_exit
     lda msu_pcm
-    jne @done
+    jne audio_pump_exit
     lda apu_busy
-    jne @done
+    jne audio_pump_exit
     lda f:AUDIO_PACKET_INFLIGHT
     beq @ready
     sep #$20
     .a8
     lda $2140
     cmp packet_seq
-    jne @done8
+    jne audio_pump_done8
     rep #$20
     .a16
     lda #0
@@ -681,7 +693,7 @@ audio_pump:
     sbc f:AUDIO_FIFO_TAIL
     and #1023
     cmp #3
-    jcc @done
+    jcc audio_pump_exit
     ; Polls that cannot send never touch X. Save it once for the whole
     ; drain, rather than paying a stack round trip on every idle poll.
     phx
@@ -690,6 +702,25 @@ audio_pump:
     sta apu_busy
     lda f:AUDIO_FIFO_TAIL
     tax
+    cpx #1021
+    bcs @wrapped_packet
+    clc
+    adc #.loword(AUDIO_FIFO)
+    sta $4312
+    lda #3
+    sta $4315
+    sep #$20
+    .a8
+    lda #2
+    sta $420B
+    rep #$20
+    .a16
+    txa
+    clc
+    adc #3
+    tax
+    bra @packet_loaded
+@wrapped_packet:
     sep #$20
     .a8
     lda f:AUDIO_FIFO,x
@@ -715,6 +746,7 @@ audio_pump:
 :
     rep #$20
     .a16
+@packet_loaded:
     txa
     sta f:AUDIO_FIFO_TAIL
     lda #1
@@ -757,16 +789,16 @@ audio_pump:
     plx
     ; A note due during the packet handshake runs as soon as ports are free.
     lda f:SOUND_PENDING
-    beq @done
+    beq audio_pump_exit
     jsr service_tap_sounds
-@done:
+audio_pump_exit:
     pla
     plp
     rts
-@done8:
+audio_pump_done8:
     rep #$20
     .a16
-    bra @done
+    bra audio_pump_exit
 .endif
 
 .segment "CODE"

@@ -131,7 +131,19 @@ sprite:
 @field:
     lda sprite_y
     cmp #32
+    bcs @top_ok
+.ifdef SA1_BUILD
+    lda sprite_attr
+    cmp #$21
+    jne @done
+    lda sprite_y
+    cmp #25
     jcc @done
+.else
+    jmp @done
+.endif
+@top_ok:
+    lda sprite_y
     cmp #177
     jcs @done
 @append:
@@ -144,7 +156,13 @@ sprite:
     sta budget_first
     lda sprite_y
     clc
+    ldx object_small
+    bne @small_budget
     adc #15
+    bra @budget_extent
+@small_budget:
+    adc #7
+@budget_extent:
     lsr a
     lsr a
     lsr a
@@ -153,7 +171,7 @@ sprite:
 @check:
     lda SPRITE_BUDGET,x
     and #255
-    cmp #17
+    cmp #32
     jcc @room
     rts
 @room:
@@ -166,6 +184,10 @@ sprite:
     .a8
 @charge:
     inc SPRITE_BUDGET,x
+    lda object_small
+    bne :+
+    inc SPRITE_BUDGET,x
+:
     inx
     cpx budget_last
     bcc @charge
@@ -409,6 +431,10 @@ render_inner:
     sta sprite_tile
     jmp sprite
 @level:
+.ifdef NEO_BUILD
+    jsr neo_prepare_hold
+    jsr neo_prepare_free
+.endif
     lda state
     cmp #1
     bne @fixed_camera
@@ -419,6 +445,9 @@ render_inner:
     sta cam_x
     lda f:CAMERA_SCRIPT_Y
     sta cam_y
+.ifdef NEO_BUILD
+    jsr neo_free_camera
+.endif
     bra @fixed_camera
 .else
     lda floor_x
@@ -486,6 +515,24 @@ render_inner:
     sta cam_y
 .endif
 @fixed_camera:
+.ifdef SA1_BUILD
+    ; Animation has finished mutating the map. At unit projection the CPU
+    ; can build planets while SA-1 prepares the immutable track snapshot;
+    ; rotated projections still own the arithmetic worker synchronously.
+    lda state
+    cmp #1
+    bne @cache_started
+    lda f:M7_PROJECT_COS
+    cmp #256
+    bne @cache_started
+    lda f:M7_PROJECT_SIN
+    bne @cache_started
+    lda #1
+    sta sa1_async
+    jsr build_track_view
+    stz sa1_async
+@cache_started:
+.endif
     lda step
     asl a
     tax
@@ -500,11 +547,20 @@ render_inner:
     adc first_arc_frames
     bra @delta
 @normal_delta:
+.ifdef NEO_BUILD
+    lda f:NOTE_PAUSE,x
+    and #$3FFF
+    sta scratch
+.endif
     lda chart_time
     sec
     sbc f:NOTE_TIME,x
     sec
+.ifdef NEO_BUILD
+    sbc scratch
+.else
     sbc f:NOTE_PAUSE,x
+.endif
     bpl @delta
     ldy checkpoint_preroll
     bne @delta
@@ -517,8 +573,16 @@ render_inner:
     adc f:NOTE_ANGLE,x
     and #255
     sta angle
+.ifdef NEO_BUILD
+    jsr neo_apply_ease
+    lda chart_time
+    jsr neo_free_orbit
+.endif
     jsr sine_cosine
     lda step
+.ifdef NEO_BUILD
+    eor neo_free_hops
+.endif
     and #1
     asl a
     clc
@@ -549,6 +613,9 @@ render_inner:
     jsr sprite
 .endif
 @symbols:
+.ifdef NEO_BUILD
+    jsr neo_draw_return
+.endif
 .ifdef MSU_BUILD
     ldx step
     lda f:NOTE_CCW,x
@@ -591,8 +658,20 @@ render_inner:
 @two_planets:
 .endif
 .ifdef SA1_BUILD
+    ; Finish the track cache before optional event markers use OBJ space.
+    ; Planets and exact track tiles take precedence over decorative OAM.
+    lda state
+    cmp #1
+    bne render_symbols
+    rts
+render_symbols:
+    stz object_small
+    jsr symbol_world_bounds
+    jsr sa1_symbols
     stz event_cursor
-    lda event_count
+    lda f:SYMBOL_VISIBLE_COUNT
+    sta event_end
+    lda event_end
     jeq @portal
 .else
     lda step
@@ -618,9 +697,15 @@ render_inner:
 @symbol:
 .ifdef SA1_BUILD
     ldx event_cursor
-    lda f:TRACK_SYMBOL_FLOORS,x
+    lda f:SYMBOL_VISIBLE,x
     sta render_i
-.endif
+    ldx render_i
+    ; Both the chart index and authored active lists contain event floors
+    ; only. Keep the alpha check for legacy/checkpoint fallback lists.
+    lda f:FLOOR_ALPHA,x
+    and #255
+    jeq @next
+.else
     ldx render_i
     lda f:NOTE_FLAGS,x
     bit #128
@@ -630,9 +715,11 @@ render_inner:
     lda render_i
     jsr visible_floor
     jeq @next
+.endif
     ; Most future events are far outside the camera. Cull once before
     ; building either icon, rather than rendering every event in the song.
-    jsr tile_position
+    jsr render_symbol_position
+.ifndef SA1_BUILD
     lda sprite_x
     cmp #$FFF1
     bcs @event_x
@@ -647,6 +734,7 @@ render_inner:
     bcc @event_visible
     jmp @next
 @event_visible:
+.endif
     ldx render_i
     lda f:NOTE_FLAGS,x
     and #3
@@ -691,13 +779,66 @@ render_inner:
     ldx render_i
     lda f:NOTE_FLAGS,x
     and #32
-    beq @checkpoint
+    jeq @checkpoint
+.ifdef NEO_BUILD
+    lda render_i
+    asl a
+    tax
+    lda f:NOTE_PAUSE,x
+    bpl @not_hold_icon
+    lda render_i
+    jsl neo_far_hold_style
+    beq @short_hold_icon
+    lda #106
+    ldx #$34
+    bra @neo_special_icon
+@short_hold_icon:
+    lda #104
+    ldx #$32
+    bra @neo_special_icon
+@not_hold_icon:
+    cpx #0
+    beq @pause_icon
+    lda f:NOTE_PAUSE-2,x
+    bpl @not_release_icon
+    lda render_i
+    dec a
+    jsl neo_far_hold_style
+    beq @short_release_icon
+    ldx #$34
+    bra @release_icon
+@short_release_icon:
+    ldx #$32
+@release_icon:
+    lda #108
+@neo_special_icon:
+    sta sprite_tile
+    stx sprite_attr
+    jsr render_symbol_position
+    jsr sprite
+    jmp @checkpoint
+@not_release_icon:
+    ldx render_i
+    lda f:NOTE_CCW,x
+    eor f:NOTE_CCW-1,x
+    and #2
+    beq @pause_icon
+    lda f:NOTE_CCW,x
+    and #2
+    beq @two_planet_icon
+    lda #110
+    bra @special_icon
+@two_planet_icon:
+    lda #72
+    bra @special_icon
+@pause_icon:
+.endif
     lda #72
 @special_icon:
     sta sprite_tile
     lda #$36
     sta sprite_attr
-    jsr tile_position
+    jsr render_symbol_position
     jsr sprite
 @checkpoint:
     lda time_attack
@@ -721,7 +862,7 @@ render_inner:
 @flag:
     lda #$36
     sta sprite_attr
-    jsr tile_position
+    jsr render_symbol_position
     ldx render_i
     lda f:NOTE_FLAGS,x
     and #55
@@ -737,7 +878,7 @@ render_inner:
     inc event_cursor
     inc event_cursor
     lda event_cursor
-    cmp event_count
+    cmp event_end
     jcs @portal
 .else
     inc render_i
@@ -769,9 +910,29 @@ render_inner:
     ; parallel SA-1 cache job. The end portal can be visible far ahead.
     jmp draw_trails
 
+render_symbol_position:
+.ifdef SA1_BUILD
+    ldx event_cursor
+    lda f:SYMBOL_SCREEN_X,x
+    sta sprite_x
+    lda f:SYMBOL_SCREEN_Y,x
+    sta sprite_y
+    rts
+.else
+    jmp tile_position
+.endif
+
 pivot_position:
+.ifdef NEO_BUILD
     lda step
     sta render_i
+    jsr floor_position
+    jsr neo_offset_pivot
+    jmp mode7_project
+.else
+    lda step
+    sta render_i
+.endif
 tile_position:
     lda render_i
     jsr floor_position
@@ -1150,3 +1311,32 @@ map_offset_pointer:
     rep #$20
     .a16
     rts
+
+.ifdef SA1_BUILD
+symbol_world_bounds:
+    lda project_limit_x
+    asl a
+    sta f:SYMBOL_WIDTH_X
+    lda project_limit_y
+    asl a
+    sta f:SYMBOL_WIDTH_Y
+    lda cam_x
+    clc
+    adc #128
+    clc
+    adc f:M7_ORIGIN_X
+    sta f:SYMBOL_CENTER_X
+    sec
+    sbc project_limit_x
+    sta f:SYMBOL_MIN_X
+    lda cam_y
+    clc
+    adc #104
+    clc
+    adc f:M7_ORIGIN_Y
+    sta f:SYMBOL_CENTER_Y
+    sec
+    sbc project_limit_y
+    sta f:SYMBOL_MIN_Y
+    rts
+.endif

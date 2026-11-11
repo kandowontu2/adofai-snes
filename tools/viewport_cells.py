@@ -43,6 +43,7 @@ def share_clipped_patterns(chart,tiles,history):
     cameras={f:(x,y) for f,x,y in chart['camera_follow_versions']}
     rotations={f:(c,s) for f,c,s in chart.get('camera_sampling_versions',chart.get('camera_rotation_versions',[]))}
     values=[int.from_bytes(t,'little') for t in tiles]
+    lookup={raw:i for i,raw in enumerate(tiles)}
     @lru_cache(maxsize=4096)
     def byte_mask(bits):return int.from_bytes(bytes(255 if bits>>i&1 else 0 for i in range(64)),'little')
     live={};previous={};result={};camera=cameras[0];rotation=(256,0);shared=0
@@ -65,6 +66,20 @@ def share_clipped_patterns(chart,tiles,history):
                     if not ((values[p]^values[q])&mask):
                         aliases={old:(q if target==p else target) for old,target in aliases.items()}
                         uses[q]|=uses[p];counts[q]+=counts[p];shared+=1;break
+                if aliases[p]!=p:continue
+                # Two clipped cells can share a new bitmap even when neither
+                # complete source bitmap matches. Only their sampled overlap
+                # must agree; preserve both sets of visible pixels exactly.
+                for q in sorted(set(aliases.values())-{p},key=lambda q:uses[q].bit_count()):
+                    overlap=byte_mask(uses[p]&uses[q])
+                    if (values[p]^values[q])&overlap:continue
+                    merged=(values[q]&~mask)|(values[p]&mask)
+                    raw=merged.to_bytes(64,'little')
+                    if raw not in lookup:
+                        lookup[raw]=len(tiles);tiles.append(raw);values.append(merged)
+                    target=lookup[raw]
+                    aliases={old:(target if v in (p,q) else v) for old,v in aliases.items()}
+                    uses[target]=uses[p]|uses[q]|uses.get(target,0);counts[target]=counts[p]+counts[q]+(counts[target] if target not in (p,q) else 0);shared+=1;break
             assert all(not ((values[p]^values[target])&byte_mask(original_masks[p])) for p,target in aliases.items()),'Boundary sharing changed a sampled pixel'
         current={cell:aliases[p] for cell,p in live.items() if p and cell in masks}
         for cell in previous.keys()|current.keys():

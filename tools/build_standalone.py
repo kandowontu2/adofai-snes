@@ -19,10 +19,28 @@ SA1=False
 ADAPTIVE_AUDIO=False
 FAST_CACHE=ROOT/'build/fast-audio-cache'
 FAST_MUSIC={}
+SOURCE_OVERRIDES={}
 
 
 def source_for(n):
-    return VARIANT if n in DENSE_CHARTS else MASTER
+    return SOURCE_OVERRIDES.get(n,VARIANT if n in DENSE_CHARTS else MASTER)
+
+
+def prepare_resident_variant(key,levels):
+    # T3 EX's scene graphics exceed 8 MiB when every repeated bitmap is
+    # inlined. Use the existing lossless paged dictionary for this cartridge.
+    if not SA1 or levels!=[73]:return
+    original=source_for(73)
+    chart=json.loads((original/'level73.json').read_text())
+    if chart.get('resident_pattern_format'):return
+    import re
+    target=ROOT/'build/packs'/key/'source';target.mkdir(parents=True,exist_ok=True)
+    for p in original.iterdir():
+        if p.is_file() and re.search(r'(?:level|animation|chart|track_chr|track_map|timeline|patterns|checkpoints|visibility_index|music)73(?:[-.]|$)',p.name):
+            shutil.copyfile(p,target/p.name)
+    from resident_patterns import prepare
+    prepare(target,73,dense_prefetch=True)
+    SOURCE_OVERRIDES[73]=target
 
 
 def prepare_variants(levels):
@@ -45,10 +63,16 @@ def file_offset(cpu):
 
 def payload(charts,ui):
     blobs=dict(ui)
+    if any(c.get('neo_cosmos') for c in charts):
+        from neo_runtime_assets import binary_tables
+        blobs['neo_tables']=binary_tables(MASTER,[c['id'] for c in charts])[0]
     for c in charts:
         n=c['id'];source=source_for(n)
         for prefix in ('chart','track_chr','track_map'):
             blobs[f'{prefix}{n}']=(source/f'{prefix}{n}.bin').read_bytes()
+        if c.get('resident_pattern_format'):
+            for prefix in ('resident_raw','resident_future'):blobs[f'{prefix}{n}']=(source/f'{prefix}{n}.bin').read_bytes()
+        if c.get('native_stream_format'):blobs[f'resident_animation{n}']=(source/f'resident_animation{n}.bin').read_bytes()
         blobs[f'music{n}']=bytes(2)
         blobs[f'timeline{n}']=bytes(2)
         blobs[f'checkpoints{n}']=bytes(max(2,14*len(c['checkpoints'])))
@@ -108,6 +132,7 @@ def prepare(key,title,levels):
 
 
 def build(key,title,levels):
+    prepare_resident_variant(key,levels)
     out=prepare(key,title,levels)
     if SA1:
         from build_sa1 import compile_engine
@@ -147,6 +172,8 @@ def main():
     groups={k:dict(v) for k,v in PACKS.items()}
     groups['tech']=dict(title='FEATURED TECH',levels=list(range(40,62)))
     if community:groups['community']=dict(title='COMMUNITY CHARTS',levels=community)
+    if all((MASTER/f'level{n}.json').exists() for n in range(66,75)):
+        groups['neo']=dict(title='NEO COSMOS',levels=list(range(66,75)))
     rows=json.loads(args.resume_catalog.read_text())['roms'] if args.resume_catalog else []
     for row in rows:
         assert hashlib.sha256((ROOT/'build/packs'/row['key']/'adofai.sfc').read_bytes()).hexdigest()==row['rom_sha256']

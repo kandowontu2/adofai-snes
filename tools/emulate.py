@@ -81,6 +81,8 @@ class Emulator:
         self.ram=self.core.retro_get_memory_data(2)
         self.sa1='sa1_cache_prepare' in self.labels
         self.cache_ram=self.core.retro_get_memory_data(0) if self.sa1 else self.ram
+        addresses=(path.parent/'addresses.inc').read_text() if (path.parent/'addresses.inc').exists() else ''
+        self.hud=self.cache_ram+0x800 if re.search(r'^SA1_WRAM_RENDERER\s*=\s*1\s*$',addresses,re.M) else self.ram+0x800
         assert self.ram and self.core.retro_get_memory_size(2)>=128*1024,[(i,self.core.retro_get_memory_size(i)) for i in range(4)]
         av=AVInfo(); self.core.retro_get_system_av_info(C.byref(av)); self.av=av
         self.frames=0

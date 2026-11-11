@@ -18,6 +18,7 @@
     "background.map": 2048,
     "font.chr": 2048,
     "objects.chr": 8192,
-    "palette.bin": 512
+    "palette.bin": 512,
+    "freeroam.chr": 2048
   }
 }

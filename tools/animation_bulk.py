@@ -11,7 +11,7 @@ def records(data):
     pos = 0
     while pos + 7 <= len(data):
         frame, kind, index, value = HEADER.unpack_from(data, pos)
-        extra = (68 if kind == 4 else value if kind in (5, 14) else
+        extra = (value if kind in (25,26,28,29) else 66 if kind == 24 else 68 if kind == 4 else value if kind in (5, 14) else
                  value * 3 if kind == 8 else value + 4 if kind == 9 else
                  7 * (value - 1) if kind in (17, 18, 19) else
                  75 * value - 7 if kind == 20 else
@@ -28,9 +28,17 @@ def records(data):
 def semantic_digest(data):
     h = hashlib.sha256()
     for pos, end, frame, kind, index, value in records(data):
-        if kind == 21:
+        if kind in (21,26):
             continue # Optional catch-up branch; canonical stream follows it.
-        if kind in (17, 18, 19):
+        if kind == 29:
+            for i in range(index):
+                cell,_,v=struct.unpack_from('<HHB',data,pos+7+5*i)
+                h.update(HEADER.pack(frame,0,cell,v))
+        elif kind == 25:
+            for i in range(index):
+                slot,tag=struct.unpack_from('<HH',data,pos+7+4*i)
+                h.update(HEADER.pack(frame,27,slot,tag))
+        elif kind in (17, 18, 19):
             size = 1 if kind == 19 else 2
             original = {17: 2, 18: 3, 19: 1}[kind]
             for i in range(value):
@@ -59,8 +67,17 @@ def batch(data):
         elif kind == 4:
             while j < len(rows) and j-i < 16 and rows[j][2:4] == (frame,kind):
                 j += 1
+        elif kind == 27:
+            while j < len(rows) and j-i < 256 and rows[j][2:4] == (frame,kind):
+                j += 1
         count = j-i
-        if kind == 4 and count >= 3:
+        if kind == 27 and count >= 3:
+            end=rows[j-1][1]
+            body=b''.join(struct.pack('<HH',r[4],r[5]) for r in rows[i:j])
+            span=end-pos-7
+            output[pos:end]=HEADER.pack(frame,25,count,span)+body+bytes(span-len(body))
+            groups.append((pos,end,count))
+        elif kind == 4 and count >= 3:
             end=rows[j-1][1]
             body=b''.join(struct.pack('<HH',r[4],r[5])+data[r[0]+11:r[1]] for r in rows[i:j])
             hints=b''.join(data[r[0]+7:r[0]+11] for r in rows[i:j])

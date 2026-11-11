@@ -7,6 +7,9 @@ mode7_prefetch:
     lda f:M7_CACHE_READY
     beq @done
     jsr mode7_commit_patterns
+.ifdef SA1_BUILD
+    jsr spill_upload
+.endif
     lda #0
     sta f:M7_CACHE_READY
     sep #$20
@@ -31,7 +34,7 @@ mode7_prime_hdma:
     cmp #2
     bne @menu
 @scene:
-    lda #$1620
+    lda #$0620
     sta M7_HDMA_DISPLAY
     ldx #.loword(hdma_mode7)
     phx
@@ -61,6 +64,8 @@ mode7_prime_hdma:
 mode7_commit_map:
     stz pattern_skip_hud
 .ifdef SA1_BUILD
+    lda f:M7_FORCE_SKIP_HUD
+    sta pattern_skip_hud
     lda m7_row_count
     cmp #20
     bcc :+
@@ -74,6 +79,11 @@ mode7_commit_map:
 :
     lda m7_row_count
     jeq @done
+.ifdef ROM_WRAP_MAP
+    ldx selected_level
+    cpx #ROM_PATTERN_LEVEL
+    jeq mode7_commit_wrapped_rows
+.endif
     sep #$20
     .a8
     stz $2115
@@ -180,6 +190,46 @@ mode7_commit_map:
     .a16
     rts
 
+.ifdef ROM_WRAP_MAP
+; Wrapped descriptors already contain a bounded 14-bit VRAM address.
+; Avoid a per-row address mask and the generic tiny-write dispatch.
+mode7_commit_wrapped_rows:
+    tay
+    sep #$20
+    .a8
+    stz $2115
+    stz $4300
+    lda #$18
+    sta $4301
+    lda #.bankbyte(M7_STAGE_MAP)
+    sta $4304
+    rep #$20
+    .a16
+    ldx #0
+@row:
+    lda f:M7_DMA_LIST,x
+    sta $2116
+    ora #.loword(M7_STAGE_MAP)
+    sta $4302
+    lda f:M7_DMA_LIST+2,x
+    sta $4305
+    lda #$C001
+    sta $420B
+    inx
+    inx
+    inx
+    inx
+    dey
+    bne @row
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$20
+    .a16
+    rts
+.endif
+
 mode7_commit_patterns:
     lda display_state
     cmp #2
@@ -198,6 +248,9 @@ mode7_commit_patterns:
     inc pattern_skip_hud
 :
     tay
+.ifdef SA1_BUILD
+    sta f:M7_TAG_COUNT
+.endif
     stz pattern_queue_count
     sep #$20
     .a8
@@ -210,6 +263,34 @@ mode7_commit_patterns:
     sta $4354
     rep #$20
     .a16
+.ifdef SA1_BUILD
+    sep #$20
+    .a8
+    lda #.bankbyte(M7_PATTERN_STAGE)
+    sta $4354
+    rep #$20
+    .a16
+    lda f:M7_PATTERN_RUN_COUNT
+    tay
+    beq @done
+    ldx #0
+@run:
+    lda f:M7_PATTERN_RUNS,x
+    sta $2116
+    clc
+    adc #.loword(M7_PATTERN_STAGE)
+    sta $4352
+    lda f:M7_PATTERN_RUNS+2,x
+    sta $4355
+    lda #$C020
+    sta $420B
+    inx
+    inx
+    inx
+    inx
+    dey
+    bne @run
+.else
     ldx #0
 @pattern:
     lda f:PATTERN_QUEUE+4,x
@@ -245,6 +326,7 @@ mode7_commit_patterns:
     adc #16
     tax
     bra @pattern
+.endif
 @done:
     rts
 

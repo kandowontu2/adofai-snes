@@ -9,7 +9,7 @@ def verify(base,source):
     loc=json.loads((base/'placements.json').read_text())
     labels={name:int(value,16) for value,name in re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)',(base/'adofai.lbl').read_text())}
     assert len(rom)==0x800000
-    assert rom[0x7fd5:0x7fd9]==bytes([0x23,0x35,0x0d,7]),rom[0x7fd5:0x7fd9]
+    assert rom[0x7fd5:0x7fd8]==bytes([0x23,0x35,0x0d]) and rom[0x7fd8] in (7,8),rom[0x7fd5:0x7fd9]
     inverse,checksum=struct.unpack_from('<HH',rom,0x7fdc)
     assert inverse^checksum==65535 and sum(rom)&65535==checksum
     worker=(base/'sa1_worker.bin').read_bytes()
@@ -22,13 +22,15 @@ def verify(base,source):
         addresses=[constants[name] for name in (*camera_state,*diagnostics)]
         assert len(set(addresses))==len(addresses),'VBlank diagnostics overlap live camera state'
         assert all(0x41FCD0<=address<0x41FD00 and address%2==0 for address in addresses)
-    if len(worker)==0x7000:
+    if '__FASTNMI_RUN__' in labels:
         for name in ('mode7_rotation_bounds','camera_scale_sprite'):
             assert 0x01F000<=labels[name]<0x020000,(name,labels[name])
-        assert 0x1000<=labels['mode7_rotate_project']<0x1800
-        assert 0x3100<=labels['camera_scale_offset']<0x3780
-    assert 0x3100<=labels['__FASTNMI_RUN__'] and labels['__FASTNMI_RUN__']+labels['__FASTNMI_SIZE__']<=0x3780
-    assert 0x1000<=labels['__FASTWRAM_RUN__'] and labels['__FASTWRAM_RUN__']+labels['__FASTWRAM_SIZE__']<=0x1800
+        assert labels['__FASTWRAM_RUN__']<=labels['mode7_rotate_project']<0x1800
+        assert labels['__FASTNMI_RUN__']<=labels['camera_scale_offset']<labels['__FASTNMI_RUN__']+labels['__FASTNMI_SIZE__']
+    nmi_start=labels['__FASTNMI_RUN__']
+    nmi_end=0x0e00 if nmi_start==0x0800 else 0x3780
+    assert nmi_start in (0x0800,0x3100) and nmi_start+labels['__FASTNMI_SIZE__']<=nmi_end
+    assert 0x0e00<=labels['__FASTWRAM_RUN__'] and labels['__FASTWRAM_RUN__']+labels['__FASTWRAM_SIZE__']<=0x1800
     assert 0x01F000<=labels['__FASTWRAM_LOAD__'] and labels['__FASTWRAM_LOAD__']+labels['__FASTWRAM_SIZE__']<=0x020000
     if labels.get('NOTE_X') == 0x7F8000:
         assert labels['NOTE_Y'] == 0x7FA200 and labels['M7_CHR_HIGH'] == 0x7F6800
@@ -49,6 +51,12 @@ def verify(base,source):
         if labels.get('NOTE_X') == 0x7F8000:
             assert chart['visibility_cells'] <= 0x6600, (n, 'Cell state overlaps relocated CHR shadow')
         assert len((base/f'patterns{n}.bin').read_bytes())//64<=0xFE00,'Pattern IDs overlap checkpoint identities'
+        for prefix in ('resident_raw','resident_future','resident_animation'):
+            name=f'{prefix}{n}'
+            if name not in loc:continue
+            expected=(source/f'{name}.bin').read_bytes();start=offset(loc[name])
+            assert rom[start:start+len(expected)]==expected,(n,prefix,start)
+            checked+=1
         for prefix in ('chart','track_chr','track_map','visibility_index'):
             expected=(base/f'{prefix}{n}.bin').read_bytes();start=offset(loc[f'{prefix}{n}'])
             if prefix=='chart' and (base/'zero-pauses.json').exists() and json.loads((base/'zero-pauses.json').read_text()).get(str(n)):
@@ -64,6 +72,9 @@ def verify(base,source):
         if chart.get('catchup_format') and not source_chart.get('catchup_format'):
             from animation_catchup import compile_stream
             expected_stream,snapshot_mapping,_=compile_stream(expected_stream,chart)
+        if chart.get('compiled_reference_sets'):
+            from animation_sparse import batch_sparse
+            expected_stream=batch_sparse(expected_stream,chart)[0]
         for suffix,name in [('music',f'level{n}.brr'),('animation',f'animation{n}.bin')]+[(f'cp{i}',f'animation{n}-checkpoint-{i}.bin') for i in range(len(chart['checkpoints']))]:
             expected=(source/name).read_bytes();start=offset(loc[f'romdata{n}_{suffix}'])
             if suffix=='animation':

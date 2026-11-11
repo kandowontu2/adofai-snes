@@ -52,6 +52,22 @@ Each starting tile addresses a 16 by 16 OBJ block (two adjacent tiles on two
 atlas rows). Four-block sizes use top-left, top-right, bottom-left, bottom-right
 order. Trails occupy tiles 128 through 255. Preserve transparent pixel index 0.
 
+The Neo Cosmos renderer uses the new 16-by-16 symbols at starting
+tiles 104 (zero-extra hold, red arrow), 106 (extended hold, blue), and
+108 (release, inheriting its hold color). Planet-count changes use tile 72
+(two planets) or 110 (three planets), from `objects (3).chr`. These use the
+same two-column/two-row arrangement as the other event symbols. They come
+from the supplied `objects (1).chr`; do not move them into the planet or trail
+slots.
+
+`mode7/freeroam.chr` is a separate 2,048-byte, 4bpp sheet (64 tiles).
+Tiles 0–3 draw the occupied return cell; 4 is a collectible coin, 5 is a
+warning, and 6–7 are vertical/horizontal laser beams. Tiles 8–19 contain
+three fading versions of the return cell. Tile 20 is the incoming meteor used
+by T3 and T3EX defense sections. Keep the remaining tiles reserved.
+The loader places this sheet at OBJ indices 448–511, separate from the
+track spill cache and HUD tilemap.
+
 Track graphics are procedural: charts can use arbitrary angles, tile rotations,
 movement and zoom. Edit `assets/graphics/track-shapes.json` for the normal track
 width/half-segment length and the midspin/full-turn local polygon outlines.
@@ -114,3 +130,7 @@ RAM, cache contents and animation pointers.
 When submitting graphics changes, include screenshots and identify the chart,
 speed, emulator, and section tested. Do not include extracted music, original
 game assets, private chart data, build directories, or emulator binaries.
+
+During three-planet sections, the third planet averages each RGB channel of the
+two selected planet palettes, including all shade entries. Change the two primary
+colors in Options to change this blend.

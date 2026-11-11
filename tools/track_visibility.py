@@ -40,6 +40,8 @@ def visibility_schedule(data,chart):
             t=native_event_time(data,chart,e)
             for j in range(min(e['start'],e['end']),max(e['start'],e['end'])+1,1+e.get('gapLength',0)):
                 if 0<=j<count:move(j,t,native_duration(data,chart,e),e['targetOpacity'],e.get('ease','Linear'))
+    for e in chart.get('neo_opacity_events',[]):
+        move(e['floor'],e['time'],e['duration'],e['opacity'])
     settings=data.get('track_settings',{});actions=gameplay_actions(data)
     if settings:
         events=collections.defaultdict(list)
@@ -87,6 +89,16 @@ def visibility_schedule(data,chart):
                         visible=all(v!=0 for v in size if v is not None)
                         scale_events[max(0,math.ceil((t+(duration if not visible else 0))*common.FPS))][j]=visible
     changes=collections.defaultdict(dict)
+    for region in chart.get('freeroam_regions',[]):
+        i=region['step']
+        # The root is an invisible trigger floor. Generated grid cells have
+        # their own opacity; inheriting the root's zero alpha hides the grid.
+        initial[i]=3
+        initial_float[i]=1.
+        commands[i]=[]
+        # The original fades all unoccupied cells over one base beat when
+        # the return begins. The selected cell is rendered by the runtime.
+        move(i,region['return_start']/common.FPS,region['fade_duration']/common.FPS,0)
     for i,cs in enumerate(commands):
         current=initial[i];prior=initial_float[i]
         cs.sort(key=lambda c:c[0])
@@ -118,6 +130,9 @@ def visibility_schedule(data,chart):
         for j in range(min(e['start'],e['end']),max(e['start'],e['end'])+1,1+e.get('gapLength',0)):
             if 0<=j<count:scale_events[max(0,math.ceil(when*common.FPS))][j]=visible
     alpha=list(initial);shown=list(initial);scale=[True]*count;combined=collections.defaultdict(dict)
+    free_roots={r['step'] for r in chart.get('freeroam_regions',[])}
+    for updates in scale_events.values():
+        for i in free_roots:updates.pop(i,None)
     for frame in sorted(set(changes)|set(scale_events)):
         affected=set(changes.get(frame,{}))|set(scale_events.get(frame,{}))
         for i,v in changes.get(frame,{}).items():alpha[i]=v
@@ -125,6 +140,10 @@ def visibility_schedule(data,chart):
         for i in affected:
             value=alpha[i] if scale[i] else 0
             if value!=shown[i]:combined[frame][i]=value;shown[i]=value
+    hidden={i for i,n in enumerate(notes) if n.get('scene_hidden') or n.get('platform_hidden')}
+    for i in hidden:initial[i]=0
+    for updates in combined.values():
+        for i in hidden:updates.pop(i,None)
     return initial,dict(sorted(combined.items()))
 
 def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,authored=None):
@@ -144,6 +163,8 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
     compact_preview=False
     chart['readability_compact_preview']=bool(compact_preview)
     notes=[dict(n,x=round(n['x']/grid)*grid,y=round(n['y']/grid)*grid) for n in chart['notes']]
+    for region in chart.get('freeroam_regions',[]):
+        notes[region['step']]['freeroam_grid']=dict(region)
     bound=chart.get('motion_bounds',[max(n['x'] for n in notes),max(n['y'] for n in notes)])
     width=1<<math.ceil(math.log2((bound[0]+200)/8));height=math.ceil((bound[1]+160)/8)
     pieces=[];preview_pieces=[];cells=collections.defaultdict(set);seams=[];preview_seams=[]
@@ -165,8 +186,19 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             preview_seams.append([tuple(np.round(middle+normal).astype(int)),tuple(np.round(middle-normal).astype(int))])
     base_pieces=list(pieces);base_preview=list(preview_pieces);offsets_xy=[(0,0) for _ in notes]
     from track_motion import rotation_schedule
-    rotations=rotation_schedule(color_data,chart) if color_data and chart.get('mode7') and chart.get('tile_rotation_enabled',chart.get('id')==45) else {}
+    rotations=rotation_schedule(color_data,chart) if color_data and chart.get('mode7') and chart.get('tile_rotation_enabled',chart.get('neo_cosmos') or chart.get('id') in (20,22,23,24,26,45)) else {}
+    from track_motion import scale_schedule
+    scales=scale_schedule(color_data,chart) if color_data and (chart.get('neo_cosmos') or chart.get('id') in (20,22,23,24,26)) else {}
+    floor_scales=[(1.,1.)]*len(notes)
     angles=[0]*len(notes)
+    radii=[23]*len(notes)
+    for i,note in enumerate(notes):
+        if note.get('hold_length',-1)>=0 or note.get('freeroam_grid') or note.get('warp_visual') or note.get('scene_visual'):
+            x,y,im=base_pieces[i]
+            radii[i]=max(radii[i],math.ceil(max(math.hypot(xx-note['x'],yy-note['y']) for xx in (x,x+im.width) for yy in (y,y+im.height))))
+    base_radii=list(radii)
+    for updates in scales.values():
+        for i,value in updates.items():radii[i]=max(radii[i],math.ceil(max(abs(v) for v in value)*base_radii[i]))
     if rotations:chart['tile_rotation_version']=1
     def piece_cells(i,dx,dy):
         result=set()
@@ -175,19 +207,29 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             w,h=im.size
             # A rotated corner can extend outside its unrotated footprint.
             # Keep a conservative sweep around the floor's own pivot.
-            if rotations:
-                x0=notes[i]['x']+dx-23;y0=notes[i]['y']+dy-23
-                w=h=47
+            if (rotations or radii[i]!=23) and notes[i].get('hold_length',-1)<0 and not any(k in notes[i] for k in ('scene_visual','warp_visual')):
+                radius=radii[i]
+                x0=notes[i]['x']+dx-radius;y0=notes[i]['y']+dy-radius
+                w=h=radius*2+1
             result.update((x,y) for y in range(max(0,(y0-1)//8),min(height,(y0+h+8)//8)) for x in range(max(0,(x0-1)//8),min(width,(x0+w+8)//8)))
         return result
     if chart.get('mode7'):
         from track_motion import nearby_motion
         render_motion=nearby_motion(chart,motion,initial,changes)
     else:render_motion=motion
+    # A visible hold still depends on its tail when that floor is culled.
+    # Keep both endpoints on the gameplay motion timeline; floor opacity
+    # continues to control whether the endpoint itself is drawn.
+    hold_endpoints={j for i,n in enumerate(notes[:-1]) if n.get('hold_length',-1)>=0 for j in (i,i+1)}
+    if hold_endpoints:
+        render_motion={f:dict(updates) for f,updates in render_motion.items()}
+        for frame,updates in motion.items():
+            endpoints={i:p for i,p in updates.items() if i in hold_endpoints}
+            if endpoints:render_motion.setdefault(frame,{}).update(endpoints)
     if chart.get('reuse_motion_phase'):
         from raster_phase import motion as shift_motion
         render_motion=shift_motion(chart,render_motion)
-    for i in {i for updates in rotations.values() for i in updates}:
+    for i in {i for updates in rotations.values() for i in updates}|{i for updates in scales.values() for i in updates}:
         for x,y in piece_cells(i,0,0):cells[x,y].add(i)
     for updates in render_motion.values():
         for i,(dx,dy) in updates.items():
@@ -250,13 +292,17 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             # two floors cross, while fully occluding lower-floor detail.
             contour=ImageChops.subtract(layer,layer.filter(ImageFilter.MinFilter(3)))
             material.paste(1,mask=layer);material.paste(3,mask=contour)
+            if notes[i].get('scene_visual',{}).get('cutout'):
+                v=notes[i]['scene_visual'];ink=Image.frombytes('1',tuple(v['size']),bytes.fromhex(v['cutout'])).convert('L')
+                ink_layer=Image.new('L',size);ink_layer.paste(ink,(px-x0,py-y0))
+                material.paste(0,mask=ink_layer)
             if notes[i].get('taps_needed',1)>1 and frame<notes[i]['frame']:
                 inset=STYLE.get('multitap_border_inset',3)
                 inner=layer.filter(ImageFilter.MinFilter(inset*2+1))
                 inner_border=ImageChops.subtract(inner,inner.filter(ImageFilter.MinFilter(3)))
                 material.paste(3,mask=inner_border)
             separators.paste(0,mask=layer)
-            if chart.get('authored_visibility') and i+1<len(notes) and notes[i].get('spin_kind','normal')=='normal':
+            if chart.get('authored_visibility') and i+1<len(notes) and notes[i].get('spin_kind','normal')=='normal' and notes[i].get('hold_length',-1)<0 and not any(k in notes[i] for k in ('platform_group','warp_visual','scene_visual')):
                 # A recessed join belongs to this piece, before higher pieces
                 # occlude it. Never draw seams through overlapping upper floors.
                 a=notes[i].get('exit_angle')
@@ -325,8 +371,11 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
     def rectangle(view):
         x,y,w,h=view
         return {(xx,yy) for yy in range(y,y+h) for xx in range(x,x+w) if (xx,yy) in cells and in_view(xx,yy)}
+    grid_events=collections.defaultdict(list)
+    for region in chart.get('freeroam_regions',[]):
+        for frame in set(region.get('cell_deaths',[]))-{65535}:grid_events[frame].append(region['step'])
     render(set(cells) if viewport is None else rectangle(viewport),0)
-    for frame in sorted(set(changes)|set(render_motion)|set(rotations)|set(color_changes)|set(detail_events)|set(view_events)):
+    for frame in sorted(set(changes)|set(render_motion)|set(rotations)|set(color_changes)|set(detail_events)|set(view_events)|set(scales)|set(grid_events)):
         # While the final landing is pending, mode7_landing_time clamps the
         # scene to its frame minus one. Accepting it freezes the scene for
         # results. Never allocate patterns for unreachable post-clear views.
@@ -338,15 +387,28 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             transform=transforms.get(frame,transform)
             if precise is not None:precise=sampled(frame)
             dirty.update(old ^ rectangle(viewport))
+        for i in grid_events.get(frame,[]):
+            dirty.update(piece_cells(i,*offsets_xy[i]))
+            notes[i]['freeroam_grid']['render_frame']=frame
+            base_pieces[i]=piece(notes,i);base_preview[i]=base_pieces[i]
+            dx,dy=offsets_xy[i];px,py,part=base_pieces[i]
+            pieces[i]=(px+dx,py+dy,part);preview_pieces[i]=pieces[i]
         for i in detail_events.get(frame,[]):
             if alpha[i]:dirty.update(piece_cells(i,*offsets_xy[i]))
         for i,value in color_changes.get(frame,{}).items():
             color_slots[i]=value
             if alpha[i]:dirty.update(piece_cells(i,*offsets_xy[i]))
+        for i,value in scales.get(frame,{}).items():
+            dirty.update(piece_cells(i,*offsets_xy[i]));floor_scales[i]=value
+            base_pieces[i]=piece(notes,i,rotation=angles[i],scale=value)
+            base_preview[i]=piece(preview_notes,i,rotation=angles[i],scale=value)
+            dx,dy=offsets_xy[i];px,py,part=base_pieces[i];pieces[i]=(px+dx,py+dy,part)
+            px,py,part=base_preview[i];preview_pieces[i]=(px+dx,py+dy,part)
+            dirty.update(piece_cells(i,*offsets_xy[i]))
         for i,value in rotations.get(frame,{}).items():
             dirty.update(piece_cells(i,*offsets_xy[i]));angles[i]=value
-            base_pieces[i]=piece(notes,i,rotation=value)
-            base_preview[i]=piece(preview_notes,i,line_width=1 if compact_preview else None,rotation=value)
+            base_pieces[i]=piece(notes,i,rotation=value,scale=floor_scales[i])
+            base_preview[i]=piece(preview_notes,i,line_width=1 if compact_preview else None,rotation=value,scale=floor_scales[i])
             dx,dy=offsets_xy[i];px,py,part=base_pieces[i];pieces[i]=(px+dx,py+dy,part)
             px,py,part=base_preview[i];preview_pieces[i]=(px+dx,py+dy,part)
         for i,(dx,dy) in render_motion.get(frame,{}).items():
@@ -355,6 +417,23 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             dirty.update(piece_cells(i,*offsets_xy[i]));dirty.update(piece_cells(i,dx,dy))
             offsets_xy[i]=(dx,dy);px,py,part=base_pieces[i];pieces[i]=(px+dx,py+dy,part)
             px,py,part=base_preview[i];preview_pieces[i]=(px+dx,py+dy,part)
+        # A hold's tail can move independently (e.g. T1's opening stretch).
+        # Rebuild that curve from both current endpoints, rather than moving
+        # an immutable mask away from its destination floor.
+        moved=set(render_motion.get(frame,{}))
+        hold_changed=moved|{i-1 for i in moved if i>0}|set(rotations.get(frame,{}))|set(scales.get(frame,{}))
+        for i in hold_changed:
+            if i+1>=len(notes) or notes[i].get('hold_length',-1)<0:continue
+            dx,dy=offsets_xy[i];tx,ty=offsets_xy[i+1]
+            dirty.update(piece_cells(i,dx,dy))
+            tail=(notes[i+1]['x']+tx-dx,notes[i+1]['y']+ty-dy)
+            base_pieces[i]=piece(notes,i,rotation=angles[i],scale=floor_scales[i],hold_tail=tail)
+            base_preview[i]=base_pieces[i]
+            px,py,part=base_pieces[i]
+            pieces[i]=(px+dx,py+dy,part);preview_pieces[i]=pieces[i]
+            changed_cells=piece_cells(i,dx,dy)
+            dirty.update(changed_cells)
+            for cell in changed_cells:cells[cell].add(i)
         for i,value in updates.items():
             if alpha[i]==value:continue
             alpha[i]=value;dirty.update(piece_cells(i,*offsets_xy[i]))

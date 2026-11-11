@@ -105,6 +105,35 @@ update_orb_colors:
     iny
     cpy #64
     bne @ice
+.ifdef NEO_BUILD
+    ; Average each BGR555 component independently. Mask before shifting
+    ; so carries cannot leak between red, green, and blue channels.
+    ldx #0
+    ldy #0
+@third:
+    lda orb_palette,x
+    and #$7BDE
+    lsr a
+    sta scratch
+    lda orb_palette+32,x
+    and #$7BDE
+    lsr a
+    clc
+    adc scratch
+    sta scratch
+    lda orb_palette,x
+    and orb_palette+32,x
+    and #$0421
+    clc
+    adc scratch
+    sta third_palette,y
+    inx
+    inx
+    iny
+    iny
+    cpx #32
+    bne @third
+.endif
     lda #1
     sta palette_dirty
     rts

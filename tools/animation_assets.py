@@ -20,8 +20,11 @@ def full_cell_coordinates(out,chart):
     assert all(v is not None for v in coordinates)
     return coordinates
 
-def coordinate_index(chart):
+def coordinate_index(chart, *, wrapped=False):
     coordinates=chart.get('cell_coordinates',[])
+    if wrapped:
+        values=[((y&127)<<7)|(x&127) for x,y in coordinates]
+        return struct.pack('<'+'H'*len(values),*values) if values else bytes(2)
     values=[p[0] for p in coordinates]+[p[1] for p in coordinates]
     return struct.pack('<'+'H'*len(values),*values) if values else bytes(4)
 
@@ -58,6 +61,9 @@ def generate(out,chart,timeline,patterns):
         assert len(patterns)//64<=0xFE00,('Reserved checkpoint pattern IDs',chart['code'])
     events=[]
     compiled_refs=bool(mode7 and chart.get('compiled_reference_sets'))
+    if n==60 and chart.get('bitmap_prefetch_versions'):
+        for frame,bitmap,deadline,end in chart['bitmap_prefetch_versions']:
+            events.append((frame,24,bitmap,deadline,struct.pack('<H',end)+patterns[bitmap*64:bitmap*64+64]))
     if chart.get('global_pattern_references'):events.append((0,12,0,2 if compiled_refs else 1,b''))
     if mode7 and (not chart.get('cell_coordinates') or isinstance(chart['cell_coordinates'][0],int)):
         chart['cell_coordinates']=full_cell_coordinates(out,chart)
@@ -97,6 +103,24 @@ def generate(out,chart,timeline,patterns):
     last_phase=None
     for frame,phase in chart.get('camera_rotation_phase_versions',[]):
         if phase!=last_phase:events.append((frame,13,phase,0,b''));last_phase=phase
+    if mode7:
+        # Event icons obey the original floor opacity, independently of the
+        # raster's spatial clipping. Do not scan hidden symbols each frame.
+        symbol_ids=[i for i,note in enumerate(chart['notes'])
+                    if note.get('flags',0)&119 and not note.get('flags',0)&128]
+        symbol_changes=collections.defaultdict(dict)
+        for i in symbol_ids:
+            for frame,alpha in chart['visibility_floor_versions'][i]:
+                symbol_changes[frame][i]=bool(alpha)
+        alive=set(symbol_ids);previous=None
+        for frame,updates in sorted(symbol_changes.items()):
+            for i,shown in updates.items():
+                if shown:alive.add(i)
+                else:alive.discard(i)
+            value=tuple(sorted(alive))
+            if value!=previous:
+                payload=struct.pack('<'+'H'*len(value),*value)
+                events.append((frame,28,0,len(payload),payload));previous=value
     if mode7:
         references=collections.defaultdict(list)
         releases=collections.defaultdict(list)

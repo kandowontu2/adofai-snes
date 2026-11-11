@@ -27,6 +27,11 @@ def fingerprint(chart):
     data = dict(version=2, settings=settings(chart['id']), samples=samples,
                 offsets=json.loads((ROOT/'assets/audio/hit-sound-offsets.json').read_text()),
                 notes=[(n['time'], n['flags'], selected[i]) for i,n in enumerate(chart['notes'])])
+    if chart.get('neo_cosmos'):
+        data['neo_sound_events']=chart.get('neo_sound_events',[])
+        data['neo_holds']=[n.get('hold_length',-1) for n in chart['notes']]
+        data['neo_samples']={name:hashlib.sha256((ROOT/f'assets/private/hitsounds/snd{name}.wav').read_bytes()).hexdigest()
+                             for name in {e['sound'] for e in chart.get('neo_sound_events',[])}}
     return hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest()
 
 
@@ -45,6 +50,9 @@ def mix_hits(pcm, chart, rate):
     inserted = []
     reused = []
     for note, (sound, volume) in zip(chart['notes'][1:], selected[1:]):
+        if chart.get('neo_cosmos'):
+            from neo_audio import suppress_regular_hit
+            if suppress_regular_hit(chart['notes'],note['step']):continue
         if note['flags'] & 8 or sound == 'None' or not volume:
             continue
         if note['step'] in embedded:
@@ -77,6 +85,24 @@ def mix_hits(pcm, chart, rate):
         pcm[target_start:target_start+count] += addition[:,None] if pcm.ndim > 1 else addition
         inserted.append(dict(note=note['step'],sound=sound,start_sample=start,
                              rounding_error_samples=start-exact))
+    for event in chart.get('neo_sound_events',[]):
+        sound=event['sound']
+        if sound not in samples:
+            hit_rate,hit=wavfile.read(ROOT/f'assets/private/hitsounds/snd{sound}.wav')
+            hit=hit.astype(float)
+            if hit.ndim>1:hit=hit.mean(axis=1)
+            samples[sound]=resample_poly(hit,rate,hit_rate)
+        hit=samples[sound]*event['volume']*.5
+        start=round(event['time']*rate)
+        if event['end'] is not None:
+            count=max(0,round(event['end']*rate)-start)
+            hit=np.resize(hit,count)
+        source_start=max(0,-start);target_start=max(0,start)
+        count=min(len(hit)-source_start,len(pcm)-target_start)
+        if count<=0:continue
+        addition=hit[source_start:source_start+count]
+        pcm[target_start:target_start+count]+=addition[:,None] if pcm.ndim>1 else addition
+        inserted.append(dict(note=event['note'],sound=sound,start_sample=start,rounding_error_samples=start-event['time']*rate))
     gain = min(1.,32700/max(1.,float(np.max(abs(pcm)))))
     pcm *= gain
     return dict(fingerprint=fingerprint(chart),rate=rate,inserted=inserted,reused=reused,
@@ -97,13 +123,12 @@ def patch_pack(out, *, generate_pcm=True):
     import campaign_assets as assets
     previous_out = assets.OUT
     assets.OUT = out
-    data_version=24
+    data_version=30 if any(n>=66 for n in levels) else 26
     try:
         descriptors = (out/'msu_descriptors.bin').read_bytes()
         placements = json.loads((out/'placements.json').read_text())
         for n in levels:
             chart = json.loads((out/f'level{n}.json').read_text())
-            if chart.get('viewport_center_y')==104 or chart.get('reuse_motion_phase'):data_version=25
             old = (out/f'level{n}.brr').read_bytes()
             updated = assets.encode_music(chart)
             assert len(old) == len(updated), 'Music patch would move animation data'
@@ -174,8 +199,8 @@ def patch_pack(out, *, generate_pcm=True):
             with (out/'adofai.msu').open('r+b') as f:
                 f.seek(12)
                 f.write(struct.pack('<H',data_version))
-            addresses = out/'addresses.inc'
-            addresses.write_text(re.sub(r'MSU_DATA_VERSION = \d+', f'MSU_DATA_VERSION = {data_version}', addresses.read_text()))
+        addresses = out/'addresses.inc'
+        addresses.write_text(re.sub(r'MSU_DATA_VERSION = \d+', f'MSU_DATA_VERSION = {data_version}', addresses.read_text()))
         addresses = out/'addresses.inc'
         text = addresses.read_text()
         if 'HITS_IN_MUSIC = 1' not in text:

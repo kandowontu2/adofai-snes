@@ -96,6 +96,7 @@ class Animation(unittest.TestCase):
             generate(out,chart,timeline,bytes(64))
             self.assertEqual(chart['cell_coordinates'],[[149,129],[150,129],[151,129]])
             self.assertEqual(struct.unpack('<HHHHHH',coordinate_index(chart)),(149,150,151,129,129,129))
+            self.assertEqual(struct.unpack('<HHH',coordinate_index(chart,wrapped=True)),(149,150,151))
             snapshot=(out/'animation77-checkpoint-0.bin').read_bytes()
             self.assertEqual(snapshot[:4],b'ADS5')
             self.assertEqual(struct.unpack_from('<HHHhh',snapshot,8),(3,2,16384,256,256))

@@ -154,20 +154,14 @@ def main(release_report=None, release_note=None, pcm_archive=None, pcm_files=Non
             text=re.sub(r'(?m)^[0-9a-fA-F]{64}(\s+\*?)([^\r\n]+\.pcm)$',pcm_sum,text)
         if Path(name).name=='SHA256SUMS.txt' and sha(base/'adofai.sfc') in text and 'adofai.msu' not in text:
             text=text.rstrip()+'\n'+sha(base/'adofai.msu')+'  adofai.msu\n'
-        text=text.replace('dataset version 20','dataset version 23').replace('dataset 20','dataset 23')
-        text=text.replace('dataset version 21','dataset version 23').replace('dataset 21','dataset 23')
-        text=text.replace('dataset version 22','dataset version 23').replace('dataset 22','dataset 23')
-        if dataset_version!=23:
-            text=text.replace('dataset version 23',f'dataset version {dataset_version}').replace('dataset 23',f'dataset {dataset_version}')
-        if dataset_version>24:
-            text=text.replace('dataset version 24',f'dataset version {dataset_version}').replace('dataset 24',f'dataset {dataset_version}')
+        text=re.sub(r'\b(dataset(?: version)? )([0-9]+)\b',
+                    lambda m:m[1]+str(dataset_version) if 20<=int(m[2])<dataset_version else m[0],text)
         text=text.replace('Full-catalog checks for the final startup-clear fix are still running.\n','')
         if Path(name).name.lower().startswith('readme'):
-            while re.match(r'^20\d\d-\d\d-\d\d ',text) and 'update' in text.split('\n',1)[0]:
-                text=text.partition('\n\n')[2]
-            # Superseded percussion semantics must not remain as current instructions.
+            text=text.replace('\r\n','\n')
+            # Keep current installation directions clear of obsolete release notes.
             paragraphs=text.split('\n\n')
-            paragraphs=[p for p in paragraphs if not any(s in p for s in (
+            paragraphs=[p for p in paragraphs if not re.match(r'^20\d\d-\d\d-\d\d ',p) and not any(s in p for s in (
                 'Manual percussion is dispatched', 'Manual tap feedback now',
                 'Autoplay timing fix included:', 'ROM-only autoplay', 'ROM-only update'))]
             text=note+'\n'+'\n\n'.join(paragraphs)

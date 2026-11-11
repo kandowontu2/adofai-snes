@@ -28,6 +28,7 @@ def main():
 local frame=0;local measured=0;local delivered=0;local last=nil;local gap=0;local maximum=0;local max_age=0
 local trace=io.open(output..'.csv','w');trace:write('frame,step,clock,display,commit,phase,event_time,event_kind,worker,remaining,atomic,deferrals,done,pending,dma_request,dma_active,active,limit,view_w,view_h\\n')
 local function bw(a)return emu.read(a,emu.memType.snesSaveRam)+256*emu.read(a+1,emu.memType.snesSaveRam)end
+local function ir(a)return emu.read(a,emu.memType.sa1InternalRam)+256*emu.read(a+1,emu.memType.sa1InternalRam)end
 local function word(a)return emu.read(a,W)+256*emu.read(a+1,W)end
 emu.addEventCallback(function()
  local b={}
@@ -40,7 +41,7 @@ emu.addEventCallback(function()
  if word(A.state)==1 and word(A.music_active)==1 and step>=first_step and step<=last_step then
   measured=measured+1;gap=gap+1
   local commit=word(A.commits)
-  trace:write(string.format('%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\\n',frame,step,word(A.chart_time),word(A.display_chart_time),commit,word(A.profile_phase),word(A.animation_time),word(A.animation_kind),bw(0x30),bw(0x1fc4c),bw(0x1fc5a),bw(0x1fc90),bw(2),bw(10),bw(4),bw(6),bw(0x1fc70),bw(0x1fcc6),bw(0x1fcbc),bw(0x1fcbe)))
+  trace:write(string.format('%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\\n',frame,step,word(A.chart_time),word(A.display_chart_time),commit,word(A.profile_phase),word(A.animation_time),word(A.animation_kind),bw(0x30),bw(0x1fc4c),bw(0x1fc5a),bw(0x1fc90),ir(0x782),ir(0x78a),ir(0x784),ir(0x786),bw(0x1fc70),bw(0x1fcc6),bw(0x1fcbc),bw(0x1fcbe)))
   if last and commit~=last then delivered=delivered+1;maximum=math.max(maximum,gap);gap=0 end
   maximum=math.max(maximum,gap)
   max_age=math.max(max_age,(word(A.chart_time)-word(A.display_chart_time))%65536)

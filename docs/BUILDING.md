@@ -139,6 +139,21 @@ After step 4, run:
 Open **`build/packs/standalone-demo/adofai.sfc`**. This version needs no `.msu`
 or `.pcm` files. It contains compressed music and still requires SA-1 support.
 
+## Build the optimized AR-X cartridge
+
+Import level `23` with the commands in step 3, then compile its full-detail
+chart into a fresh directory. Use that directory for either ROM format.
+
+```powershell
+.\.venv\Scripts\python.exe tools/campaign_assets.py --pack master --levels 23 --out build/ar-assets --chart-cache-only --camera-position --camera-rotation --camera-zoom --reuse-motion-phase --motion-step 1
+.\.venv\Scripts\python.exe tools/native_animation.py --source build/ar-assets
+.\.venv\Scripts\python.exe tools/build_standalone.py --sa1 --adaptive-audio --source build/ar-assets --levels 23 --key ar-standalone --title "EXTRA WORLDS 3"
+```
+
+Open `build/packs/ar-standalone/adofai.sfc` in MesenCE. For an MSU build, pass
+`--source build/ar-assets --out build/ar-msu --no-pcm` to `tools/build_sa1.py`,
+then keep `build/ar-msu/adofai.sfc` and `adofai.msu` together.
+
 ## Editing graphics and rebuilding
 
 See [GRAPHICS.md](GRAPHICS.md) for CHR, palette and tile assignments.
@@ -179,7 +194,7 @@ Submit source graphics and screenshots, not generated files from `build/`.
 ## Larger builds and developer checks
 
 The one-song recipe is a starting point, **not a reproducible full-release
-recipe**. The 65-song releases also need official, Workshop and community
+recipe**. The full releases also need official, Workshop and community
 imports, plus chart-specific renderer settings. Those inputs and historical
 release caches are not shipped. Do not remove `--levels 1` and expect a full
 catalog build to work from this setup.
@@ -204,3 +219,40 @@ The entire historical test suite also needs old ROM fixtures that are not in
 Git. For graphics changes, test a full song, checkpoint retries and multiple
 speeds. Windows is the supported development workflow; other platforms may
 need path and executable-name changes.
+
+## Neo Cosmos
+
+Install the Neo Cosmos DLC in the same Steam
+game directory, then import its nine full-song main/EX stages and hold sounds:
+
+```powershell
+.\.venv\Scripts\python.exe tools/import_neo.py
+.\.venv\Scripts\python.exe tools/import_hit_samples.py
+```
+
+The importer reads the installed `Bundles/neocosmos_scenes_all.bundle` without
+changing the game. It assigns IDs 66â€“74, preserving native camera/track effects,
+holds, planet easing, and free-roam cells. Tutorials and the playground are
+excluded. Extracted charts and audio remain private build inputs.
+
+For an isolated **T1-X development test**, run:
+
+```powershell
+.\.venv\Scripts\python.exe tools/campaign_assets.py --pack master --levels 66 --out build/neo-t1-dev-assets --camera-position --camera-rotation --motion-step 1 --no-pcm
+.\.venv\Scripts\python.exe tools/build_sa1.py --source build/neo-t1-dev-assets --out build/packs/neo-t1-dev --no-pcm
+.\.venv\Scripts\python.exe tools/run_mesen_campaign.py --pack neo-t1-dev --levels 1
+```
+
+Open `build/packs/neo-t1-dev/adofai.sfc` in MesenCE, keeping its matching
+`adofai.msu` beside it. This test uses compressed audio. `--no-pcm` avoids
+generating full-size PCM music during development.
+
+For a free-roam test, substitute `68` for `66` in the asset command and use
+a fresh output directory. IDs 66–74 cover the five main worlds and four EX
+variants. Free-roam movement, objectives and return transitions use player
+input; autoplay chooses a legal route. The compiler retains the generated
+grid cells separately from the song notes.
+
+The full catalog still requires the earlier import stages described above.
+Validate full songs, checkpoint retries, multiple speeds and graphics in
+MesenCE before distributing a modified build.

@@ -20,7 +20,7 @@ def verify(rom):
             assert em.read('selected_level')==levels.index(n)
             for _ in range(3):em.run()
             row=6+em.read('menu_selection')-em.read('menu_first')
-            assert C.c_ubyte.from_address(em.ram+0x800+row*64).value==ord('>')
+            assert C.c_ubyte.from_address(em.hud+row*64).value==ord('>')
         checked=0
         for speed in range(5,41):
             for offset in (-30,-8,-1,0,1,30):
@@ -45,7 +45,7 @@ def verify(rom):
         em.capture(rom.parent/'verification/ui-playfield.png')
         wait(em,lambda:em.read('state')==3,12000)
         for _ in range(8):em.run()
-        row=C.string_at(em.ram+0x800+22*64,64)
+        row=C.string_at(em.hud+22*64,64)
         text=''.join(chr(row[i]) if row[i] else ' ' for i in range(0,64,2))
         assert 'TIME' not in text and 'SPEED' in text,text
         assert em.read('misses')==0

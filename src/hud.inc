@@ -13,6 +13,9 @@ draw_hud:
     asl a
     tax
     lda f:NOTE_PAUSE,x
+.ifdef NEO_BUILD
+    and #$3FFF
+.endif
     jne @refresh
     lda checkpoint_preroll
     jne @refresh
@@ -94,6 +97,11 @@ draw_hud:
     lda state
     cmp hud_state
     jeq @dynamic
+.ifdef SA1_BUILD
+    lda #1
+    sta hud_full_dirty
+    lda state
+.endif
     sta hud_state
     asl a
     tax
@@ -301,6 +309,9 @@ draw_hud:
     asl a
     tax
     lda f:NOTE_PAUSE,x
+.ifdef NEO_BUILD
+    and #$3FFF
+.endif
     beq @count_in
     clc
     adc f:NOTE_TIME,x

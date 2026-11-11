@@ -38,6 +38,9 @@ def depth_schedule(chart,initial,changes,motion=None,camera_data=None):
         transforms[frame]=(round(c*65536/norm),round(s*65536/norm),x+128,y+104)
         views[frame]=((x+128-ex)//8,(y+104-ey)//8,(2*ex+14)//8,(2*ey+14)//8)
 
+    from neo_freeroam import widen_views
+    widen_views(chart,views,transforms)
+
     chart['viewport_center_y']=104
     chart['viewport_top']=32+chart.get('viewport_inset',0)
     chart['viewport_bottom']=176-chart.get('viewport_inset',0)
@@ -58,11 +61,34 @@ def depth_schedule(chart,initial,changes,motion=None,camera_data=None):
     for i,v in motion.get(0,{}).items():offsets[i]=v
     def value(i):
         n=notes[i]
+        # Every reachable free-roam cell must already exist when the player
+        # chooses it. Runtime movement is not the offline camera trajectory.
+        view=views.get(frame_for_view)
+        if view and any(r['start']-1<=frame_for_view<r['end'] for r in chart.get('freeroam_regions',[])):
+            x,y,w,h=view
+            return authored[i] if n.get('freeroam') or x*8-24<=n['x']+offsets[i][0]<(x+w)*8+24 and y*8-24<=n['y']+offsets[i][1]<(y+h)*8+24 else 0
         dx=n['x']+offsets[i][0]-center[0]
         dy=n['y']+offsets[i][1]-center[1]
+        if n.get('scene_visual'):
+            v=n['scene_visual'];x,y=v['offset'];w,h=v['size']
+            return authored[i] if x+dx<=bounds[0] and x+w+dx>=-bounds[0] and y+dy<=bounds[1] and y+h+dy>=-bounds[1] else 0
+        if n.get('warp_visual'):
+            points=[(0,0)]+[p for v in n['warp_visual']['markers'] for p in v['link']+[v['center']]]
+            return authored[i] if (min(x for x,y in points)+dx-24<=bounds[0] and max(x for x,y in points)+dx+24>=-bounds[0]
+                and min(y for x,y in points)+dy-24<=bounds[1] and max(y for x,y in points)+dy+24>=-bounds[1]) else 0
+        if n.get('hold_length',-1)>=0 and i+1<count:
+            # The hold path spans both floors. Culling by its start tile
+            # alone erases the line while the planets travel toward its tail.
+            tx=notes[i+1]['x']+offsets[i+1][0]-center[0]
+            ty=notes[i+1]['y']+offsets[i+1][1]-center[1]
+            visible=(min(dx,tx)-48<=bounds[0] and max(dx,tx)+48>=-bounds[0]
+                     and min(dy,ty)-48<=bounds[1] and max(dy,ty)+48>=-bounds[1])
+            return authored[i] if visible else 0
         return authored[i] if abs(dx)<=bounds[0] and abs(dy)<=bounds[1] else 0
+    frame_for_view=0
     result=[value(i) for i in range(count)];start=list(result);out={}
-    for frame in sorted(set(changes)|set(centers)|set(motion)|set(extents)):
+    for frame in sorted(set(changes)|set(centers)|set(motion)|set(extents)|set(views)):
+        if frame in views:frame_for_view=frame
         for i,v in changes.get(frame,{}).items():authored[i]=v
         for i,v in motion.get(frame,{}).items():offsets[i]=v
         if frame in centers:center=centers[frame]

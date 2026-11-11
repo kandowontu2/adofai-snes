@@ -11,14 +11,46 @@ def follow_schedule(chart,motion,data=None):
     """
     notes=chart['notes'];offsets=[(0,0)]*len(notes)
     x=float(notes[0]['x']);y=float(notes[0]['y']);i=0;result=[];last=None
+    native=chart.get('native_follow_timing',False)
+    origin=(x,y);landed=0;previous_i=0
     for frame in range(notes[-1]['frame']+121):
         for j,p in motion.get(frame,{}).items():offsets[j]=p
         while i+1<len(notes) and notes[i+1]['frame']<=frame:i+=1
         dx,dy=offsets[i] if notes[i].get('stick_to_floor',True) else notes[i].get('position_track_offset',(0,0))
-        x+=(notes[i]['x']+dx-x)*.25;y+=(notes[i]['y']+dy-y)*.25
-        p=(round(x)-128,round(y)-104)
+        target=(notes[i]['x']+dx,notes[i]['y']+dy)
+        if native:
+            if i!=previous_i:origin=(x,y);landed=frame;previous_i=i
+            bpm=chart.get('bpm',data.get('bpm',120) if data else 120)
+            duration=2*60/bpm/notes[i]['speed']*FPS
+            phase=min(1,(frame-landed+1)/max(1,duration))
+            x=origin[0]+(target[0]-origin[0])*phase;y=origin[1]+(target[1]-origin[1])*phase
+        else:
+            x+=(target[0]-x)*.25;y+=(target[1]-y)*.25
+        hx=hy=0.
+        if notes[i].get('hold_length',-1)>=0 and i+1<len(notes):
+            phase=max(0,min(1,(frame-notes[i]['frame'])/max(1,notes[i+1]['frame']-notes[i]['frame'])))
+            if data and data.get('neo_cosmos'):
+                from neo_runtime_assets import phase as eased_phase
+                floor=data['floors'][i]
+                phase=eased_phase(floor.get('planetEase',1),phase,floor.get('planetEaseParts',1),floor.get('planetEasePartBehavior',0)==0)
+            a=notes[i]['exit_angle']
+            tx,ty=offsets[i+1] if notes[i+1].get('stick_to_floor',True) else notes[i+1].get('position_track_offset',(0,0))
+            hx=(notes[i+1]['x']+tx-notes[i]['x']-dx-24*math.cos(a))*phase
+            hy=(notes[i+1]['y']+ty-notes[i]['y']-dy-24*math.sin(a))*phase
+        p=(round(x+hx)-128,round(y+hy)-104)
         if p!=last:result.append((frame,*p));last=p
-    if data is not None:result=position_schedule(data,chart,motion,result)
+    if data is not None:
+        ranges=chart.get('camera_position_ranges')
+        scripted=position_schedule(data,chart,motion,result)
+        if ranges:
+            original={f:(x,y) for f,x,y in result};changed={f:(x,y) for f,x,y in scripted}
+            frames=sorted(set(original)|set(changed)|{v for r in ranges for v in r});a=original[0];b=changed[0];merged=[]
+            for frame in frames:
+                a=original.get(frame,a);b=changed.get(frame,b)
+                value=b if any(start<=frame<end for start,end in ranges) else a
+                if not merged or merged[-1][1:]!=list(value):merged.append([frame,*value])
+            result=merged
+        else:result=scripted
     chart['camera_follow_versions']=[list(p) for p in result]
     return result
 

@@ -8,7 +8,8 @@ NAMES=('Hat','Kick','Shaker','Sizzle','Chuck','ShakerLoud','Hammer','KickChroma'
        'SnareAcoustic2','Sidestick','Stick','ReverbClack','Squareshot','PowerDown',
        'PowerUp','KickHouse','KickRupture','HatHouse','SnareHouse','SnareVapor',
        'ClapHit','ClapHitEcho','ReverbClap','FireTile','IceTile','VehiclePositive',
-       'VehicleNegative','CymbalCrash')
+       'VehicleNegative','CymbalCrash','HeldbeatStartFuse','HeldbeatLoopFuse',
+       'HeldbeatEndFuse','HeldbeatMidFuse','HeldbeatMidSingSing')
 
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--game',type=Path,default=Path(DEFAULT_GAME));args=ap.parse_args()

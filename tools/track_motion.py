@@ -108,6 +108,8 @@ def motion_schedule(data,chart):
         pos=[None if v is None else v/size for v in pos]
         for j in range(min(e['start'],e['end']),max(e['start'],e['end'])+1,1+e.get('gapLength',0)):
             add(j,t,native_duration(data,chart,e),pos,ease_name(e.get('ease','Linear')))
+    for e in chart.get('neo_motion_events',[]):
+        add(e['floor'],e['time'],e['duration'],e['offset'],e['ease'])
     actions=gameplay_actions(data)
     repeats={}
     for a in actions:
@@ -164,6 +166,13 @@ def motion_schedule(data,chart):
 def rotation_schedule(data,chart):
     """MoveTrack rotation is an independent absolute offset from the floor pose."""
     notes=chart['notes'];count=len(notes);commands=[[] for _ in notes]
+    for e in data.get('native_track_effects',[]):
+        if e['type']!='ffxMoveFloorPlus' or not e.get('rotationUsed',True):continue
+        value=e.get('targetRot',0)
+        if not math.isfinite(value):continue
+        at=native_event_time(data,chart,e)
+        for j in range(min(e['start'],e['end']),max(e['start'],e['end'])+1,1+e.get('gapLength',0)):
+            if 0<=j<count:commands[j].append((max(0,at),max(0,native_duration(data,chart,e)),value,ease_name(e.get('ease','Linear'))))
     actions=gameplay_actions(data);repeats={}
     for a in actions:
         if a['eventType']=='RepeatEvents':
@@ -243,3 +252,52 @@ def nearby_motion(chart,motion,initial=None,visibility=None):
             if notes[max(0,i-4)]['frame']<=frame<=notes[min(len(notes)-1,i+2)]['frame']:
                 changes[frame][i]=value
     return dict(sorted(changes.items()))
+
+
+
+def scale_schedule(data,chart):
+    """Native MoveTrack scale tweens complete their previous axis targets."""
+    commands=collections.defaultdict(list)
+    for e in data.get('native_track_effects',[]):
+        if e['type']!='ffxMoveFloorPlus' or not e.get('scaleUsed',False):continue
+        scale=e.get('targetScaleV2',{'x':e.get('targetScale',1),'y':e.get('targetScale',1)})
+        target=tuple(scale[k] for k in ('x','y'))
+        if not all(math.isfinite(v) for v in target):continue
+        at=native_event_time(data,chart,e);duration=native_duration(data,chart,e)
+        for j in range(min(e['start'],e['end']),max(e['start'],e['end'])+1,1+e.get('gapLength',0)):
+            if 0<=j<len(chart['notes']):commands[j].append((at,duration,target,ease_name(e.get('ease','Linear'))))
+    actions=gameplay_actions(data);repeats={}
+    for a in actions:
+        if a['eventType']=='RepeatEvents':
+            for tag in a.get('tag','').split():repeats[a['floor'],tag]=a
+    def tile(value,floor):
+        offset,relative=value
+        return max(0,min(len(chart['notes'])-1,offset+(floor if relative=='ThisTile' else len(chart['notes'])-1 if relative=='End' else 0)))
+    for a in actions:
+        target=a.get('scale')
+        if a['eventType']!='MoveTrack' or not target:continue
+        floor=a['floor'];repeat=next((repeats[floor,t] for t in a.get('eventTag','').split() if (floor,t) in repeats),{})
+        mode=repeat.get('repeatType','Beat');amount=repeat.get('repetitions',0) if mode=='Beat' else repeat.get('floorCount',0)
+        for k in range(amount+1):
+            current=floor+(k*repeat.get('gapLength',1) if mode=='Floor' else 0)
+            if current>=len(chart['notes']):break
+            origin=current if enabled(repeat.get('executeOnCurrentFloor',False)) else floor
+            beat=60/data['bpm']/chart['notes'][origin]['speed']
+            at=chart['notes'][current]['time']+a.get('angleOffset',0)/180*beat
+            if mode=='Beat':at+=k*repeat.get('interval',1)*60/data['bpm']/chart['notes'][floor]['speed']
+            start=tile(a.get('startTile',[0,'ThisTile']),origin);end=tile(a.get('endTile',[0,'ThisTile']),origin)
+            for j in range(min(start,end),max(start,end)+1,1+a.get('gapLength',0)):
+                commands[j].append((max(0,at),max(0,a.get('duration',0)*beat),tuple(v/100 for v in target),a.get('ease','Linear')))
+    out=collections.defaultdict(dict)
+    for i,events in commands.items():
+        current=(1.,1.);last=current;events.sort(key=lambda e:e[0])
+        for k,(at,duration,target,ease) in enumerate(events):
+            stop=events[k+1][0] if k+1<len(events) else math.inf
+            frames=list(range(round(at*FPS),round((at+duration)*FPS),chart.get('motion_step',8)))+[round((at+duration)*FPS)]
+            for frame in frames:
+                if frame/FPS>stop+1/FPS:break
+                t=1 if not duration or frame==round((at+duration)*FPS) else max(0,min(1,(frame/FPS-at)/duration))
+                value=tuple(round(a+(b-a)*easing(ease,t),5) for a,b in zip(current,target))
+                if value!=last:out[frame][i]=value;last=value
+            current=target
+    return dict(sorted(out.items()))

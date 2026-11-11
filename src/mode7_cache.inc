@@ -1,9 +1,20 @@
 ; Logical chart slots and physical PPU slots have independent generations.
 ; Keep the old viewport resident until its replacement is complete.
 mode7_cache_reset:
+.if .defined(SA1_WRAM_RENDERER) .and .defined(SA1_BUILD)
+    lda f:M7_CACHE_RESET_SERIAL
+    inc a
+    sta f:M7_CACHE_RESET_SERIAL
+.endif
+.ifdef SA1_BUILD
+.ifndef SA1_WORKER
+    jsr symbol_coords_reset
+.endif
+.endif
     lda #0
     sta f:M7_CACHE_READY
-    sta f:M7_CACHE_FREE
+    sta f:M7_TAG_COUNT
+    sta M7_CACHE_FREE
     sta f:M7_CACHE_WAIT
     sta f:M7_CACHE_ERRORS
     sta f:M7_CACHE_MAX_VISIBLE
@@ -25,12 +36,12 @@ mode7_cache_reset:
     txa
     sep #$20
     .a8
-    sta f:M7_LOGICAL_TO_PPU,x
+    sta M7_LOGICAL_TO_PPU,x
     sta f:M7_DISPLAY_TO_PPU,x
     lda #0
-    sta f:M7_NEW_VISIBLE,x
-    sta f:M7_OLD_VISIBLE,x
-    sta f:M7_PATTERN_SELECTED,x
+    sta M7_NEW_VISIBLE,x
+    sta M7_OLD_VISIBLE,x
+    sta M7_PATTERN_SELECTED,x
     rep #$20
     .a16
     inx
@@ -47,6 +58,14 @@ mode7_cache_reset:
     rts
 
 mode7_cache_commit:
+.ifdef SA1_WORKER
+    jsr worker_commit_tags
+    jsr worker_spill_commit
+.elseif .defined(SA1_BUILD)
+    lda f:M7_TAG_COUNT
+    ora f:SPILL_TAG_COUNT
+    bne @worker
+.endif
     lda f:M7_MASKS_CHANGED
     beq @done
     lda f:M7_CACHE_UNCHANGED
@@ -56,6 +75,7 @@ mode7_cache_commit:
     bne @done
 .ifdef SA1_BUILD
 .ifndef SA1_WORKER
+@worker:
     jmp sa1_cache_commit
 .endif
 .endif
@@ -63,7 +83,7 @@ mode7_cache_commit:
     lda #255
     ldx #.loword(M7_NEW_VISIBLE)
     ldy #.loword(M7_OLD_VISIBLE)
-    mvn #.bankbyte(M7_MAP),#.bankbyte(M7_MAP)
+    mvn #.bankbyte(M7_NEW_VISIBLE),#.bankbyte(M7_OLD_VISIBLE)
     lda f:M7_IDENTITY_MODE
     beq @mapping
     lda f:M7_STAGE_FORCE
@@ -72,7 +92,7 @@ mode7_cache_commit:
     lda #255
     ldx #.loword(M7_LOGICAL_TO_PPU)
     ldy #.loword(M7_DISPLAY_TO_PPU)
-    mvn #.bankbyte(M7_MAP),#.bankbyte(M7_MAP)
+    mvn #.bankbyte(M7_LOGICAL_TO_PPU),#.bankbyte(M7_DISPLAY_TO_PPU)
 @mapped:
     plb
 @done:
@@ -81,13 +101,58 @@ mode7_cache_commit:
 mode7_cache_prepare:
 .ifdef SA1_BUILD
 .ifndef SA1_WORKER
+    lda sa1_async
+    beq :+
+    jmp sa1_cache_begin
+:
     jmp sa1_cache_prepare
 .endif
 .endif
+.if .defined(SA1_WRAM_RENDERER) .and .defined(SA1_WORKER)
+    lda f:M7_CACHE_RESET_SERIAL
+    cmp M7_CACHE_SERIAL_SEEN
+    beq @private_ready
+    sta M7_CACHE_SERIAL_SEEN
+    lda #0
+    ldx #0
+@private_masks:
+    sta M7_NEW_VISIBLE,x
+    sta M7_OLD_VISIBLE,x
+    sta M7_PATTERN_SELECTED,x
+    inx
+    inx
+    cpx #256
+    bcc @private_masks
+    phb
+    lda #255
+    ldx #$F000
+    ldy #.loword(M7_LOGICAL_TO_PPU)
+    mvn #$41,#$00
+    plb
+@private_ready:
+.endif
+ .ifdef SA1_WORKER
+    lda f:M7_CACHE_ABORT
+    beq :+
+    jsr worker_recover_prefetch
+:
+.endif
+ .ifdef SA1_WORKER
+    jsr worker_spill_begin
+.endif
     lda #0
     sta f:M7_CACHE_UNCHANGED
+    sta f:M7_CACHE_ABORT
     sta f:M7_MASKS_CHANGED
     sta f:M7_STAGE_FORCE
+.ifdef SA1_WORKER
+    sta M7_MAP_PREPARED
+    sta M7_ROW_CODE_VALID
+    sta NATIVE_ROW_UNDO
+    sta f:M7_FORCE_SKIP_HUD
+    lda f:M7_UPLOAD_LIMIT
+    sta M7_CACHE_BUDGET
+.endif
 .ifdef SA1_BUILD
     lda f:M7_VIEW_X
 .else
@@ -155,6 +220,24 @@ mode7_cache_prepare:
 @pool_changed:
     lda #1
     sta f:M7_MASKS_CHANGED
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+.ifdef ROM_DIRECT_UNTIL
+    lda f:M7_RENDER_TIME
+    cmp #ROM_DIRECT_UNTIL
+    bcs @versioned
+    jsr mode7_cache_fixed_prepare
+    jmp @retained
+.endif
+    jmp @versioned
+:
+.endif
+ .ifdef SA1_BUILD
+    lda f:M7_BITMAP_ENABLED
+    bne @versioned
+.endif
     jsr mode7_cache_identity
     bcc @versioned
     lda #0
@@ -177,7 +260,7 @@ mode7_cache_prepare:
 .else
     lda #16
 .endif
-    sta f:M7_CACHE_BUDGET
+    sta M7_CACHE_BUDGET
     lda #7
     sta profile_phase
 .ifdef SA1_WORKER
@@ -186,11 +269,14 @@ mode7_cache_prepare:
     lda #0
     sta f:M7_CACHE_REMAIN
     sta f:M7_CACHE_ATOMIC
-    sta f:M7_CACHE_SCAN
+    sta M7_CACHE_SCAN
     ldx #0
 @clear:
-    sta f:M7_NEW_VISIBLE,x
-    sta f:M7_PATTERN_SELECTED,x
+    sta M7_NEW_VISIBLE,x
+    sta M7_PATTERN_SELECTED,x
+.ifdef SA1_WORKER
+    sta f:M7_VISIBLE_PATTERNS,x
+.endif
     inx
     inx
     cpx #256
@@ -198,17 +284,32 @@ mode7_cache_prepare:
     ; Protect every resident pattern needed by the new scene before an
     ; allocator may evict anything, regardless of logical scan order.
     lda #0
-    sta f:M7_CACHE_ACTIVE_CURSOR
+    sta M7_CACHE_ACTIVE_CURSOR
+.ifdef SA1_WORKER
+    sta M7_CACHE_MISSING_COUNT
+.endif
+.if .defined(SA1_WORKER) .and .defined(SA1_WRAM_RENDERER) .and .defined(ROM_PATTERN_COUNT)
+    jmp @retain
+.segment "HOTCACHE"
+.endif
 @retain:
-    lda f:M7_CACHE_ACTIVE_CURSOR
+    lda M7_CACHE_ACTIVE_CURSOR
     tax
     lda f:M7_VISIBLE_LIST,x
     and #255
     sta pattern_hi
     tax
-    lda f:M7_LOGICAL_TO_PPU,x
+.ifdef SA1_WORKER
+    sep #$20
+    .a8
+    lda #1
+    sta f:M7_VISIBLE_PATTERNS,x
+    rep #$20
+    .a16
+.endif
+    lda M7_LOGICAL_TO_PPU,x
     and #255
-    sta f:M7_CACHE_PHYSICAL
+    sta M7_CACHE_PHYSICAL
     asl a
     tax
     lda f:M7_PATTERN_VRAM,x
@@ -221,56 +322,120 @@ mode7_cache_prepare:
     beq @resident
     jsr mode7_cache_find
     cmp #$FFFF
-    beq @retain_next
-    sta f:M7_CACHE_PHYSICAL
+    bne @retain_found
+.ifdef SA1_WORKER
+    lda f:M7_SPILL_ELIGIBLE
+    beq @retain_missing
+    lda M7_CACHE_LOGICAL
+    jsr worker_spill_find
+    cmp #$FFFF
+    beq @retain_missing
+    tax
+    sep #$20
+    .a8
+    lda #1
+    sta f:SPILL_NEW,x
+    rep #$20
+    .a16
+    lda SPILL_LIVE_COUNT
+    inc a
+    sta SPILL_LIVE_COUNT
+    txa
+    inc a
     ldx pattern_hi
     sep #$20
     .a8
-    sta f:M7_LOGICAL_TO_PPU,x
+    sta f:SPILL_LOGICAL,x
+    lda #0
+    sta M7_LOGICAL_TO_PPU,x
+    rep #$20
+    .a16
+    lda #1
+    sta f:M7_STAGE_FORCE
+    jmp @retain_next
+.else
+    jmp @retain_next
+.endif
+@retain_found:
+    sta M7_CACHE_PHYSICAL
+    ldx pattern_hi
+    sep #$20
+    .a8
+    sta M7_LOGICAL_TO_PPU,x
     rep #$20
     .a16
 @resident:
     ldx pattern_hi
     lda f:M7_DISPLAY_TO_PPU,x
     and #255
-    cmp f:M7_CACHE_PHYSICAL
+    cmp M7_CACHE_PHYSICAL
     beq :+
     lda #1
     sta f:M7_STAGE_FORCE
 :
-    lda f:M7_CACHE_PHYSICAL
+    lda M7_CACHE_PHYSICAL
     tax
     sep #$20
     .a8
     lda #1
-    sta f:M7_NEW_VISIBLE,x
+    sta M7_NEW_VISIBLE,x
     rep #$20
     .a16
+.ifdef SA1_WORKER
+    jmp @retain_next
+@retain_missing:
+    lda M7_CACHE_MISSING_COUNT
+    tax
+    lda pattern_hi
+    sep #$20
+    .a8
+    sta f:M7_MISSING_LIST,x
+    rep #$20
+    .a16
+    lda M7_CACHE_MISSING_COUNT
+    inc a
+    sta M7_CACHE_MISSING_COUNT
+.endif
 @retain_next:
+.ifndef SA1_WORKER
     lda msu_pcm
     bne :+
     jsr audio_pump
 :
-    lda f:M7_CACHE_ACTIVE_CURSOR
+.endif
+    lda M7_CACHE_ACTIVE_CURSOR
     inc a
-    sta f:M7_CACHE_ACTIVE_CURSOR
+    sta M7_CACHE_ACTIVE_CURSOR
     cmp f:M7_CACHE_ACTIVE_COUNT
     jcc @retain
+.ifdef SA1_WORKER
+    lda M7_CACHE_MISSING_COUNT
+    jeq @retained
+.endif
     lda #0
-    sta f:M7_CACHE_ACTIVE_CURSOR
-@logical:
+    sta M7_CACHE_ACTIVE_CURSOR
     lda #8
     sta profile_phase
 .ifdef SA1_WORKER
     sta f:$400030
 .endif
-    lda f:M7_CACHE_ACTIVE_CURSOR
+@logical:
+    lda M7_CACHE_ACTIVE_CURSOR
     tax
+.ifdef SA1_WORKER
+    lda f:M7_MISSING_LIST,x
+.else
     lda f:M7_VISIBLE_LIST,x
+.endif
     and #255
     sta pattern_hi
     tax
-    lda f:M7_LOGICAL_TO_PPU,x
+.ifdef SA1_WORKER
+    lda f:SPILL_LOGICAL,x
+    and #255
+    jne @logical_next
+.endif
+    lda M7_LOGICAL_TO_PPU,x
     and #255
     asl a
     tax
@@ -282,39 +447,79 @@ mode7_cache_prepare:
     lda f:PATTERN_CURRENT,x
     cmp scratch
     jeq @logical_next
-    sta f:M7_CACHE_LOGICAL
+    sta M7_CACHE_LOGICAL
     ; Reservations only consume slots during this pass. Once exhausted,
     ; skip the repeated 256-slot free-pool scan.
-    lda f:M7_CACHE_SCAN
-    bne @atomic_begin
+    lda M7_CACHE_SCAN
+    jne @atomic_begin
+    lda #$FFFF
+    sta M7_BITMAP_CHOICE
+    lda #0
+    sta M7_BITMAP_BEST
     lda #256
     sta map_left
 @allocate:
-    lda f:M7_CACHE_FREE
+    lda M7_CACHE_FREE
     inc a
     and #255
-    sta f:M7_CACHE_FREE
+    sta M7_CACHE_FREE
     tax
-    lda f:M7_NEW_VISIBLE,x
-    ora f:M7_OLD_VISIBLE,x
+    lda M7_NEW_VISIBLE,x
+    ora M7_OLD_VISIBLE,x
     and #255
-    beq @allocated
+    bne @allocate_next
+.ifdef SA1_WORKER
+    lda f:M7_BITMAP_ENABLED
+    jeq @allocated
+    txa
+    asl a
+    tax
+    lda f:M7_PATTERN_VRAM,x
+    cmp f:M7_FUTURE_TAGS,x
+    bne @free_untagged
+    lda f:M7_FUTURE_DEADLINES,x
+    cmp f:M7_RENDER_TIME
+    bcc @free_untagged
+    cmp M7_BITMAP_BEST
+    bcc @allocate_next
+    sta M7_BITMAP_BEST
+    txa
+    lsr a
+    sta M7_BITMAP_CHOICE
+    bra @allocate_next
+@free_untagged:
+    txa
+    lsr a
+    tax
+    jmp @allocated
+.else
+    jmp @allocated
+.endif
+@allocate_next:
     dec map_left
-    bne @allocate
+    jne @allocate
+.ifdef SA1_WORKER
+    lda M7_BITMAP_CHOICE
+    cmp #$FFFF
+    beq @no_future_victim
+    tax
+    jmp @allocated
+@no_future_victim:
+.endif
     ; A dense transition can reuse an old-only slot in the final atomic
     ; commit. Ordinary uploads never touch a displayed pattern.
     lda #1
-    sta f:M7_CACHE_SCAN
+    sta M7_CACHE_SCAN
 @atomic_begin:
     lda #256
     sta map_left
 @atomic:
-    lda f:M7_CACHE_FREE
+    lda M7_CACHE_FREE
     inc a
     and #255
-    sta f:M7_CACHE_FREE
+    sta M7_CACHE_FREE
     tax
-    lda f:M7_NEW_VISIBLE,x
+    lda M7_NEW_VISIBLE,x
     and #255
     beq @atomic_slot
     dec map_left
@@ -328,7 +533,10 @@ mode7_cache_prepare:
     inc a
     sta f:M7_CACHE_ATOMIC
     lda #2
-    bra @reserve
+    jmp @reserve
+.if .defined(SA1_WORKER) .and .defined(SA1_WRAM_RENDERER) .and .defined(ROM_PATTERN_COUNT)
+.segment "CODE"
+.endif
 @allocated:
     lda #1
 @reserve:
@@ -336,40 +544,94 @@ mode7_cache_prepare:
     lda #1
     sta f:M7_STAGE_FORCE
     txa
-    sta f:M7_CACHE_PHYSICAL
+    sta M7_CACHE_PHYSICAL
     ldx pattern_hi
     sep #$20
     .a8
-    sta f:M7_LOGICAL_TO_PPU,x
+    sta M7_LOGICAL_TO_PPU,x
     rep #$20
     .a16
     pla
     sep #$20
     .a8
-    sta f:M7_PATTERN_SELECTED,x
+    sta M7_PATTERN_SELECTED,x
     rep #$20
     .a16
-    lda f:M7_CACHE_PHYSICAL
+    lda M7_CACHE_PHYSICAL
     tax
     sep #$20
     .a8
     lda #2
-    sta f:M7_NEW_VISIBLE,x
+    sta M7_NEW_VISIBLE,x
     rep #$20
     .a16
     lda f:M7_CACHE_REMAIN
     inc a
     sta f:M7_CACHE_REMAIN
 @logical_next:
+.ifndef SA1_WORKER
     lda msu_pcm
     bne :+
     jsr audio_pump
 :
-    lda f:M7_CACHE_ACTIVE_CURSOR
+.endif
+    lda M7_CACHE_ACTIVE_CURSOR
     inc a
-    sta f:M7_CACHE_ACTIVE_CURSOR
+    sta M7_CACHE_ACTIVE_CURSOR
+.ifdef SA1_WORKER
+    cmp M7_CACHE_MISSING_COUNT
+.else
     cmp f:M7_CACHE_ACTIVE_COUNT
+.endif
     jcc @logical
+@retained:
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_NO_SPILL)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne @ordinary_budget
+    ; Resolve the map before budgeting tile DMA. Zoomed views need not
+    ; transfer their entire bounding rectangle when most cells are blank.
+.ifdef ROM_WRAP_MAP
+    lda f:M7_CACHE_ATOMIC
+    sta NATIVE_ROW_UNDO
+.endif
+    jsr mode7_cache_sparse_map
+    lda #1
+    sta M7_MAP_PREPARED
+    lda m7_row_count
+    .repeat 6
+    asl a
+    .endrepeat
+    clc
+    adc m7_row_span
+    sta scratch
+    lda #3950
+    sec
+    sbc scratch
+    bcc @minimum_budget
+    ldx #0
+@budget_pattern:
+    cmp #120
+    bcc @budget_counted
+    sec
+    sbc #120
+    inx
+    cpx #40
+    bcc @budget_pattern
+@budget_counted:
+    txa
+    bra @dynamic_budget
+@minimum_budget:
+    lda #0
+@dynamic_budget:
+    sta M7_CACHE_BUDGET
+    lda f:M7_CACHE_REMAIN
+    beq @batches
+    lda #1
+    sta f:M7_FORCE_SKIP_HUD
+    bra @batches
+@ordinary_budget:
+.endif
     lda f:M7_CACHE_REMAIN
     cmp f:M7_CACHE_MAX_VISIBLE
     bcc :+
@@ -386,17 +648,24 @@ mode7_cache_prepare:
     ; published track and planets still change together in VBlank.
 .ifdef SA1_BUILD
     lda f:M7_UPLOAD_LIMIT
-    ; mode7_commit_patterns already holds HUD DMA for >=4 uploads.
-    ; Reclaim four slots only for small views. Larger rotated/zoomed
-    ; views need their conservative limits for scattered map spans.
+    cmp #24
+    bcs @small_budget
     cmp #16
-    bne :+
-    clc
-    adc #4
+    bcs @medium_budget
+    lda #16
+    bra @budget_ready
+@medium_budget:
+    lda #24
+    bra @budget_ready
+@small_budget:
+    ; Forty scattered CHR runs plus map/palette DMA exceed VBlank.
+    ; Reserve room for the rest of the atomic scene commit.
+    lda #32
+@budget_ready:
 .else
     lda #20
 .endif
-    sta f:M7_CACHE_BUDGET
+    sta M7_CACHE_BUDGET
 :
     ; Sixteen scattered patterns plus a full visible map fit VBlank. A
     ; larger scene is prefetched over held frames, retaining its old map.
@@ -407,35 +676,48 @@ mode7_cache_prepare:
     sta f:$400030
 .endif
     lda f:M7_CACHE_REMAIN
-    cmp f:M7_CACHE_BUDGET
+    cmp M7_CACHE_BUDGET
     jcc @final
     jeq @final
     lda f:M7_CACHE_ATOMIC
-    cmp f:M7_CACHE_BUDGET
-    beq :+
-    bcs @transition_defer
-:
+    cmp M7_CACHE_BUDGET
+    beq @atomic_fits
+    jcs @transition_defer
+@atomic_fits:
     lda #0
-    sta f:M7_CACHE_FINAL
+    sta M7_CACHE_FINAL
 .ifdef SA1_BUILD
     ; A held frame uploads no map, HUD, palette or OAM. Use that otherwise
     ; idle VBlank bandwidth for non-displayed patterns, while retaining the
     ; smaller atomic budget for the final visible scene replacement.
-    lda f:M7_CACHE_BUDGET
+    lda M7_CACHE_BUDGET
     pha
-    lda #32
-    sta f:M7_CACHE_BUDGET
+    lda #40
+    sta M7_CACHE_BUDGET
 .endif
     jsr mode7_cache_queue
 .ifdef SA1_BUILD
     pla
-    sta f:M7_CACHE_BUDGET
+    sta M7_CACHE_BUDGET
 .endif
     lda pattern_queue_count
-    beq @capacity_error
+    jeq @capacity_error
+.ifdef SA1_WORKER
+    jsr worker_pattern_runs
+    lda #2
+.else
     lda #1
+.endif
     sta f:M7_CACHE_READY
 @wait:
+.ifdef SA1_WORKER
+    lda f:M7_CACHE_READY
+    cmp #3
+    bne :+
+    lda #1
+    sta f:M7_CACHE_READY
+:
+.endif
     lda #10
     sta profile_phase
 .ifdef SA1_WORKER
@@ -462,6 +744,9 @@ mode7_cache_prepare:
     bne @abort
     lda f:M7_CACHE_READY
     bne @wait
+.ifdef SA1_WORKER
+    jsr worker_commit_tags
+.endif
     lda f:M7_CACHE_WAIT
     inc a
     sta f:M7_CACHE_WAIT
@@ -479,6 +764,18 @@ mode7_cache_prepare:
     inc a
     sta f:M7_TRANSITION_DEFERRALS
 @abort:
+.if .defined(SA1_WORKER) .and .defined(ROM_WRAP_MAP)
+    lda NATIVE_ROW_UNDO
+    beq :+
+    lda m7_row_count
+    beq :+
+    jsr worker_undo_rows
+    lda #0
+    sta f:M7_CACHE_LOCAL_H
+    lda #1
+    sta f:M7_CACHE_DIRTY
+:
+.endif
     lda #1
     sta f:M7_CACHE_ABORT
     stz pattern_queue_count
@@ -487,12 +784,25 @@ mode7_cache_prepare:
     rts
 @final:
     lda #1
-    sta f:M7_CACHE_FINAL
+    sta M7_CACHE_FINAL
     jsr mode7_cache_queue
     lda #0
     sta f:M7_POOL_DIRTY
 @map:
+.ifdef SA1_WORKER
+    jsr worker_spill_map_begin
+.endif
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_NO_SPILL)
+    lda M7_MAP_PREPARED
+    bne :+
+.endif
     jsr mode7_cache_sparse_map
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_NO_SPILL)
+:
+.endif
+.ifdef SA1_WORKER
+    jsr worker_spill_cells
+.endif
 .ifdef SA1_BUILD
     lda f:M7_VIEW_X
 .else
@@ -536,42 +846,42 @@ mode7_cache_queue:
     rts
 :
     lda #0
-    sta f:M7_CACHE_ACTIVE_CURSOR
+    sta M7_CACHE_ACTIVE_CURSOR
 @slot:
-    lda f:M7_CACHE_ACTIVE_CURSOR
+    lda M7_CACHE_ACTIVE_CURSOR
     tax
     lda f:M7_VISIBLE_LIST,x
     and #255
     sta pattern_hi
     tax
-    lda f:M7_PATTERN_SELECTED,x
+    lda M7_PATTERN_SELECTED,x
     and #255
     beq @next
     cmp #2
     bne @add
-    lda f:M7_CACHE_FINAL
+    lda M7_CACHE_FINAL
     beq @next
 @add:
     sep #$20
     .a8
     lda #0
-    sta f:M7_PATTERN_SELECTED,x
+    sta M7_PATTERN_SELECTED,x
     rep #$20
     .a16
-    lda f:M7_LOGICAL_TO_PPU,x
+    lda M7_LOGICAL_TO_PPU,x
     and #255
-    sta f:M7_CACHE_PHYSICAL
+    sta M7_CACHE_PHYSICAL
     jsr mode7_queue_slot
     lda f:M7_CACHE_REMAIN
     dec a
     sta f:M7_CACHE_REMAIN
     lda m7_upload_slots
-    cmp f:M7_CACHE_BUDGET
+    cmp M7_CACHE_BUDGET
     bcs @done
 @next:
-    lda f:M7_CACHE_ACTIVE_CURSOR
+    lda M7_CACHE_ACTIVE_CURSOR
     inc a
-    sta f:M7_CACHE_ACTIVE_CURSOR
+    sta M7_CACHE_ACTIVE_CURSOR
     cmp f:M7_CACHE_ACTIVE_COUNT
     jcc @slot
 @done:
@@ -579,8 +889,35 @@ mode7_cache_queue:
 
 ; Append one immutable RAM pattern and its physical destination.
 mode7_queue_slot:
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_PAGED)
+    lda #0
+    sta ROM_SOURCE_PAGE
+.endif
+ .if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_ADDR)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne @wram_source
+    lda pattern_hi
+    asl a
+    tax
+    lda f:PATTERN_CURRENT,x
+.ifdef ROM_PATTERN_COUNT
+    cmp #ROM_PATTERN_COUNT
+    bcs @wram_source
+.endif
+    jsr worker_rom_source
+    lda transfer_ptr
+    sta transfer_dest
+    lda transfer_ptr+2
+    sec
+    sbc #$7E
+    sta transfer_wbank
+    bra @source_ready
+@wram_source:
+.endif
     lda pattern_hi
     jsr mode7_pattern_destination
+@source_ready:
     lda pattern_queue_count
     .repeat 4
     asl a
@@ -592,7 +929,11 @@ mode7_queue_slot:
     clc
     adc #$7E
     sta f:PATTERN_QUEUE+2,x
-    lda f:M7_CACHE_PHYSICAL
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_PAGED)
+    lda ROM_SOURCE_PAGE
+    sta f:PATTERN_QUEUE+10,x
+.endif
+    lda M7_CACHE_PHYSICAL
     .repeat 6
     asl a
     .endrepeat
@@ -619,6 +960,13 @@ mode7_queue_slot:
 ; directly after inexpensive, unused-slot prefetch; dense transitions retain
 ; the versioned allocator as a fallback.
 mode7_cache_identity:
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+    jsr mode7_cache_hash
+:
+.endif
     lda #0
     sta f:M7_DIRECT_COUNT
     ldy #0
@@ -666,7 +1014,7 @@ mode7_cache_identity:
     .a8
 @identity:
     txa
-    sta f:M7_LOGICAL_TO_PPU,x
+    sta M7_LOGICAL_TO_PPU,x
     inx
     cpx #256
     bcc @identity
@@ -681,7 +1029,8 @@ mode7_cache_identity:
     lda #0
     ldx #0
 @clear_visible:
-    sta f:M7_NEW_VISIBLE,x
+    sta M7_NEW_VISIBLE,x
+    sta f:M7_VISIBLE_PATTERNS,x
     inx
     inx
     cpx #256
@@ -695,7 +1044,8 @@ mode7_cache_identity:
     sep #$20
     .a8
     lda #1
-    sta f:M7_NEW_VISIBLE,x
+    sta M7_NEW_VISIBLE,x
+    sta f:M7_VISIBLE_PATTERNS,x
     rep #$20
     .a16
     iny
@@ -708,7 +1058,7 @@ mode7_cache_identity:
     lda #255
     ldx #.loword(M7_VISIBLE_PATTERNS)
     ldy #.loword(M7_NEW_VISIBLE)
-    mvn #.bankbyte(M7_MAP),#.bankbyte(M7_MAP)
+    mvn #.bankbyte(M7_VISIBLE_PATTERNS),#.bankbyte(M7_NEW_VISIBLE)
     plb
 @visibility_ready:
     stz pattern_queue_count
@@ -722,7 +1072,7 @@ mode7_cache_identity:
     lda f:M7_DIRECT_LIST,x
     and #255
     sta pattern_hi
-    sta f:M7_CACHE_PHYSICAL
+    sta M7_CACHE_PHYSICAL
     jsr mode7_queue_slot
     iny
     bra @missing
@@ -734,9 +1084,114 @@ mode7_cache_identity:
     sec
     rts
 
+.if .defined(SA1_WORKER) .and .defined(ROM_DIRECT_UNTIL)
+; Compiler slots are a direct PPU map while their authored reuse schedule
+; leaves the previous scene intact. Keep the general allocator for later
+; sections with simultaneous reuse of many displayed slots.
+mode7_cache_fixed_prepare:
+    lda f:M7_IDENTITY_MODE
+    bne :+
+    lda #1
+    sta f:M7_STAGE_FORCE
+:
+    lda #1
+    sta f:M7_IDENTITY_MODE
+    lda #0
+    sta f:M7_CACHE_REMAIN
+    sta f:M7_CACHE_ATOMIC
+    ldx #0
+    sep #$20
+    .a8
+@clear:
+    txa
+    sta M7_LOGICAL_TO_PPU,x
+    lda #0
+    sta M7_NEW_VISIBLE,x
+    sta M7_PATTERN_SELECTED,x
+    sta f:M7_VISIBLE_PATTERNS,x
+    inx
+    cpx #256
+    bcc @clear
+    rep #$20
+    .a16
+    lda #0
+    sta M7_CACHE_ACTIVE_CURSOR
+@active:
+    lda M7_CACHE_ACTIVE_CURSOR
+    tax
+    lda f:M7_VISIBLE_LIST,x
+    and #255
+    sta pattern_hi
+    tax
+    sep #$20
+    .a8
+    lda #1
+    sta M7_NEW_VISIBLE,x
+    sta f:M7_VISIBLE_PATTERNS,x
+    rep #$20
+    .a16
+    txa
+    asl a
+    tax
+    lda f:PATTERN_CURRENT,x
+    cmp f:M7_PATTERN_VRAM,x
+    beq @next
+    lda f:M7_CACHE_REMAIN
+    inc a
+    sta f:M7_CACHE_REMAIN
+    ldx pattern_hi
+    lda M7_OLD_VISIBLE,x
+    and #255
+    beq @free
+    lda f:M7_CACHE_ATOMIC
+    inc a
+    sta f:M7_CACHE_ATOMIC
+    lda #2
+    bra @mark
+@free:
+    lda #1
+@mark:
+    sep #$20
+    .a8
+    sta M7_PATTERN_SELECTED,x
+    rep #$20
+    .a16
+@next:
+    lda M7_CACHE_ACTIVE_CURSOR
+    inc a
+    sta M7_CACHE_ACTIVE_CURSOR
+    cmp f:M7_CACHE_ACTIVE_COUNT
+    bcc @active
+    rts
+.endif
+
 ; Use spare transfer capacity to fill future compiler slots while their
 ; physical cells are absent from both displayed and staged scenes.
 mode7_cache_future:
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+    lda f:M7_BITMAP_ENABLED
+    bne :+
+.ifdef ROM_DIRECT_UNTIL
+    lda f:M7_RENDER_TIME
+    cmp #ROM_DIRECT_UNTIL
+    bcs @no_fixed_future
+    lda f:M7_IDENTITY_MODE
+    beq @no_fixed_future
+    jmp mode7_cache_fixed_future
+@no_fixed_future:
+.endif
+    rts
+:
+.endif
+.ifdef SA1_WORKER
+    lda f:M7_BITMAP_ENABLED
+    beq :+
+    jmp worker_prefetch_bitmaps
+:
+.endif
     lda #0
     sta f:M7_PREFETCH_SCANNED
 @slot:
@@ -746,15 +1201,15 @@ mode7_cache_future:
 .else
     cmp #16
 .endif
-    bcs @done
+    jcs @done
     lda f:M7_PREFETCH_CURSOR
     inc a
     and #255
     sta f:M7_PREFETCH_CURSOR
     sta pattern_hi
     tax
-    lda f:M7_NEW_VISIBLE,x
-    ora f:M7_OLD_VISIBLE,x
+    lda M7_NEW_VISIBLE,x
+    ora M7_OLD_VISIBLE,x
     and #255
     bne @next
     txa
@@ -765,21 +1220,63 @@ mode7_cache_future:
     cmp f:M7_PATTERN_VRAM,x
     beq @next
     lda pattern_hi
-    sta f:M7_CACHE_PHYSICAL
+    sta M7_CACHE_PHYSICAL
     jsr mode7_queue_slot
 @next:
     lda f:M7_PREFETCH_SCANNED
     inc a
     sta f:M7_PREFETCH_SCANNED
     cmp #64
+    jcc @slot
+@done:
+    rts
+
+.if .defined(SA1_WORKER) .and .defined(ROM_DIRECT_UNTIL)
+mode7_cache_fixed_future:
+    ; Scan with X in slot order. New scene visibility is sufficient because
+    ; these speculative writes publish with the new map in the same NMI.
+    ldx #1
+@slot:
+    lda m7_upload_slots
+    cmp M7_CACHE_BUDGET
+    bcs @done
+    lda M7_NEW_VISIBLE,x
+    and #255
+    bne @next
+    txa
+    sta pattern_hi
+    asl a
+    tay
+    phx
+    tyx
+    lda f:PATTERN_CURRENT,x
+    beq @restore
+    cmp f:M7_PATTERN_VRAM,x
+    beq @restore
+    lda pattern_hi
+    sta M7_CACHE_PHYSICAL
+    jsr mode7_queue_slot
+@restore:
+    plx
+@next:
+    inx
+    cpx #256
     bcc @slot
 @done:
     rts
+.endif
 
 ; Reuse a raw bitmap already resident under another logical lease. Without
 ; this lookup repeated shapes were uploaded again into new physical slots,
 ; wasting VBlank time and overflowing old/new scene residency at speed.
 mode7_cache_hash:
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+    jmp worker_rom_hash
+:
+.endif
     lda f:M7_HASH_DIRTY
     bne :+
     rts
@@ -789,7 +1286,7 @@ mode7_cache_hash:
     lda #$FFFF
     ldx #0
 @clear:
-    sta f:M7_RESIDENT_HASH,x
+    sta M7_RESIDENT_HASH,x
     inx
     inx
     cpx #512
@@ -810,10 +1307,10 @@ mode7_cache_hash:
     and #255
     asl a
     tax
-    lda f:M7_RESIDENT_HASH,x
+    lda M7_RESIDENT_HASH,x
     sta scratch2
     tya
-    sta f:M7_RESIDENT_HASH,x
+    sta M7_RESIDENT_HASH,x
     asl a
     tax
     lda scratch2
@@ -825,20 +1322,30 @@ mode7_cache_hash:
     rts
 
 mode7_cache_find:
-    sta f:M7_CACHE_LOGICAL
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
+    pha
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+    pla
+    jmp worker_rom_find
+:
+    pla
+.endif
+    sta M7_CACHE_LOGICAL
     sta scratch
     xba
     eor scratch
     and #255
     asl a
     tax
-    lda f:M7_RESIDENT_HASH,x
+    lda M7_RESIDENT_HASH,x
 @slot:
     cmp #$FFFF
     beq @done
-    sta f:M7_CACHE_PHYSICAL
+    sta M7_CACHE_PHYSICAL
     tax
-    lda f:M7_NEW_VISIBLE,x
+    lda M7_NEW_VISIBLE,x
     and #255
     cmp #2
     beq @next
@@ -846,16 +1353,16 @@ mode7_cache_find:
     asl a
     tax
     lda f:M7_PATTERN_VRAM,x
-    cmp f:M7_CACHE_LOGICAL
+    cmp M7_CACHE_LOGICAL
     beq @found
 @next:
-    lda f:M7_CACHE_PHYSICAL
+    lda M7_CACHE_PHYSICAL
     asl a
     tax
     lda f:M7_RESIDENT_NEXT,x
     bra @slot
 @found:
-    lda f:M7_CACHE_PHYSICAL
+    lda M7_CACHE_PHYSICAL
 @done:
     rts
 
@@ -877,6 +1384,20 @@ mode7_cache_sparse_map:
 .endif
     pha
 .ifdef SA1_BUILD
+.ifdef ROM_WRAP_MAP
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+    lda f:M7_VIEW_W
+    lsr a
+    clc
+    adc f:M7_VIEW_X
+    and #$FF80
+    sta f:M7_STAGE_BASE_X
+    jmp @keep_origin_x
+:
+    lda 1,s
+.endif
     sec
     sbc f:M7_STAGE_BASE_X
     bmi @move_origin_x
@@ -962,6 +1483,20 @@ mode7_cache_sparse_map:
 .endif
     sta view_y
 .ifdef SA1_BUILD
+.ifdef ROM_WRAP_MAP
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+    lda f:M7_VIEW_H
+    lsr a
+    clc
+    adc view_y
+    and #$FF80
+    sta f:M7_STAGE_BASE_Y
+    jmp @keep_origin_y
+:
+    lda view_y
+.endif
     sec
     sbc f:M7_STAGE_BASE_Y
     bmi @move_origin_y
@@ -1093,9 +1628,31 @@ mode7_cache_sparse_map:
 .endif
     clc
     adc f:M7_STAGE_FIRST
+.ifdef ROM_WRAP_MAP
+    pha
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    beq @wrap_column
+    pla
+    bra @column_ready
+@wrap_column:
+    pla
+    and #127
+@column_ready:
+.endif
     clc
     adc map_dest
     sta map_dest
+.ifdef ROM_WRAP_MAP
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne :+
+    lda map_dest
+    and #M7_STAGE_MASK
+    sta map_dest
+:
+    lda map_dest
+.endif
     and #M7_STAGE_MASK
     clc
     adc #.loword(M7_STAGE_MAP)
@@ -1118,8 +1675,66 @@ mode7_cache_sparse_map:
     sta map_base_ptr+2
     rep #$20
     .a16
+.if .defined(SA1_WORKER) .and .defined(ROM_WRAP_MAP)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne @ordinary_copy
+    tya
+    clc
+    adc transfer_len
+    cmp #129
+    bcc @wrapped_one
+    ; The hardware texture wraps columns within a row, not into the next
+    ; row. Split both the staged bytes and their VBlank DMA descriptors.
+    sec
+    sbc #128
+    sta NATIVE_ROW_TAIL
+    lda map_dest
+    and #$3F80
+    sta NATIVE_ROW_BASE
+    lda transfer_len
+    sec
+    sbc NATIVE_ROW_TAIL
+    sta transfer_len
+    jsr worker_translate_row
+    bcc :+
+    jsr mode7_cache_stage_span
+:
+    lda NATIVE_ROW_BASE
+    sta map_dest
+    lda NATIVE_ROW_TAIL
+    sta transfer_len
+    ldy #0
+@wrapped_one:
+    jsr worker_translate_row
+    jcc @next
+    jmp @copied
+@ordinary_copy:
+.endif
+.if .defined(SA1_WORKER) .and .defined(ROM_DIRECT_UNTIL)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne @skip_direct_row
+    lda f:M7_IDENTITY_MODE
+    beq @skip_direct_row
+    lda transfer_len
+    cmp #16
+    bcc @skip_direct_row
+    jsr worker_translate_row
+    jcc @next
+    jmp @copied
+@skip_direct_row:
+.endif
     lda f:M7_IDENTITY_MODE
     beq @translate
+.ifdef SA1_WORKER
+    ; Wide zoomed views contain mostly empty cells. Copying every row on
+    ; an origin change can overrun VBlank even with only one new pattern.
+    ; Compare the staged physical map and upload only changed row spans.
+    lda f:M7_VIEW_H
+    cmp #32
+    bcs @translate
+.endif
     tya
     sta map_left
     lda #128
@@ -1147,24 +1762,116 @@ mode7_cache_sparse_map:
     lda transfer_len
     sec
     sbc m7_run_index
-    beq @copied
+    jeq @copied
     dec a
     ldx map_ptr
     phb
     mvn #.bankbyte(M7_MAP),#.bankbyte(M7_STAGE_MAP)
     plb
-    bra @copied
+    jmp @copied
 @translate:
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_NO_SPILL)
+    lda selected_level
+    cmp #ROM_PATTERN_LEVEL
+    bne @skip_accel_row
+    lda transfer_len
+    cmp #16
+    bcc @skip_accel_row
+    jsr worker_translate_row
+    jcc @next
+    jmp @copied
+@skip_accel_row:
+.endif
     lda transfer_len
     sta map_left
+    stz m7_run_index
+    stz map_scan_x
+.ifdef SA1_WORKER
+    lda SPILL_MAP_ACTIVE
+    beq @plain_translate
+    lda view_y
+    asl a
+    asl a
+    asl a
+    sec
+    sbc f:M7_RASTER_Y
+    cmp #25
+    bcc @plain_translate
+    cmp #177
+    bcs @plain_translate
+    sta SPILL_Y
+    lda #0
+    sep #$20
+    .a8
+@spill_pixel:
+    lda [map_ptr],y
+    tax
+    lda f:SPILL_LOGICAL,x
+    beq @spill_blank
+    jsr worker_spill_map_pixel
+@spill_blank:
+    lda M7_LOGICAL_TO_PPU,x
+    cmp [map_base_ptr],y
+    beq @spill_same
+    sta [map_base_ptr],y
+    rep #$20
+    .a16
+    lda m7_run_index
+    bne :+
+    lda map_left
+    sta m7_run_index
+:
+    lda map_left
+    sta map_scan_x
+    lda #0
+    sep #$20
+    .a8
+@spill_same:
+    iny
+    cpy #128
+    bcc :+
+    ldy #0
+    rep #$20
+    .a16
+    lda map_base_ptr
+    clc
+    adc #128
+    sta map_base_ptr
+    lda #0
+    sep #$20
+    .a8
+:
+    dec map_left
+    lda map_left
+    bne @spill_pixel
+    rep #$20
+    .a16
+    bra @translated
+@plain_translate:
+.endif
     lda #0
     sep #$20
     .a8
 @pixel:
     lda [map_ptr],y
     tax
-    lda f:M7_LOGICAL_TO_PPU,x
+    lda M7_LOGICAL_TO_PPU,x
+    cmp [map_base_ptr],y
+    beq @same_pixel
     sta [map_base_ptr],y
+    rep #$20
+    .a16
+    lda m7_run_index
+    bne :+
+    lda map_left
+    sta m7_run_index
+:
+    lda map_left
+    sta map_scan_x
+    lda #0
+    sep #$20
+    .a8
+@same_pixel:
     iny
     cpy #128
     bcc :+
@@ -1184,10 +1891,26 @@ mode7_cache_sparse_map:
     bne @pixel
     rep #$20
     .a16
+@translated:
+    lda m7_run_index
+    jeq @next
+    lda transfer_len
+    sec
+    sbc m7_run_index
+    clc
+    adc map_dest
+    sta map_dest
+    lda m7_run_index
+    sec
+    sbc map_scan_x
+    inc a
+    sta transfer_len
 @copied:
     jsr mode7_cache_stage_span
 @next:
+.ifndef SA1_WORKER
     jsr audio_pump
+.endif
     inc view_y
     dec view_rows
     jne @row
@@ -1215,5 +1938,3 @@ mode7_cache_stage_span:
     sta m7_row_span
     inc m7_row_count
     rts
-
-

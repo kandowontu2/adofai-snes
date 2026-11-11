@@ -16,7 +16,17 @@ def unpack_events(data, chart):
     for pos,end,t,k,i,v in records(terminated):
         if k==255:break
         payload=data[pos+7:end]
-        if k==20:
+        if k in (24,26):continue
+        if k==29:
+            for j in range(i):
+                cell,_,value=struct.unpack_from('<HHB',payload,5*j)
+                x,y=chart['cell_coordinates'][cell]
+                put(t,9,cell,1,struct.pack('<HHB',x,y,value))
+        elif k==25:
+            for j in range(i):
+                slot,tag=struct.unpack_from('<HH',payload,4*j)
+                put(t,27,slot,tag)
+        elif k==20:
             for j in range(v):
                 at=j*68;slot,tag=struct.unpack_from('<HH',payload,at)
                 hints=payload[68*v+4*j:68*v+4*j+4]
@@ -35,7 +45,7 @@ def unpack_events(data, chart):
                 x,y=chart['cell_coordinates'][i+j]
                 put(t,9,i+j,1,struct.pack('<HHB',x,y,value))
         else:
-            assert k in (1,2,3,4,6,7,10,11,12,13,14,15,16,23),k
+            assert k in (1,2,3,4,6,7,10,11,12,13,14,15,16,23,27,28),k
             put(t,k,i,v,payload)
     return events
 
@@ -47,7 +57,7 @@ def state(events):
             x,y,value=struct.unpack('<HHB',p)
             result[('cell',i)]=value;result[('map',x&127,y&127)]=value
         elif k==4:result[(k,i)]=(v,p[4:])
-        elif k in (1,2,3,7):result[(k,i)]=v
+        elif k in (1,2,3,7,27):result[(k,i)]=v
         elif k==11:
             result[('sampling',)]=(i,v);result[('projection',)]=(i,v)
         elif k==15:result[('projection',)]=(i,v)
@@ -57,7 +67,7 @@ def state(events):
 def shortcut(data,chart,end_time):
     events=unpack_events(data,chart);last={}
     for n,(_,k,i,v,p) in enumerate(events):
-        key=(k,i) if k in (1,2,3,4,7,9) else (k,)
+        key=(k,i) if k in (1,2,3,4,7,9,27) else (k,)
         last[key]=n
     retained=set(last.values())
     kept=[e for n,e in enumerate(events) if n in retained]
@@ -85,28 +95,37 @@ def shortcut(data,chart,end_time):
 def compile_stream(data,chart):
     rows=list(records(data));out=bytearray();mapping={};windows=0;saved=0;j=0
     while j<len(rows)-1:
-        if 1440<=rows[j][2]<1560:
+        ranges=chart.get('catchup_ranges')
+        if ranges is not None and not any(a<=rows[j][2]<b for a,b in ranges):
+            mapping[rows[j][0]]=len(out)
+            out+=data[rows[j][0]:rows[j][1]]
+            j+=1
+            continue
+        if 1440<=rows[j][2]<1560 or chart.get('id')==60:
             # Offer a four-frame shortcut at EVERY timestamp of the dense
             # zoom transition, so entering a normal branch cannot trap a
             # late renderer inside an entire fixed-size interval.
             groups=[]
-            while j<len(rows)-1 and rows[j][2]<1560:
+            while j<len(rows)-1 and (chart.get('id')==60 or rows[j][2]<1560):
                 first=j;t=rows[j][2]
                 while j<len(rows)-1 and rows[j][2]==t:j+=1
                 groups.append(rows[first:j])
             fragments=[None]*len(groups);prefixes=[0]*len(groups)
             for i in range(len(groups)-1,-1,-1):
                 group=groups[i];a=group[0][0];b=group[-1][1];normal=data[a:b]
-                end=i+1
-                while end<len(groups) and groups[end][0][2]<group[0][2]+4:end+=1
-                source=data[a:groups[end-1][-1][1]]
-                fast=shortcut(source,chart,groups[end-1][-1][2])
-                skip=len(normal)+sum(len(fragments[k]) for k in range(i+1,end))
-                prefix=b''
-                if fast is not None and len(fast)+7<=65535 and skip<=65535:
-                    prefix=HEADER.pack(group[0][2],21,groups[end-1][-1][2],len(fast))+fast+HEADER.pack(groups[end-1][-1][2],22,skip,0)
-                    windows+=1;saved+=len(source)-len(fast)
-                prefixes[i]=len(prefix);fragments[i]=prefix+normal
+                fragment=normal
+                widths=(2,4,8) if chart.get('id')==60 and 7000<=group[0][2]<=7500 else tuple(chart.get('catchup_widths',[4]))
+                for width in widths:
+                    end=i+1
+                    while end<len(groups) and groups[end][0][2]<group[0][2]+width:end+=1
+                    source=data[a:groups[end-1][-1][1]]
+                    fast=shortcut(source,chart,groups[end-1][-1][2])
+                    skip=len(fragment)+sum(len(fragments[k]) for k in range(i+1,end))
+                    if fast is not None and len(fast)+7<=65535 and skip<=65535:
+                        prefix=HEADER.pack(group[0][2],21,groups[end-1][-1][2],len(fast))+fast+HEADER.pack(groups[end-1][-1][2],22,skip,0)
+                        fragment=prefix+fragment
+                        windows+=1;saved+=len(source)-len(fast)
+                prefixes[i]=len(fragment)-len(normal);fragments[i]=fragment
             for group,prefix,fragment in zip(groups,prefixes,fragments):
                 for r in group:mapping[r[0]]=len(out)+prefix+r[0]-group[0][0]
                 out+=fragment
@@ -131,6 +150,7 @@ def patch_pack(out):
     out=Path(out);pack=json.loads((out/'pack.json').read_text())
     if 23 not in pack['levels']:return
     chart_path=out/'level23.json';chart=json.loads(chart_path.read_text())
+    if chart.get('catchup_disabled'):return
     if chart.get('catchup_format')==5:return
     standalone='ROM_DATA_BUILD' in (out/'addresses.inc').read_text()
     target=out/('sa1_payload.bin' if standalone else 'adofai.msu')

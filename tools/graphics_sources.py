@@ -32,6 +32,9 @@ def patch_sa1_pack(out):
     """Refresh cached payloads too, without regenerating user-edited artwork."""
     graphics = write_graphics(out, 'mode7')
     placements = json.loads((out / 'placements.json').read_text())
+    if 'neo_objects' in placements:
+        graphics['neo_objects']=(ROOT/'mode7/freeroam.chr').read_bytes()
+        if len(graphics['neo_objects'])!=2048:raise ValueError('freeroam.chr must contain 64 tiles')
     with (out / 'sa1_payload.bin').open('r+b') as payload:
         for key, data in graphics.items():
             address = placements[key]

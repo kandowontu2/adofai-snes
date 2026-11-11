@@ -270,6 +270,8 @@ draw_hit_meter:
     ora f:FONT_ADDR+4*16+row*2
     sta f:METER_BITMAP+row*2,x
     .endrepeat
+    lda #1
+    sta hud_meter_dirty
     ldx #0
     lda #$3C80
 @map:

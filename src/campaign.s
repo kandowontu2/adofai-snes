@@ -59,7 +59,11 @@ BEST_SCORES=$7FDC00
 BEST_SCORES=$0700
 .endif
 DESC=$0460
+.ifdef SA1_WRAM_RENDERER
+HUD=$6800
+.else
 HUD=$0800
+.endif
 TRACK=$1000
 .ifdef SA1_BUILD
 TRACK_SYMBOL_FLOORS=$40A000
@@ -124,7 +128,7 @@ FLOOR_ALPHA=$7FE000
 PATTERN_CURRENT=M7_SHARED_BASE+$F800
 PATTERN_NEXT=$7F8800
 .ifdef MSU_BUILD
-PATTERN_QUEUE=M7_SHARED_BASE+$EC00
+PATTERN_QUEUE=$417C00
 .else
 PATTERN_QUEUE=$7EF000
 .endif
@@ -216,6 +220,7 @@ M7_CACHE_ATOMIC=M7_SHARED_BASE+$FC5A
 M7_CACHE_ABORT=M7_SHARED_BASE+$FC5C
 M7_CACHE_BUDGET=M7_SHARED_BASE+$FC5E
 AUDIO_FIFO=$7F7C00
+.assert M7_BITMAP_BUFFER+64 <= AUDIO_FIFO, error, "Bitmap scratch overlaps audio"
 AUDIO_FIFO_HEAD=$7FFC60
 AUDIO_FIFO_TAIL=$7FFC62
 AUDIO_PACKET_INFLIGHT=$7FFC64
@@ -238,6 +243,8 @@ M7_CACHE_LOCAL_H=M7_SHARED_BASE+$FC82
 M7_CACHE_TARGET_X=M7_SHARED_BASE+$FC84
 M7_CACHE_TARGET_Y=M7_SHARED_BASE+$FC86
 M7_CACHE_UNCHANGED=M7_SHARED_BASE+$FC88
+M7_CACHE_RESET_SERIAL=M7_SHARED_BASE+$FCF0
+M7_CACHE_SERIAL_SEEN=$416C7C
 M7_RESIDENT_HASH=M7_SHARED_BASE+$F200
 M7_RESIDENT_NEXT=M7_SHARED_BASE+$6600
 M7_GLOBAL_REFS_ACTIVE=M7_SHARED_BASE+$FC8A
@@ -256,6 +263,118 @@ M7_DIRECT_COUNT=M7_SHARED_BASE+$FCA2
 M7_RENDER_TIME=M7_SHARED_BASE+$FCA4
 M7_EXPOSE_FIRST=M7_SHARED_BASE+$FCA6
 M7_EXPOSE_END=M7_SHARED_BASE+$FCA8
+OAM_PREVIOUS_COUNT=$41FCAE
+SYMBOL_MIN_X=$416C00
+SYMBOL_MIN_Y=$416C02
+SYMBOL_WIDTH_X=$416C04
+SYMBOL_WIDTH_Y=$416C06
+SYMBOL_VISIBLE_COUNT=$416C08
+SYMBOL_COORDS_DIRTY=$416C0A
+SYMBOL_DIRTY_BEGIN=$416C0C
+SYMBOL_DIRTY_END=$416C0E
+M7_BITMAP_HEAD=$416C10
+M7_BITMAP_TAIL=$416C12
+M7_BITMAP_ENABLED=$416C14
+M7_BITMAP_TAG=$416C16
+M7_BITMAP_DEADLINE=$416C18
+M7_BITMAP_CURSOR=$416C1A
+M7_BITMAP_CHOICE=$416C1C
+M7_BITMAP_BEST=$416C1E
+M7_BITMAP_EXPIRES=$416C20
+M7_TAG_COUNT=$416C22
+M7_PATTERN_RUN_COUNT=$416C24
+M7_PATTERN_STAGE=$434000
+M7_PATTERN_RUNS=$438000
+M7_PATTERN_DIRTY=$438400
+M7_BITMAP_META=$420000
+M7_FUTURE_DEADLINES=$417600
+M7_FUTURE_TAGS=$417800
+M7_BITMAP_BUFFER=$7F7000
+M7_BITMAP_SRAM=$424000
+M7_BITMAP_COUNT=1024
+SPILL_TAGS=$438800
+SPILL_DEADLINES=$438900
+SPILL_OLD=$438A00
+SPILL_NEW=$438A80
+SPILL_LOGICAL=$438B00
+SPILL_FRAME=$438C00
+SPILL_CHR=$439000
+SPILL_QUEUE=$43A000
+SPILL_QUEUED=$43A100
+SPILL_COUNT=$416C30
+SPILL_VISIBLE=$416C32
+SPILL_CHOICE=$416C34
+SPILL_BEST=$416C36
+SPILL_SCAN=$416C38
+SPILL_PLANE0=$416C3A
+SPILL_PLANE1=$416C3C
+SPILL_X=$416C3E
+SPILL_Y=$416C40
+SPILL_COL=$416C42
+SPILL_ROW=$416C44
+SPILL_REMAIN=$416C46
+SPILL_TILE=$416C48
+SPILL_DRAW_CURSOR=$416C4A
+M7_SPILL_ELIGIBLE=$416C50
+SPILL_ENABLED=$416C4C
+SPILL_QUEUE_INDEX=$416C4E
+SPILL_RUN_COUNT=$416C52
+SPILL_TAG_COUNT=$416C54
+M7_BITMAP_WORK=$416C58
+M7_BITMAP_WORK_LIMIT=$416C5A
+M7_BITMAP_TARGET=$416C5C
+M7_BITMAP_URGENT=$416C5E
+M7_RAW_TO_SPILL=$420000
+M7_RAW_TO_PPU=$422000
+SPILL_RUNS=$43A200
+
+SYMBOL_X=$410000
+SYMBOL_Y=$412200
+SYMBOL_VISIBLE=$414400
+SYMBOL_SCREEN_X=$43A400
+SYMBOL_SCREEN_Y=$43C600
+SYMBOL_CENTER_X=$416C60
+SYMBOL_CENTER_Y=$416C62
+M7_WRAM_STAGE_REQUIRED=$416C80
+SPILL_MAP_ACTIVE=$416C82
+ROM_SOURCE_PAGE=$416C84
+M7_MAP_PREPARED=$416C86
+M7_FORCE_SKIP_HUD=$416C88
+M7_CACHE_CODE_VALID=$416C8A
+M7_ROW_CODE_VALID=$416C8C
+NATIVE_SOURCE_PAGE=$416C8E
+NATIVE_ROW_TAIL=$416C92
+NATIVE_ROW_BASE=$416C94
+NATIVE_ROW_UNDO=$416C96
+NATIVE_STAGE_UNDO=$42C000
+NATIVE_PALETTE=$42A000
+NATIVE_ALPHA=$42A100
+NATIVE_READY=$42B200
+NATIVE_OFFSET=$42B202
+NATIVE_RESULT=$42B206
+NATIVE_ZOOM=$42B20A
+NATIVE_INVERSE=$42B20C
+NATIVE_PALETTE_DIRTY=$42B20E
+NATIVE_ALPHA_DIRTY=$42B210
+NATIVE_SYMBOL_BYTES=$42B212
+NATIVE_TARGET=$42B214
+NATIVE_ALPHA_BEGIN=$42B216
+NATIVE_ALPHA_END=$42B218
+NATIVE_CAMERA_X=$42B21A
+NATIVE_CAMERA_Y=$42B21C
+M7_SPARSE_BATCH=$43E800
+M7_MISSING_LIST=$43F400
+M7_CACHE_MISSING_COUNT=$416C64
+SPILL_LIVE_COUNT=$416C66
+TRAIL_JOB=$43F500
+TRAIL_JOB_BUDGET=TRAIL_JOB+$20
+TRAIL_JOB_OAM=TRAIL_JOB+$40
+TRAIL_JOB_HIGH=TRAIL_JOB+$80
+SPILL_OAM_OUT=$43EC00
+SPILL_OAM_HIGH=$43EE00
+SPILL_OAM_BUDGET=$43EE20
+SPILL_OAM_PREFIX=$43EE40
+SPILL_OAM_BYTES=$43EE42
 M7_DIRECT_LIST=M7_SHARED_BASE+$EE00
 M7_REFERENCE_POSITIONS=M7_SHARED_BASE+$FD00
 M7_REFERENCE_COUNTS=M7_SHARED_BASE+$FE00
@@ -374,6 +493,7 @@ music_active: .res 2
 hud_state: .res 2
 audio_ticks: .res 2
 stream_ticks: .res 2
+sa1_async: .res 2
 clock_version: .res 2
 clock_fraction: .res 2
 transfer_ptr: .res 3
@@ -432,7 +552,6 @@ music_origin: .res 2 ; absolute song frame at the BRR seek entry
 checkpoint_floor: .res 2
 checkpoint_record: .res 2 ; byte offset + 1; zero means no checkpoint
 checkpoint_next: .res 2
-checkpoint_bytes: .res 2
 checkpoint_preroll: .res 2
 checkpoint_ready: .res 2
 checkpoint_beat: .res 2
@@ -450,6 +569,7 @@ rom_data_ptr: .res 3
 .endif
 
 .segment "BSS"
+checkpoint_bytes: .res 2 ; loading-only length; leave direct page for ROM pointers
 speed_tenths: .res 2
 speed_pitch: .res 2
 speed_scale: .res 2
@@ -475,6 +595,11 @@ fire_color: .res 2
 ice_color: .res 2
 palette_dirty: .res 2
 orb_palette: .res 64
+.ifdef NEO_BUILD
+; WRAM scratch gap between the HDMA tables and event/OAM budget buffer.
+; SA-1's similarly named $0580 is in its separate internal RAM.
+third_palette=$0580
+.endif
 last_judgment: .res 2
 judge_signed: .res 2
 judge_abs: .res 2
@@ -526,6 +651,50 @@ input_edges: .res 2
 input_sound_mask: .res 2
 input_version: .res 2
 nmi_audio_ticks: .res 2
+.ifdef NEO_BUILD
+tap_release: .res 2
+input_releases: .res 2
+neo_hold_keys: .res 2
+neo_hold_x: .res 2
+neo_hold_y: .res 2
+neo_hold_phase: .res 2
+neo_hold_duration: .res 2
+neo_free_step: .res 2
+neo_free_record: .res 2
+neo_free_mode: .res 2
+neo_free_x: .res 2
+neo_free_y: .res 2
+neo_free_from_x: .res 2
+neo_free_from_y: .res 2
+neo_free_angle: .res 2
+neo_free_time: .res 2
+neo_free_hops: .res 2
+neo_free_clock: .res 2
+neo_coin_mask: .res 2
+neo_free_collected: .res 2
+neo_free_checked: .res 2
+neo_free_index: .res 2
+neo_free_mask: .res 2
+neo_free_count: .res 2
+neo_free_pointer: .res 2
+neo_free_object_x: .res 2
+neo_free_object_y: .res 2
+neo_cam_active: .res 2
+neo_cam_x: .res 2
+neo_cam_y: .res 2
+neo_free_autocursor: .res 2
+neo_return_x: .res 2
+neo_return_y: .res 2
+neo_return_begin: .res 2
+neo_return_until: .res 2
+neo_return_fade: .res 2
+neo_return_shade: .res 2
+neo_laser_left: .res 2
+neo_laser_top: .res 2
+neo_laser_right: .res 2
+neo_laser_bottom: .res 2
+neo_laser_axis: .res 2
+.endif
 checkpoint_counts: .res 22
 checkpoint_score_lo: .res 2
 checkpoint_score_hi: .res 2
@@ -544,6 +713,10 @@ floor_x: .res 2
 floor_y: .res 2
 map_offset_hi: .res 2
 hud_dirty: .res 2
+.ifdef SA1_BUILD
+hud_full_dirty: .res 2
+hud_meter_dirty: .res 2
+.endif
 hud_last_combo: .res 2
 hud_last_step: .res 2
 hud_last_feedback: .res 2
@@ -737,6 +910,14 @@ fast_reset:
     sta oam_pos
 .ifdef SA1_BUILD
     jsr sa1_init
+    lda #512
+    sta f:OAM_PREVIOUS_COUNT
+.endif
+.ifdef SA1_FASTROM_MIRROR
+    ; $2222 maps bank $80 to the third MiB. The packer reserves a copy
+    ; of this code bank there. Bank $80 mirrors low WRAM and SNES I/O.
+    jml $800000+sa1_fast_main
+sa1_fast_main:
 .endif
 .ifdef MSU_BUILD
     ldx #0
@@ -853,7 +1034,7 @@ fast_reset:
     .a16
 .endif
     GFX BACKGROUND_CHR_ADDR,$4000,BACKGROUND_CHR_BYTES
-    GFX BACKGROUND_MAP_ADDR,$7400,2048
+    GFX BACKGROUND_MAP_ADDR,$4800,2048
 .ifdef SA1_BUILD
     ; Static HUD glyphs are monochrome. Put their ink in color 3 so the
     ; meter can use colors 1/2 for fading without dimming ordinary text.
@@ -878,6 +1059,10 @@ fast_reset:
     GFX FONT_ADDR,$5000,2048
 .endif
     GFX OBJECTS_ADDR,$6000,8192
+.ifdef NEO_BUILD
+    ; OBJ tiles 448..511: beyond the spill cache and the HUD tilemap.
+    GFX NEO_OBJECTS_ADDR,$7C00,2048
+.endif
     sep #$20
     .a8
 .ifdef MSU_BUILD
@@ -890,7 +1075,7 @@ fast_reset:
     sta $2105
     lda #$70
     sta $2107
-    lda #$74
+    lda #$48
     sta $2108
     lda #$78
     sta $2109
@@ -1051,6 +1236,16 @@ main:
     bne @publish_ready
     lda f:M7_CACHE_ABORT
     jne main
+.ifdef SA1_BUILD
+    jsr spill_draw
+    lda step
+    pha
+    lda m7_visual_step
+    sta step
+    jsr render_symbols
+    pla
+    sta step
+.endif
 @publish_ready:
 .endif
     lda #1
@@ -1108,6 +1303,17 @@ upload_wram:
     rts
 
 load_selected_level:
+.ifdef ROM_PATTERN_PAGED
+    ; Chart/map data for other levels can occupy C0. The resident worker
+    ; is idle here, so restore the standard mapping before touching it.
+    sep #$20
+    .a8
+    stz $2220
+    rep #$20
+    .a16
+    lda #1
+    sta f:SA1_ROM_CURRENT
+.endif
     stz map_scan_valid
     jsr load_visibility
     lda selected_level
@@ -1119,7 +1325,7 @@ load_selected_level:
     tax
     ldy #0
 @desc:
-    lda level_descriptors,x
+    lda f:level_descriptors,x
     sta DESC,y
     inx
     inx
@@ -1291,8 +1497,14 @@ load_chart_arrays:
     cmp #18
     bcc @array
 .ifdef SA1_BUILD
-    ; A sparse event list avoids scanning thousands of ordinary floors in
-    ; every frame, while letting icons share the full authored visibility.
+    jsr reset_symbol_index
+.endif
+    rts
+
+.ifdef SA1_BUILD
+reset_symbol_index:
+    ; Loading a checkpoint starts with a conservative full list. Subsequent
+    ; authored symbol-set records replace it without losing visible icons.
     stz event_count
     ldx #0
 @event_index:
@@ -1415,8 +1627,14 @@ start_game:
 
 .include "src/gameplay.inc"
 .include "src/render.inc"
+.ifdef NEO_BUILD
+.include "src/neo.inc"
+.endif
 .include "src/effects.inc"
 .include "src/hud.inc"
+.ifdef SA1_BUILD
+.include "src/hud_dma.inc"
+.endif
 .include "src/hit_meter.inc"
 .include "src/audio.inc"
 .ifdef MSU_BUILD
@@ -1457,8 +1675,12 @@ chart_destinations: .word .loword(NOTE_X),.loword(NOTE_Y),.loword(NOTE_TIME),.lo
 chart_destination_banks: .word 1,1,0,0,0,0,0,0,$40
 .endif
 .ifdef MSU_BUILD
+.ifdef NEO_BUILD
+.segment "NEOCODE"
+.else
 .ifdef LARGE_CHART_BUILD
 .segment "CAMERA"
+.endif
 .endif
 msu_descriptors: .incbin "msu_descriptors.bin"
 .segment "RODATA"
@@ -1466,8 +1688,12 @@ text_msu_missing: .byte "MSU DATA MISSING: SEE README",0
 .endif
 hdma_show: .byte 32,$16,127,$17,33,$17,32,$16,0
 hdma_hide: .byte 127,$16,97,$16,0
+.ifdef NEO_BUILD
+.segment "NEOCODE"
+.endif
 level_descriptors: .incbin "descriptors.bin"
 visibility_descriptors: .incbin "visibility_descriptors.bin"
+.segment "RODATA"
 .ifndef SPC_DRIVER_ADDR
 spc_image: .incbin "spc.bin"
 spc_image_end:
@@ -1490,7 +1716,7 @@ hud8: .incbin "hud8.bin"
 .res 16,0
 .byte "ADOFAI SNES OFFICIAL "
 .ifdef SA1_BUILD
-.byte $23,$35,$0D,$07,$01,$33,$01
+.byte $23,$35,$0D,$08,$01,$33,$01
 .else
 .byte $35,$00,$0D,$00,$01,$33,$01
 .endif
@@ -1501,10 +1727,16 @@ hud8: .incbin "hud8.bin"
 .ifdef SA1_BUILD
 .segment "CODE"
 .include "sa1.inc"
+.include "native_animation.inc"
+.include "mode7_spill.inc"
 .segment "SA1CODE"
 .incbin "sa1_worker.bin", 0, $7000
 .segment "SA1PAYLOAD"
+.ifdef NEO_BUILD
+.incbin "sa1_payload.bin", $2000
+.else
 .incbin "sa1_payload.bin"
+.endif
 .else
 .segment "PAYLOAD0"
 .incbin "payload0.bin"
