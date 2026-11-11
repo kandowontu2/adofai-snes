@@ -507,6 +507,7 @@ irq:
 .ifdef NEO_BUILD
 ; Rare settings upload lives in ROM to preserve the fixed fast-NMI RAM budget.
 upload_third_palette:
+    .a8
     ldx #third_palette
     stx $4302
     ldx #32
@@ -514,6 +515,7 @@ upload_third_palette:
     lda #1
     sta $420B
     rtl
+    .a16
 .endif
 .endif
 update_menu_repeat:
