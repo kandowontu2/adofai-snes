@@ -27,7 +27,8 @@ def compile_regions(data, chart):
         landable = sorted({(round((c['position'][0]-root[0])*scale),
                             round(-(c['position'][1]-root[1])*scale)) for c in cells if c.get('isLandable')})
         xs = sorted({p[0] for p in points}); ys = sorted({p[1] for p in points})
-        assert len(points) == len(xs)*len(ys) and (0, 0) in points
+        entry=tuple(floor.get('freeroamEntry',(0,0)))
+        assert len(points) == len(xs)*len(ys) and entry in landable,('Free-roam entry is not landable',i,entry)
         assert all(b-a == 24 for a,b in zip(xs,xs[1:])) and all(b-a == 24 for a,b in zip(ys,ys[1:]))
         beat = 60/data['bpm']/floor['speed']*FPS
         end = chart['notes'][i+1]['frame']
@@ -39,7 +40,8 @@ def compile_regions(data, chart):
                             return_duration=max(1, round(beat*early*.5)), unlock=unlock, end=end,
                             fade_duration=max(1, round(60/data['bpm']*FPS)),
                             ease=floor['freeroamEndEase'], move_camera=bool(floor['moveCamAtFreeroamEnd']),
-                            bounds=[xs[0],ys[0],xs[-1],ys[-1]], cells=landable,
+                            bounds=[xs[0],ys[0],xs[-1],ys[-1]], cells=landable,entry=list(entry),
+                            twirls=[[round((c['position'][0]-root[0])*scale),round(-(c['position'][1]-root[1])*scale)] for c in cells if c.get('isLandable') and c.get('isSwirl')],
                             exit_offset=[round(-24*math.cos(angle)),round(-24*math.sin(angle))]))
     chart['freeroam_regions'] = regions
     chart['neo_freeroam_runtime'] = 1
@@ -68,6 +70,15 @@ def compile_regions(data, chart):
                     cells=[[round((i%4+offset['x'])*24),round(-(i//4+offset['y'])*24)] for i in indices]))
         if data['id']==70:
             compile_laser(data,r,beat)
+        if data.get('featured_classic') and r.get('twirls'):
+            # Autoplay traverses the reachable maze. Isolated decorative
+            # edge cells must not become invented mandatory objectives.
+            cells=set(r['cells']);seen={tuple(r['entry'])};queue=deque(seen)
+            while queue:
+                x,y=queue.popleft()
+                for p in ((x+24,y),(x,y-24),(x-24,y),(x,y+24)):
+                    if p in cells and p not in seen:seen.add(p);queue.append(p)
+            r['goal']=list(max(seen,key=lambda p:(p[0],p[1])))
         r['demo_route']=demo_route(r,n)
 
 
@@ -114,7 +125,7 @@ def demo_route(region,note,reverse=False):
     goals=[p for p in goals if p in cells][:3]
     if region.get('goal'):goals=[tuple(region['goal'])]
     if reverse:goals.reverse()
-    current=(0,0);angle=note['angle'];at=region['start'];result=[]
+    current=tuple(region.get('entry',(0,0)));angle=note['angle'];at=region['start'];result=[]
     rate=note['rate']/256;sign=1 if rate>0 else -1
     # For hazard-only regions, occupy a safe cell before each check.
     tasks=[(p,region['return_start']) for p in goals]
@@ -139,6 +150,7 @@ def demo_route(region,note,reverse=False):
             at=round(at+turn/abs(rate))
             if at>=deadline:raise ValueError('Free-roam demo route misses objective deadline')
             result.append([at,*p,direction^128]);angle=direction^128;current=p
+            if list(p) in region.get('twirls',[]):rate=-rate;sign=-sign
         if not goals:
             # Keep this safe position through the check before seeking the
             # next safe region (whose safe half may be the current hazard).
@@ -174,11 +186,13 @@ def widen_views(chart, views, transforms):
         for r in regions:
             if not r['start']-1<=frame<r['end']:continue
             n=chart['notes'][r['step']]; following=chart['notes'][r['step']+1]
+            fx=following['x']+following.get('position_track_offset',(0,0))[0]
+            fy=following['y']+following.get('position_track_offset',(0,0))[1]
             a,b,c,d=r['bounds']
-            left=min(x*8,n['x']+a-160,following['x']-160)
-            top=min(y*8,n['y']+b-120,following['y']-120)
-            right=max((x+w)*8,n['x']+c+160,following['x']+160)
-            bottom=max((y+h)*8,n['y']+d+120,following['y']+120)
+            left=min(x*8,n['x']+a-160,fx-160)
+            top=min(y*8,n['y']+b-120,fy-120)
+            right=max((x+w)*8,n['x']+c+160,fx+160)
+            bottom=max((y+h)*8,n['y']+d+120,fy+120)
             x=left//8;y=top//8;w=(right+7)//8-x;h=(bottom+7)//8-y
             transforms[frame]=(256,0,0,0) # union is already in world space
         views[frame]=(x,y,w,h)

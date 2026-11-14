@@ -60,7 +60,7 @@ class Source:
         folder=Path(folder);self.chart=json.loads((folder/f'level{level}.json').read_text());c=self.chart
         self.patterns=np.frombuffer((folder/f'patterns{level}.bin').read_bytes(),dtype=np.uint8).reshape(-1,8,8)
         self.world=np.zeros((c['map_height'],c['map_width']),dtype=np.uint16)
-        self.tags=np.array(c['pattern_initial'],dtype=np.uint16);self.events=collections.defaultdict(list)
+        self.tags=np.array(c['pattern_initial'],dtype=np.uint32);self.events=collections.defaultdict(list)
         timeline=(folder/f'timeline{level}.bin').read_bytes()
         for xy,off in zip(c['cell_coordinates'],c['visibility_offsets']):
             n=struct.unpack_from('<H',timeline,off)[0]
@@ -96,6 +96,8 @@ class Source:
 
     def screen(self,frame):
         self.advance(frame);c=self.chart;top=c.get('viewport_top',32);bottom=c.get('viewport_bottom',176)
+        # scrCamera.UpdateSize disables the gameplay camera at zero zoom.
+        if self.rotation==(0,0):return np.zeros((184,256),dtype=np.uint8)
         if self.copies and self.copies.first<=frame<self.copies.last:
             self.native_palette=self.palette.copy()
             return self.copies.screen(frame,self.camera,self.rotation,self.palette,c)

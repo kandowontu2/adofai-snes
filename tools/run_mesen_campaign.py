@@ -118,7 +118,7 @@ def main():
             scheduled+=',profile_ranges={{4,24}'+(',{120,180},{390,408}' if global_id==71 else '')+'}'
         if args.graphics_dumps:scheduled+=',graphics_dumps=true'
         if args.graphics_dumps and chart.get('neo_cosmos'):
-            scheduled+=',midspin={script='+json.dumps((ROOT/'tools/verify_midspin_pose_mesen.lua').as_posix())+',entry='+str(labels['neo_far_prepare_hold'])+',addr={'+','.join(k+'='+str(labels[k]) for k in ('m7_visual_step','m7_logical_step'))+'},flags={'+','.join(str(n['flags']) for n in chart['notes'])+'}}'
+            scheduled+=',midspin={script='+json.dumps((ROOT/'tools/verify_midspin_pose_mesen.lua').as_posix())+',entry='+str(labels['neo_far_prepare_hold'])+',addr={'+','.join(k+'='+str(labels[k]) for k in ('m7_visual_step','m7_logical_step','chart_time'))+'},flags={'+','.join(str(n['flags']) for n in chart['notes'])+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'}}'
         if args.graphics_dumps and chart.get('neo_math_questions'):
             from neo_math import POOLS,FONT_CHARS
             mfields=('neo_math_group','neo_math_label','neo_math_choices','sprite_x','sprite_y','oam_pos')
@@ -135,6 +135,10 @@ def main():
         if args.graphics_dumps and chart.get('mode1_tracks'):
             holds=[(n['frame'],chart['notes'][i+1]['frame']) for i,n in enumerate(chart['notes'][:-1]) if n.get('hold_length',-1)>=0]
             captures=sorted({round(a+(b-a)*f) for a,b in holds[:3]+holds[-2:] for f in (.1,.5,.9)})
+            # Snapshot charts are also used by songs without holds. Give
+            # those charts real screenshot coverage across the whole song.
+            if len(captures)<9:
+                captures=sorted(set(captures)|{round(chart['notes'][-1]['frame']*i/10) for i in range(1,10)})
             scheduled+=',screen_captures={'+','.join(map(str,captures))+'}'
         if args.graphics_dumps and 'sa1_arc_complete' in labels:
             entries=('sa1_draw_arc','sa1_arc_complete','orbit_arc_x','orbit_arc_y','orbit_arc_tiles','orbit_arc_flips')

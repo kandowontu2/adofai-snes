@@ -36,12 +36,15 @@ not just the declared output length, and enforce scanline sprite limits.
 ## Manual moving-platform transitions
 
 ```powershell
-python tools/profile_midspin_motion.py --rom build/packs/my-master-dev/adofai.sfc --labels build/packs/my-master-dev/adofai.lbl --out build/neo-audit/t4ex-manual --level 74 --steps 1 673 --frames 10000 --manual --manual-jitter --manual-jitter-frames 3 --manual-practice --max-hold 3 --max-display-age 3
+python tools/profile_midspin_motion.py --rom build/packs/my-master-dev/adofai.sfc --labels build/packs/my-master-dev/adofai.lbl --out build/neo-audit/t4ex-manual --level 74 --steps 60 188 --frames 3200 --manual --manual-jitter --manual-jitter-frames 1 --max-hold 3 --max-display-age 3
 ```
 
-Repeat without the four `--manual` options for autoplay. The manual replay must
-exercise waiting midspins. The orbit must use the next real tile while the
-scoring logic waits for a tap, rather than using a detached midspin as its pivot.
+Repeat without `--manual --manual-jitter --manual-jitter-frames 1` for autoplay.
+Also test T4-X (69, steps 54–168), T2-X (67, steps 34–107), and T2-EX
+(72, steps 39–122). The manual replay must exercise waiting midspins.
+Before the authored handoff time, an early accepted landing must still draw
+the preceding orbit. After that time, use the next real tile while scoring
+waits for any late tap. A detached midspin must never become a planet pivot.
 This checks a visual jump that a frame-rate counter alone cannot detect.
 
 ## Timing bars, audio editions, and performance
@@ -59,3 +62,31 @@ their evidence to all three. Three frames is the current accepted presentation
 gap; compressed playback may reach four frames of chart-clock display age.
 These are separate measurements, and neither is a claim of locked 60 FPS.
 Do not reduce track detail or source animation updates to meet these limits.
+
+## Free-roam entry and trails
+
+Use actual controller input to test the first free-roam landing. Autoplay
+does not exercise an early entry edge or the manual hop path.
+
+```powershell
+python tools/profile_freeroam_input.py --rom build/packs/my-master-dev/adofai.sfc --labels build/packs/my-master-dev/adofai.lbl --out build/free-entry-check --level 68 --steps 160 170 --frames 6500 --manual --tap-free-entries
+```
+
+This presses before the automatic entry, follows a legal grid route, and
+checks the active trail color in the running emulator after hops. It must
+reach the end of the requested section, record an early entry and exercise
+both planet colors. Repeat for T3-EX (73, steps 210–217). For endless.reality,
+use level 75, steps 335–342, 6800 frames and `--free-entry-lead 3`.
+
+After changing scene-transfer scheduling, also run:
+
+```powershell
+python tools/verify_calibration_mesen.py --pack my-master-dev
+python tools/run_mesen_sequence.py --pack my-master-dev --levels 1 75 1
+```
+
+Calibration checks continuous motion and audible SPC clicks after both PCM
+and compressed playback. The sequence must navigate between sets without a
+reset. These campaign indices are one-based positions in `pack.json`.
+Checkpoint replays still need independent PPU verification: a completed run
+with a nonzero upload-overrun counter is a failed result.

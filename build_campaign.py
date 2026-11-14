@@ -1,6 +1,7 @@
 """Build the official-world ExHiROM cartridge packs."""
 import argparse
 import os
+import re
 from pathlib import Path
 import struct
 import subprocess
@@ -44,7 +45,8 @@ def main():
             assert not any(rom[0x200000:0x208000]),'FastROM code mirror overlaps packed data'
             rom[0x200000:0x208000]=rom[:0x8000]
             if 'SA1_FASTROM_HELPERS = 1' in (out/'addresses.inc').read_text():
-                helper_end=0x13000 if 'NEO_CODE_BYTES = $3000' in (out/'addresses.inc').read_text() else 0x12000
+                code_size=re.search(r'NEO_CODE_BYTES = \$([0-9A-Fa-f]+)',(out/'addresses.inc').read_text())
+                helper_end=0x10000+(int(code_size[1],16) if code_size else 0x2000)
                 assert not any(rom[0x20f000:0x200000+helper_end]),'FastROM helpers overlap packed data'
                 rom[0x20f000:0x200000+helper_end]=rom[0xf000:helper_end]
         header=0x7FDC if sa1 else 0x40FFDC

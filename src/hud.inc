@@ -563,6 +563,35 @@ draw_menu_list:
     rts
 
 put_text:
+.ifdef LEVEL_TITLES_ADDR
+    ; Catalog references use $4000+29*index; normal strings remain in ROM.
+    cmp #$4000
+    bcc @ordinary
+    cmp #$4000+LEVEL_COUNT*29
+    bcs @ordinary
+    sec
+    sbc #$4000
+    phx
+    tax
+    sep #$20
+    .a8
+@title_char:
+    lda f:LEVEL_TITLES_ADDR,x
+    beq @title_done
+    sta HUD,y
+    lda #$3C
+    sta HUD+1,y
+    inx
+    iny
+    iny
+    bra @title_char
+@title_done:
+    rep #$20
+    .a16
+    plx
+    rts
+@ordinary:
+.endif
     sta text_ptr
     sep #$20
     .a8

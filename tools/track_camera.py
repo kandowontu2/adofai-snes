@@ -15,6 +15,8 @@ def follow_schedule(chart,motion,data=None):
     origin=(x,y);landed=0;previous_i=0
     hold_x=hold_y=0.
     release_follow=False
+    returns={r['step']:r for r in chart.get('freeroam_regions',[]) if r.get('move_camera')}
+    return_origins={}
     for frame in range(notes[-1]['frame']+121):
         for j,p in motion.get(frame,{}).items():offsets[j]=p
         occupied=i
@@ -57,6 +59,17 @@ def follow_schedule(chart,motion,data=None):
                 hx*=follow_phase
                 hy*=follow_phase
         hold_x,hold_y=hx,hy
+        region=returns.get(i)
+        if region and frame>=region['return_start']:
+            # The selected generated floor travels to the exit before the
+            # next rhythm floor lands (scrController.UpdateFreeroam).
+            # Keep the follow anchor there so the later Player handoff
+            # cannot jump back to the invisible region trigger.
+            q=min(1,(frame-region['return_start'])/region['return_duration'])
+            q=easing(ease_name(region['ease']),q)
+            end=notes[i+1];ox,oy=region['exit_offset']
+            sx,sy=return_origins.setdefault(i,(x,y))
+            x=sx+(end['x']+ox-sx)*q;y=sy+(end['y']+oy-sy)*q
         p=(round(x+hx)-128,round(y+hy)-104)
         if p!=last:result.append((frame,*p));last=p
     if data is not None:
@@ -117,6 +130,12 @@ def position_schedule(data,chart,motion,follow):
             t=notes[current]['time']+a.get('angleOffset',0)/180*beat
             if kind=='Beat':t+=k*repeat.get('interval',1)*beat
             commands.append((max(0,round(t*FPS)),a.get('duration',0)*beat*FPS,origin,a))
+    for r in chart.get('freeroam_regions',[]):
+        if r.get('move_camera'):
+            # MoveCameraToTile is created by the controller at runtime;
+            # it is absent from the serialized ffxCameraPlus components.
+            commands.append((r['return_start'],r['return_duration'],r['step']+1,
+                             dict(relativeTo='Tile',position=[0,0],ease=ease_name(r['ease']))))
     commands.sort(key=lambda row:row[0]);cursor=0
     mode=settings.get('relativeTo','Player');parent=[0.,0.]
     follow_player=mode=='Player'
@@ -283,8 +302,9 @@ def mode7_zoom_schedule(chart):
     boundaries={f for a,b in forced for f in (a,b)}
     for frame in sorted(set(rotations)|set(zooms)|boundaries):
         c,s=rotations.get(frame,(c,s));z=zooms.get(frame,z)
-        if not 128<=z<=640:
-            raise ValueError(f"{chart.get('code')}: zoom {z/256:g} exceeds experimental 0.5-2.5 range")
+        minimum,maximum=(0,2048) if chart.get('projected_zoom_range') else (128,640)
+        if not minimum<=z<=maximum:
+            raise ValueError(f"{chart.get('code')}: zoom {z/256:g} exceeds {minimum/256:g}-{maximum/256:g} range")
         if chart.get('adaptive_raster'):
             if z>320:shift=1
             elif z<=288:shift=0
@@ -294,7 +314,7 @@ def mode7_zoom_schedule(chart):
         pair=tuple(round(v/(1<<shift)) for v in original)
         # Invert the quantized PPU matrix, not its unquantized source.
         norm=original[0]**2+original[1]**2
-        inv=tuple(round(v*65536/norm) for v in original)
+        inv=tuple(max(-32767,min(32767,round(v*65536/norm))) for v in original) if norm else (0,0)
         if (pair,inv,shift)!=last:
             sampling.append([frame,*pair]);projection.append([frame,*inv])
             world.append([frame,*original]);shifts.append([frame,shift]);last=pair,inv,shift

@@ -55,7 +55,7 @@ def spatial_cells(out,chart):
 def generate(out,chart,timeline,patterns):
     n=chart['id'];count=len(chart['notes']);cells=chart.get('visibility_cells',0);mode7=chart.get('mode7',False)
     assert cells<=26112,('MSU cell-state capacity',chart['code'],cells)
-    if mode7:
+    if mode7 and not chart.get('projection_source_only'):
         # Runtime checkpoint reloads reserve FE00..FEFF as temporary,
         # unique identities for snapshot pixels whose source IDs are absent.
         assert len(patterns)//64<=0xFE00,('Reserved checkpoint pattern IDs',chart['code'])
@@ -81,7 +81,7 @@ def generate(out,chart,timeline,patterns):
             for i in range(count):
                 if chart['notes'][i].get('stick_to_floor',True):
                     node(cells+count*(axis+1)+i,2+axis,i)
-    for slot,versions in enumerate(chart.get('pattern_versions',[])):
+    for slot,versions in enumerate([] if chart.get('projection_source_only') else chart.get('pattern_versions',[])):
         for frame,value in versions:
             size=64 if mode7 else 16
             events.append((frame,4,slot,value,patterns[value*size:value*size+size]))

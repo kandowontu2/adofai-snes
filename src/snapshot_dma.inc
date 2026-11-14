@@ -22,6 +22,13 @@ snapshot_dma_preflight:
     adc m7_row_span
     clc
     adc #1280
+    ldx pattern_blanked
+    beq :+
+    ; First checkpoint publication also replaces the full HUD, meter,
+    ; palette and OAM rather than the small steady-state dirty regions.
+    clc
+    adc #1792
+:
     cmp #7201
     bcs @prefetch
 @ordinary:

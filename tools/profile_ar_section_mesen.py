@@ -5,7 +5,7 @@ from verification_data import identity
 
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--rom',type=Path,required=True);ap.add_argument('--labels',type=Path,required=True);ap.add_argument('--out',type=Path,required=True)
-    ap.add_argument('--metadata',type=Path,help='Pack metadata when profiling an installed release folder');ap.add_argument('--level',type=int,default=23);ap.add_argument('--steps',type=int,nargs=2,default=[75,110]);ap.add_argument('--frames',type=int,default=2500);ap.add_argument('--max-hold',type=int);ap.add_argument('--max-display-age',type=int,help='Separate chart-clock latency bound; defaults to max-hold');ap.add_argument('--manual',action='store_true',help='Replay controller inputs rather than enabling autoplay');ap.add_argument('--manual-jitter',action='store_true',help='Vary taps by one frame to exercise distinct hit-meter marks');ap.add_argument('--manual-jitter-frames',type=int,default=1);ap.add_argument('--manual-practice',action='store_true');a=ap.parse_args()
+    ap.add_argument('--metadata',type=Path,help='Pack metadata when profiling an installed release folder');ap.add_argument('--level',type=int,default=23);ap.add_argument('--steps',type=int,nargs=2,default=[75,110]);ap.add_argument('--frames',type=int,default=2500);ap.add_argument('--max-hold',type=int);ap.add_argument('--max-display-age',type=int,help='Separate chart-clock latency bound; defaults to max-hold');ap.add_argument('--manual',action='store_true',help='Replay controller inputs rather than enabling autoplay');ap.add_argument('--manual-jitter',action='store_true',help='Vary taps by one frame to exercise distinct hit-meter marks');ap.add_argument('--manual-jitter-frames',type=int,default=1);ap.add_argument('--manual-practice',action='store_true');ap.add_argument('--free-entry-lead',type=int,default=1);ap.add_argument('--tap-free-entries',action='store_true',help='Also press at automatic free-roam entry, one frame early');a=ap.parse_args()
     a.out.mkdir(parents=True,exist_ok=True)
     labels={n:int(v,16) for v,n in re.findall(r'al ([0-9a-fA-F]+) \.([\w]+)',a.labels.read_text())}
     fields={n:labels[n]&0x1ffff for n in ('state','step','music_active','commits','chart_time','display_chart_time','profile_phase','animation_time','animation_kind','pattern_vblank_overruns','elapsed','nmi_audio_ticks','audio_ticks','speed_offset')}
@@ -33,6 +33,24 @@ def main():
             else:key=1 if key!=1 else 2;held=key
             jitter=(-1,0,1,0)[i%4]*a.manual_jitter_frames if a.manual_jitter else 0
             events.append((note['frame']+jitter,held))
+        # Free-roam objectives need actual directional hops too. Without
+        # these taps a rhythm-only profile dies at the coin check, silently
+        # measuring only the part before the requested transition.
+        for region in chart.get('freeroam_regions',[]):
+            route=region.get('demo_route',[])
+            if not route:continue
+            if a.tap_free_entries:
+                # Replace the ordinary landing edge, rather than pressing
+                # again on the following frame and cancelling the first hop.
+                events=[(t,v) for t,v in events if t!=region['start']]
+            held=next((v for t,v in sorted(events,reverse=True) if t<=region['start']),1)
+            held=held if held in (1,2) else 1
+            if a.tap_free_entries:
+                held=3-held;events.append((region['start']-a.free_entry_lead,held))
+            for at,x,y,angle in route:
+                held=3-held;events.append((at,held))
+            events.append((route[-1][0]+3,0))
+        events.sort()
         script+='local manual_events={'+','.join('{'+str(t)+','+str(v)+'}' for t,v in events)+'};local manual_index=1;local manual_held=0\n'
     script+='local actions={'+','.join(f'[{f}]="{button}"' for f,button in actions.items())+'}\n'
     script+=f'local first_step={a.steps[0]};local last_step={a.steps[1]};local finish_frame={a.frames}\n'

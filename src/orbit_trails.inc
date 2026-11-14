@@ -24,6 +24,12 @@ record_trails:
     rts
 
 draw_trails:
+.ifdef FEATURED_BUILD
+    lda camera_inverse
+    pha
+    jsl neo_far_trail_scale
+    sta camera_inverse
+.endif
     lda #1
     sta object_small
     jsr pivot_position
@@ -39,6 +45,9 @@ draw_trails:
     sta trail_pos_y
     ; The moving planet has the opposite color from the current pivot.
     lda step
+.ifdef NEO_BUILD
+    eor neo_free_hops
+.endif
     and #1
     eor #1
     sta trail_orb
@@ -180,6 +189,10 @@ draw_trails:
     jsr draw_orbit_arc
 @done:
     stz object_small
+.ifdef FEATURED_BUILD
+    pla
+    sta camera_inverse
+.endif
     rts
 
 orbit_trail_direction:

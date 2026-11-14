@@ -58,6 +58,88 @@ neo_call_sine_cosine:
     rtl
 
 .segment "NEOCODE"
+; Optional per-note scales. Ordinary charts retain the original fast path.
+neo_far_note_margin:
+    pha
+    lda selected_level
+    asl a
+    tax
+    lda f:neo_motion_starts,x
+    cmp #$FFFF
+    beq @ordinary
+    sta scratch
+    lda step
+    inc a
+    asl a
+    clc
+    adc scratch
+    tax
+    pla
+    lda f:neo_note_margins,x
+    rtl
+@ordinary:
+    pla
+    rtl
+
+neo_far_scale_orbit:
+    lda #256
+    sta neo_orbit_scale
+    lda state
+    cmp #1
+    bne @done
+    lda selected_level
+    asl a
+    tax
+    lda f:neo_motion_starts,x
+    cmp #$FFFF
+    beq @done
+    sta scratch
+    lda step
+    asl a
+    clc
+    adc scratch
+    tax
+    lda f:neo_orbit_radii,x
+    cmp f:neo_orbit_radii+2,x
+    beq @radius_ready
+    jsr neo_find_curve
+    bcc @done
+    txa
+    asl a
+    tax
+    lda f:neo_ease_radii,x
+@radius_ready:
+    sta neo_orbit_scale
+    cmp #256
+    beq @done
+    ldx neo_hold_phase
+    phx
+    sta neo_hold_phase
+    lda orbit_x
+    jsr neo_scale_hold
+    sta orbit_x
+    lda orbit_y
+    jsr neo_scale_hold
+    sta orbit_y
+    plx
+    stx neo_hold_phase
+@done:
+    rtl
+
+neo_far_trail_scale:
+    pha
+    lda neo_hold_phase
+    pha
+    lda neo_orbit_scale
+    sta neo_hold_phase
+    lda 3,s
+    jsr neo_scale_hold
+    sta 3,s
+    pla
+    sta neo_hold_phase
+    pla
+    rtl
+
 ; Input A is a floor index. Zero-extra and extended holds use separate
 ; supplied CHR symbols; releases inherit the preceding hold's color.
 neo_far_hold_style:
@@ -442,6 +524,7 @@ neo_sync_free:
     stz neo_free_collected
     stz neo_free_checked
     stz neo_free_autocursor
+    stz neo_free_reversed
     lda f:NOTE_TIME,x
     sta neo_free_time
     ldx step
@@ -469,6 +552,16 @@ neo_sync_free:
     bra @find
 @found:
     stx neo_free_record
+    txa
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda f:neo_free_entries,x
+    sta neo_free_x
+    lda f:neo_free_entries+2,x
+    sta neo_free_y
     lda cam_x
     sta neo_cam_x
     lda cam_y
@@ -569,6 +662,13 @@ neo_impl_free_orbit:
     tax
     lda f:NOTE_RATE,x
     sta mul_rate
+    lda neo_free_reversed
+    beq :+
+    lda mul_rate
+    eor #$FFFF
+    inc a
+    sta mul_rate
+:
     lda neo_free_clock
     sec
     sbc neo_free_time
@@ -624,6 +724,10 @@ neo_impl_free_input:
     and #TAP_MASK
     jeq @consumed
     lda tap_clock
+    ; The entry landing may be accepted early. Its same input edge must
+    ; not become a grid hop before the region's authored entry time.
+    cmp neo_free_time
+    jcc @consumed
     sec
     sbc neo_free_time
     cmp #3
@@ -700,6 +804,8 @@ neo_impl_free_input:
     bne @cell
     bra @outside
 @land:
+    ; Preserve the matched cell while checking its destruction deadline.
+    phx
     ; The cell table is shared with warning cells; deaths use a separate
     ; per-region array indexed by the matched landable-cell ordinal.
     ldx neo_free_record
@@ -712,7 +818,22 @@ neo_impl_free_input:
     tax
     lda tap_clock
     cmp f:neo_free_deaths,x
-    jcs @outside
+    bcc :+
+    plx
+    jmp @outside
+:
+    plx
+    txa
+    lsr a
+    lsr a
+    tax
+    lda f:neo_free_twirls,x
+    and #255
+    beq :+
+    lda neo_free_reversed
+    eor #1
+    sta neo_free_reversed
+:
     lda neo_free_from_x
     sta neo_free_x
     lda neo_free_from_y
@@ -1172,6 +1293,7 @@ neo_near_coin:
 neo_draw_collectibles:
     lda neo_free_mode
     jeq @done
+    jsr neo_draw_free_twirls
     ldx neo_free_record
     lda f:neo_free_records+38,x
     sta neo_free_count
@@ -1273,6 +1395,55 @@ neo_object_position:
     clc
     adc #4
     sta sprite_y
+    rts
+
+; Only authored swirl cells have objects; ordinary grid cells stay in BG.
+neo_draw_free_twirls:
+    lda neo_free_record
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda f:neo_free_twirl_ranges+2,x
+    sta neo_free_count
+    beq @done
+    lda f:neo_free_twirl_ranges,x
+    sta neo_free_pointer
+    stz object_small
+@next:
+    ldx neo_free_pointer
+    lda f:neo_free_twirl_positions,x
+    sta neo_free_object_x
+    lda f:neo_free_twirl_positions+2,x
+    sta neo_free_object_y
+    jsr neo_object_position
+    lda sprite_x
+    sec
+    sbc #4
+    sta sprite_x
+    lda sprite_y
+    sec
+    sbc #4
+    sta sprite_y
+    ldx step
+    lda f:NOTE_CCW,x
+    and #1
+    eor neo_free_reversed
+    asl a
+    clc
+    adc #36
+    sta sprite_tile
+    lda #$36
+    sta sprite_attr
+    jsl neo_call_sprite
+    lda neo_free_pointer
+    clc
+    adc #4
+    sta neo_free_pointer
+    dec neo_free_count
+    bne @next
+@done:
     rts
 
 ; Per-frame authored collision rectangle. Precomputed off-cartridge so the
@@ -1468,9 +1639,43 @@ neo_autoplay_free:
     sta neo_free_y
     lda f:neo_free_routes+6,x
     sta neo_free_angle
+    jsr neo_autoplay_twirl
     inc neo_free_hops
     inc neo_free_autocursor
     bra @next
+@done:
+    rts
+
+neo_autoplay_twirl:
+    lda neo_free_record
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda f:neo_free_twirl_ranges+2,x
+    sta scratch
+    beq @done
+    lda f:neo_free_twirl_ranges,x
+    tax
+@cell:
+    lda f:neo_free_twirl_positions,x
+    cmp neo_free_x
+    bne @next
+    lda f:neo_free_twirl_positions+2,x
+    cmp neo_free_y
+    bne @next
+    lda neo_free_reversed
+    eor #1
+    sta neo_free_reversed
+    rts
+@next:
+    inx
+    inx
+    inx
+    inx
+    dec scratch
+    bne @cell
 @done:
     rts
 

@@ -36,7 +36,11 @@ def normalize_json(d,meta):
             kind=a['eventType']
             if kind=='Twirl':ccw=not ccw
             elif kind=='Pause':f['extraBeats']+=a['duration']
-            elif kind=='Hold':assert a['duration']<=0,'Active hold requires explicit support'
+            elif kind=='Hold':
+                if meta.get('neo_cosmos'):
+                    f['holdLength']=max(-1,int(a['duration']))
+                    f['holdDistanceMultiplier']=a.get('distanceMultiplier',100)/100
+                else:assert a['duration']<=0,'Active hold requires explicit support'
             elif kind=='Multitap':f['tapsNeeded']=int(a['taps'])
             elif kind=='MultiPlanet':
                 planets={'TwoPlanets':2,'ThreePlanets':3}[a['planets']]

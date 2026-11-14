@@ -7,6 +7,34 @@ from track_motion import easing,ease_name
 from make_assets import FPS
 
 class Camera(unittest.TestCase):
+    def test_projected_zero_zoom_disables_projection_and_recovers(self):
+        from track_camera import mode7_zoom_schedule
+        c=dict(code='TEST',projected_zoom_range=True,camera_zoom_versions=[
+            [0,256,256],[1,7,9362],[2,0,0],[3,1536,43]])
+        mode7_zoom_schedule(c)
+        self.assertIn([2,0,0],c['camera_projection_versions'])
+        self.assertIn([2,0,0],c['camera_sampling_versions'])
+        self.assertEqual(c['camera_sampling_versions'][-1],[3,1536,0])
+
+    def test_free_return_reveals_exit_before_next_landing(self):
+        from track_camera import position_schedule,follow_schedule
+        c=dict(bpm=60,native_follow_timing=True,notes=[
+            dict(x=0,y=0,time=0,frame=0,speed=1),
+            dict(x=300,y=0,time=10,frame=600,speed=1)],
+            freeroam_regions=[dict(step=0,start=0,return_start=480,
+                return_duration=60,end=600,move_camera=True,ease=1,exit_offset=[-24,0])])
+        d=dict(bpm=60)
+        follow=follow_schedule(c,{})
+        rows=position_schedule(d,c,{},follow)
+        at=lambda f:next(x+128 for t,x,y in reversed(rows) if t<=f)
+        self.assertEqual(at(480),0)
+        self.assertEqual(at(510),150)
+        self.assertEqual(at(540),300)
+        self.assertEqual(at(599),300)
+        anchor=lambda f:next(x+128 for t,x,y in reversed(follow) if t<=f)
+        self.assertEqual(anchor(599),276)
+        self.assertLessEqual(abs(anchor(600)-anchor(599)),1)
+
     def fixture(self):
         return {'bpm':60,'camera_actions':[]},{'notes':[{'time':float(i),'speed':1} for i in range(8)]}
     def at(self,rows,frame):

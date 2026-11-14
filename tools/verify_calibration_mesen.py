@@ -10,8 +10,23 @@ def verify(base,route):
     labels={m[1]:int(m[0],16)&0x1ffff for m in re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)',(base/'adofai.lbl').read_text())}
     actions={120:'select'}
     if route=='options':actions={90:'b',100:'down',104:'down',108:'down',112:'down',116:'down',124:'a'}
-    if route=='after-pcm':actions={90:'y',120:'start',420:'start',428:'select',436:'select'}
-    if route=='after-brr':actions={**{90+i*4:'r' for i in range(10)},138:'y',150:'start',450:'start',458:'select',466:'select'}
+    if route in ('after-pcm','after-brr'):
+        # Traverse the real set menus. Prefer a snapshot chart to exercise
+        # calibration after the extended graphics window has been enabled.
+        from menu_sets import groups
+        levels=json.loads((base/'pack.json').read_text())['levels']
+        index=levels.index(75) if 75 in levels else 0
+        actions={};at=90
+        if route=='after-brr':
+            for _ in range(10):actions[at]='r';at+=4
+        if 'menu_depth' in labels:
+            sets=groups(levels);group=next(i for i,(_,members) in enumerate(sets) if index in members)
+            if len(sets)>1:
+                for _ in range(group):actions[at]='down';at+=4
+                actions[at]='start';at+=8
+            index=sets[group][1].index(index)
+        for _ in range(index):actions[at]='down';at+=4
+        actions.update({at:'y',at+8:'start',at+308:'start',at+316:'select',at+324:'select'})
     if route=='retry':actions={120:'select',300:'start'}
     start=max(actions);finish=start+120
     script='local A={'+','.join(k+'='+str(labels[k]) for k in ('state','audio_ticks','angle'))+'}\n'

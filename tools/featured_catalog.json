@@ -1,0 +1,40 @@
+[
+  {
+    "id": 75,
+    "code": "ER-X",
+    "title": "ENDLESS.REALITY",
+    "artist": "Ash Astral",
+    "author": "Rikri",
+    "workshop": "2970486324",
+    "wave": 6,
+    "neo_cosmos": true
+  },
+  {
+    "id": 76,
+    "code": "BA-X",
+    "title": "BARRAGE",
+    "artist": "Halv",
+    "author": "NumbEr07",
+    "workshop": "2731815380",
+    "wave": 1
+  },
+  {
+    "id": 77,
+    "code": "FP-X",
+    "title": "FINAL PHASE",
+    "artist": "Plum",
+    "author": "Daming",
+    "workshop": "2731825935",
+    "wave": 1
+  },
+  {
+    "id": 78,
+    "code": "MF-X",
+    "title": "MAKE IT FUNKY NOW",
+    "artist": "DOT96",
+    "author": "PizzaLovers007",
+    "workshop": "2731817282",
+    "wave": 1,
+    "neo_cosmos": true
+  }
+]

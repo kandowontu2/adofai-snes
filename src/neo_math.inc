@@ -20,24 +20,50 @@ neo_math_group=$0790
 neo_math_mode=$0792
 
 .segment "NEOCODE"
-; Midspins are automatic, zero-duration markers, not planet pivots. A
-; slightly late manual tap can leave logical step on the marker for a frame.
-; Keep drawing the real orbit after it, without accepting/scoring that tap.
-; This matters when the static marker is above a moving platform.
+; Judgment may consume a midspin and its landing early. Presentation must
+; keep the preceding orbit until the authored handoff, then skip the marker.
+; The marker itself is never a pivot, even while a late tap is pending.
 neo_far_visual_step:
 neo_visual_next:
-    pha
+    tay
     tax
     lda f:NOTE_FLAGS,x
     and #16
-    beq neo_visual_ready
-    pla
+    beq neo_visual_normal
+    tya
+    asl a
+    tax
+    lda chart_time
+    cmp f:NOTE_TIME,x
+    bcc neo_visual_previous
+    tya
     cmp last_note
     bcs neo_visual_done
     inc a
     bra neo_visual_next
+neo_visual_normal:
+    tya
+    beq neo_visual_done
+    dec a
+    tax
+    lda f:NOTE_FLAGS,x
+    and #16
+    beq neo_visual_ready
+    tya
+    asl a
+    tax
+    lda chart_time
+    cmp f:NOTE_TIME,x
+    bcs neo_visual_ready
+    ; The accepted landing is beyond an automatic marker, but is not due.
+    dey
+neo_visual_previous:
+    tya
+    beq neo_visual_done
+    dec a
+    bra neo_visual_next
 neo_visual_ready:
-    pla
+    tya
 neo_visual_done:
     rtl
 

@@ -25,7 +25,8 @@ def verify(base,source):
     helper_mirror='SA1_FASTROM_HELPERS = 1' in (base/'addresses.inc').read_text()
     unmirror=lambda a:a&0x7fffff if helper_mirror else a
     if helper_mirror:
-        helper_end=0x13000 if 'NEO_CODE_BYTES = $3000' in (base/'addresses.inc').read_text() else 0x12000
+        code_size=re.search(r'NEO_CODE_BYTES = \$([0-9A-Fa-f]+)',(base/'addresses.inc').read_text())
+        helper_end=0x10000+(int(code_size[1],16) if code_size else 0x2000)
         assert rom[0x20f000:0x200000+helper_end]==rom[0xf000:helper_end]
         assert 0x81f000<=labels['mode7_rotation_bounds']<0x820000
     if 'STREAM_ROUTE_LEFT' in constants:
@@ -64,7 +65,9 @@ def verify(base,source):
         chart=json.loads((base/f'level{n}.json').read_text())
         if labels.get('NOTE_X') == 0x7F8000:
             assert chart['visibility_cells'] <= 0x6600, (n, 'Cell state overlaps relocated CHR shadow')
-        assert len((base/f'patterns{n}.bin').read_bytes())//64<=0xFE00,'Pattern IDs overlap checkpoint identities'
+        if chart.get('projection_source_only'):
+            assert chart.get('mode1_snapshot') and not chart.get('snapshot_preview'),'Host-only pattern IDs cannot reach the old runtime'
+        else:assert len((base/f'patterns{n}.bin').read_bytes())//64<=0xFE00,'Pattern IDs overlap checkpoint identities'
         for prefix in ('resident_raw','resident_future','resident_animation'):
             name=f'{prefix}{n}'
             if name not in loc:continue
@@ -73,6 +76,11 @@ def verify(base,source):
             checked+=1
         for prefix in ('chart','track_chr','track_map','visibility_index'):
             expected=(base/f'{prefix}{n}.bin').read_bytes();start=offset(loc[f'{prefix}{n}'])
+            if prefix=='track_map' and chart.get('mode1_snapshot') and 'SNAPSHOT_ONLY_MAPS = 1' in (base/'addresses.inc').read_text():
+                assert not chart.get('fallback_stream_packets') and not chart.get('snapshot_preview')
+                desc=(base/'descriptors.bin').read_bytes()[pack['levels'].index(n)*32:][:32]
+                assert struct.unpack_from('<HH',desc,22)==(2,0),'Snapshot-only ROM still advertises a legacy map'
+                expected=bytes(2)
             if prefix=='chart' and (base/'zero-pauses.json').exists() and json.loads((base/'zero-pauses.json').read_text()).get(str(n)):
                 count=len(chart['notes']);assert not any(expected[-count*2:]);expected=expected[:-count*2]
             assert 0x10000<=start and start+len(expected)<=(0x300000 if pack.get('standalone') else 0x400000)
@@ -113,6 +121,11 @@ def verify(base,source):
             checked+=2
         pointers=struct.pack('<'+'I'*len(chart['checkpoints']),*[offset(loc[f'romdata{n}_cp{i}']) for i in range(len(chart['checkpoints']))])
         start=offset(loc[f'romdata{n}_table']);assert rom[start:start+len(pointers)]==pointers
+    if 'level_titles' in loc:
+        from campaign_assets import title_text
+        expected=b''.join(title_text(json.loads((base/f'level{n}.json').read_text())).encode('ascii').ljust(29,b'\0') for n in pack['levels'])
+        start=offset(loc['level_titles']);assert rom[start:start+len(expected)]==expected,'Banked menu titles differ from the catalog'
+        checked+=1
     report=dict(passed=True,**identity(base/'adofai.sfc'),checked_blobs=checked,window_crossings=crossings,iram_code_bytes=labels['__FASTNMI_SIZE__'])
     (base/'verification').mkdir(exist_ok=True);(base/'verification/sa1-layout.json').write_text(json.dumps(report,indent=2))
     print(base.name,checked,'blobs match;',len(crossings),'1 MiB window crossings',flush=True)

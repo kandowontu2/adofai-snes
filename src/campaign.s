@@ -856,6 +856,8 @@ neo_laser_top: .res 2
 neo_laser_right: .res 2
 neo_laser_bottom: .res 2
 neo_laser_axis: .res 2
+neo_free_reversed: .res 2
+neo_orbit_scale: .res 2
 .endif
 checkpoint_counts: .res 22
 checkpoint_score_lo: .res 2

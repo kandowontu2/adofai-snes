@@ -84,6 +84,9 @@ prepare_note_margin:
 @margin_normal:
     lda #100
 @margin_ready:
+.ifdef NEO_BUILD
+    jsl neo_far_note_margin
+.endif
     sta input_margin
     cmp #100
     beq @normal

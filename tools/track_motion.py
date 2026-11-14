@@ -276,7 +276,8 @@ def scale_schedule(data,chart):
         return max(0,min(len(chart['notes'])-1,offset+(floor if relative=='ThisTile' else len(chart['notes'])-1 if relative=='End' else 0)))
     for a in actions:
         target=a.get('scale')
-        if a['eventType']!='MoveTrack' or not target:continue
+        if a['eventType']!='MoveTrack' or target is None:continue
+        if isinstance(target,(int,float)):target=(target,target)
         floor=a['floor'];repeat=next((repeats[floor,t] for t in a.get('eventTag','').split() if (floor,t) in repeats),{})
         mode=repeat.get('repeatType','Beat');amount=repeat.get('repetitions',0) if mode=='Beat' else repeat.get('floorCount',0)
         for k in range(amount+1):

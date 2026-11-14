@@ -542,6 +542,23 @@ mode7_build_track_view:
 :
     jsl mode7_rotation_bounds
 .endif
+.ifdef SNAPSHOT_ONLY_MAPS
+    lda f:STREAM_MODE1
+    cmp #3
+    bne @not_snapshot_map
+    ; Initial/checkpoint graphics were restored from a complete MSU seed.
+    ; No sparse ROM map participates in this renderer, including first load.
+    lda m7_loading
+    beq @snapshot_ready
+    ; The seed loader forced blank. Preserve the normal load/commit
+    ; handoff even though this path skips sparse-map reconstruction.
+    lda #1
+    sta pattern_blanked
+@snapshot_ready:
+    stz m7_loading
+    jmp mode7_cache_prepare
+@not_snapshot_map:
+.endif
 .ifdef ROM_PATTERN_COUNT
     lda selected_level
     cmp #ROM_PATTERN_LEVEL

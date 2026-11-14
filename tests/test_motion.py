@@ -8,6 +8,18 @@ from import_official import normalize_json
 from make_assets import FPS
 
 class Motion(unittest.TestCase):
+    def test_legacy_scalar_scale_matches_vector_including_zero(self):
+        from track_motion import scale_schedule
+        import copy
+        for value in (0,50,100,150):
+            d,c=self.fixture();c.update(mode7=True,motion_step=1)
+            d['track_actions']=[dict(floor=1,eventType='MoveTrack',scale=value,duration=.1)]
+            vector=copy.deepcopy(d);vector['track_actions'][0]['scale']=[value,value]
+            scalar=scale_schedule(d,c)
+            self.assertEqual(scalar,scale_schedule(vector,c))
+            if value==100:self.assertFalse(scalar) # No-op at the initial scale.
+            else:self.assertEqual(list(scalar.values())[-1][1],(value/100,value/100))
+
     def test_t4_midspin_does_not_inherit_platform_translation(self):
         d,c=self.fixture();d.update(code='T4EX-X',native_tile_size=1.5)
         for i,n in enumerate(c['notes']):n.update(x=0,y=0,spin_kind='midspin' if i==1 else 'normal')

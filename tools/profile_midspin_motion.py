@@ -25,7 +25,7 @@ def main():
         if Path(command[0]).name.lower()=='mesen.exe':
             path=Path(command[-1]);code=path.read_text();folder=out.resolve().as_posix()
             pre='dofile('+json.dumps((root/'tools/mesen_failfast.lua').as_posix())+')({out='+json.dumps(folder)+'})\n'
-            oracle='dofile('+json.dumps((root/'tools/verify_midspin_pose_mesen.lua').as_posix())+')({out='+json.dumps(folder)+',level='+str(levels.index(level)+1)+',addr={'+','.join(n+'='+str(symbols[n]) for n in ('state','step','selected_level'))+'},midspin={entry='+str(symbols['neo_far_prepare_hold'])+',addr={'+','.join(n+'='+str(symbols[n]) for n in ('m7_visual_step','m7_logical_step'))+'},flags={'+','.join(str(n['flags']) for n in chart['notes'])+'}}})\n'
+            oracle='dofile('+json.dumps((root/'tools/verify_midspin_pose_mesen.lua').as_posix())+')({out='+json.dumps(folder)+',level='+str(levels.index(level)+1)+',addr={'+','.join(n+'='+str(symbols[n]) for n in ('state','step','selected_level'))+'},midspin={entry='+str(symbols['neo_far_prepare_hold'])+',addr={'+','.join(n+'='+str(symbols[n]) for n in ('m7_visual_step','m7_logical_step','chart_time'))+'},flags={'+','.join(str(n['flags']) for n in chart['notes'])+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'}}})\n'
             path.write_text(pre+code+'\n'+oracle)
         return original(command,*pos,**kw)
     subprocess.run=instrument

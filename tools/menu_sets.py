@@ -1,7 +1,14 @@
 """Song-set navigation shared by clean builds, cached builds and UI tests."""
 from official_catalog import PACKS
 from neo_catalog import NEO
+import json
+from pathlib import Path
 import re
+
+FEATURED=json.loads(Path(__file__).with_name('featured_catalog.json').read_text())
+FIRESTIX=json.loads(Path(__file__).with_name('firestix_catalog.json').read_text())
+CLASSIC_IDS={63,64,*[m['id'] for m in FEATURED]}
+FIRESTIX_IDS={m['id'] for m in FIRESTIX}
 
 
 def groups(levels):
@@ -10,9 +17,10 @@ def groups(levels):
           ('EXTRA WORLDS',PACKS['extra']['levels']),
           ('CROWN ISLAND',PACKS['crown']['levels']),
           ('COLLABORATIONS',PACKS['collab']['levels']),
-          ('JOKE WORLDS',PACKS['jokes']['levels']),
+          ('JOKE WORLDS',list(PACKS['jokes']['levels'])+sorted(FIRESTIX_IDS)),
           ('FEATURED TECH',range(40,62)),
-          ('COMMUNITY',[n for n in range(62,1000) if n not in {m['id'] for m in NEO}]),
+          ('FEATURED CLASSIC',CLASSIC_IDS),
+          ('COMMUNITY',[n for n in range(62,1000) if n not in {m['id'] for m in NEO}|CLASSIC_IDS|FIRESTIX_IDS]),
           ('NEO COSMOS',[m['id'] for m in NEO])]
     result=[(name,[i for i,n in enumerate(levels) if n in members]) for name,members in sets]
     result=[row for row in result if row[1]]
@@ -31,8 +39,8 @@ def tables(levels):
     result += [f'menu_set_name{i}: .byte "{name:<28}",0' for i,(name,_) in enumerate(sets)]
     result += ['menu_root_name: .byte "CHOOSE A SET                ",0',
                'menu_open_hint: .byte "       START OPEN SET           ",0',
+               'menu_single_hint:',
                'menu_play_hint: .byte "         START TO PLAY          ",0',
-               'menu_single_hint: .byte "         START TO PLAY          ",0',
                'menu_controls: .byte "   SELECT CALIBRATE  B OPTIONS   ",0',
                'menu_back_controls: .byte "    SELECT CALIBRATE  B BACK     ",0',
                'menu_navigation: .byte "       UP / DOWN SELECT         ",0']

@@ -574,6 +574,12 @@ render_inner:
     stz sa1_async
 @cache_started:
 .endif
+.ifdef FEATURED_BUILD
+    lda camera_inverse
+    bne :+
+    rts
+:
+.endif
     lda step
     asl a
     tax
@@ -745,6 +751,12 @@ render_inner:
     bne render_symbols
     rts
 render_symbols:
+.ifdef FEATURED_BUILD
+    lda camera_inverse
+    bne :+
+    rts
+:
+.endif
 .ifdef SA1_MODE1_BUILD
     lda f:STREAM_MODE1
     cmp #1
@@ -1064,6 +1076,12 @@ quarter_signed:
 @done:
     rts
 sine_cosine:
+.ifdef FEATURED_BUILD
+    jsl featured_sine_cosine
+    rts
+.segment "NEOCODE"
+featured_sine_cosine:
+.endif
     ldx angle
     lda cos24,x
     and #255
@@ -1079,10 +1097,24 @@ sine_cosine:
     ora #$FF00
 @sy:
     sta orbit_y
+.ifdef NEO_BUILD
+    jsl neo_far_scale_orbit
+.endif
+.ifdef FEATURED_BUILD
+    rtl
+.segment "CODE"
+.else
     rts
+.endif
 
 ; Bits 8..15 of delta * signed 8.8 rate, using the SNES hardware multiplier.
 multiply_phase:
+.ifdef FEATURED_BUILD
+    jsl featured_multiply_phase
+    rts
+.segment "NEOCODE"
+featured_multiply_phase:
+.endif
     sep #$20
     .a8
     lda mul_delta
@@ -1127,7 +1159,12 @@ multiply_phase:
     rep #$20
     .a16
     and #255
+.ifdef FEATURED_BUILD
+    rtl
+.segment "CODE"
+.else
     rts
+.endif
 
 ; Circular BG tilemap cache. A camera tile crossing replaces just the exposed
 ; row/column; fine scroll uses the full 256-pixel cache, never rebuilds it.

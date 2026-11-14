@@ -1,0 +1,167 @@
+[
+  {
+    "id": 79,
+    "code": "7J-X",
+    "title": "SPIN 2 WIN - NO FUN",
+    "artist": "7-X",
+    "author": "Firestix",
+    "workshop": "2118060264",
+    "workshop_title": "7-X - Spin 2 Win but there's no fun allowed",
+    "set": "firestix",
+    "neo_cosmos": true
+  },
+  {
+    "id": 80,
+    "code": "8J-X",
+    "title": "JUNGLE CITY EXTRA BEATS",
+    "artist": "8-X",
+    "author": "Firestix",
+    "workshop": "2118105070",
+    "workshop_title": "8-X - Jungle City but the angled sections have an extra beat",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 81,
+    "code": "10J-X",
+    "title": "BUTTERFLY WITHOUT SWING",
+    "artist": "10-X",
+    "author": "Firestix",
+    "workshop": "2118291532",
+    "workshop_title": "10-X - Butterfly Planet but I didn't chart the swing",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 82,
+    "code": "11J-X",
+    "title": "HERACLES ALL TWIRLS",
+    "artist": "11-X",
+    "author": "Firestix",
+    "workshop": "2118171435",
+    "workshop_title": "11-X - Heracles but there's a twirl on every tile",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 83,
+    "code": "12J-X",
+    "title": "ARTIFICIAL CHARIOT REPEATS",
+    "artist": "12-X",
+    "author": "Firestix",
+    "workshop": "2118209340",
+    "workshop_title": "12-X - Artificial Chariot but each unique loop repeats itself for every time it's been played before",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 84,
+    "code": "XCJ-X",
+    "title": "CREDITS WITHOUT TWIRLS",
+    "artist": "XC-X",
+    "author": "Firestix",
+    "workshop": "2122194338",
+    "workshop_title": "XC-X - Credits but the twirls are missing",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 85,
+    "code": "XFJ-X",
+    "title": "DRUNK THIRD WAVE",
+    "artist": "XF-X",
+    "author": "Firestix",
+    "workshop": "2161635087",
+    "workshop_title": "XF-X - Third Wave Flip-Flop but whoever made this level was drunk",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 86,
+    "code": "PAJ-X",
+    "title": "DISTANCE EXTRA MIDSPINS",
+    "artist": "PA-X",
+    "author": "Firestix",
+    "workshop": "2179969012",
+    "workshop_title": "PA-X - Distance but there's way too many midspins",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 87,
+    "code": "XRJ-X",
+    "title": "TIRED ROSE GARDEN",
+    "artist": "XR-X",
+    "author": "Firestix",
+    "workshop": "2290091360",
+    "workshop_title": "XR-X - Rose Garden but each triangle makes you more tired",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 88,
+    "code": "XHJ-X",
+    "title": "FINAL HOPE EXTRA SIDES",
+    "artist": "XH-X",
+    "author": "Firestix",
+    "workshop": "2332721089",
+    "workshop_title": "XH-X - Final Hope but every enclosed shape has an additional side",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 89,
+    "code": "XTJ-X",
+    "title": "STOPTIONS",
+    "artist": "XT-X",
+    "author": "Firestix",
+    "workshop": "2407865327",
+    "workshop_title": "XT-X - Stoptions",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 90,
+    "code": "XOJ-X",
+    "title": "ONE FORGOTTEN MEME",
+    "artist": "XO-X",
+    "author": "Firestix",
+    "workshop": "2488959498",
+    "workshop_title": "XO-X - One Forgotten Meme",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 92,
+    "code": "MLJ-X",
+    "title": "LA NUIT DE VIF BPM DRIFT",
+    "artist": "ML-X",
+    "author": "Firestix",
+    "workshop": "2842363552",
+    "workshop_title": "ML-X - La nuit de vif but the bpm drift is getting worse",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 93,
+    "code": "1JW-X",
+    "title": "A CURSED DANCE WORKSHOP",
+    "artist": "1-X",
+    "author": "Firestix",
+    "workshop": "2117970100",
+    "workshop_title": "1-X - A Dance of Fire and Ice but the music is cursed",
+    "set": "firestix",
+    "neo_cosmos": false
+  },
+  {
+    "id": 94,
+    "code": "BJW-X",
+    "title": "PLEASE STOP PLAYING MY LEVELS",
+    "artist": "B-X",
+    "author": "Firestix",
+    "workshop": "2118312031",
+    "workshop_title": "B-X - Please Stop Playing My Levels",
+    "set": "firestix",
+    "neo_cosmos": true
+  }
+]

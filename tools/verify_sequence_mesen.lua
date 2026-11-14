@@ -83,6 +83,10 @@ emu.addEventCallback(function()
    if word(Q.addr.menu_depth)==0 then
     local g=word(Q.addr.menu_selection)
     if g~=stage.group then buttons[g<stage.group and 'down' or 'up']=true else buttons.start=true end
+   elseif word(Q.addr.menu_group)~=stage.group then
+    -- Returning from a song retains its set submenu. Back out before
+    -- selecting a song from a different set, exactly as a player would.
+    buttons.b=true
    else
     local s=word(Q.addr.menu_selection)
     if s~=stage.selection then buttons[s<stage.selection and 'down' or 'up']=true

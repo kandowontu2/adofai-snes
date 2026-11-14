@@ -220,6 +220,25 @@ Git. For graphics changes, test a full song, checkpoint retries and multiple
 speeds. Windows is the supported development workflow; other platforms may
 need path and executable-name changes.
 
+## Selected Workshop additions
+
+The selected charts are listed in `tools/featured_catalog.json` and
+`tools/firestix_catalog.json`. With Steam running under the account that
+owns the game, download and import them with:
+
+```powershell
+.\.venv\Scripts\python.exe tools/download_tech.py
+.\.venv\Scripts\python.exe tools/import_featured.py
+.\.venv\Scripts\python.exe tools/import_firestix.py
+```
+
+The Featured selection uses the May 2023 endless.reality revision plus
+Classic Wave 1. The Firestix list adds 15 charts, including separately named
+1-X and B-X Workshop variants; Night Wander is excluded. Five duplicate
+Firestix maps remain represented by existing Joke Worlds. These imports
+write private local assets; they do not subscribe to or publish Workshop
+items. The full-release build limitations above still apply.
+
 ## Neo Cosmos
 
 Install the Neo Cosmos DLC in the same Steam

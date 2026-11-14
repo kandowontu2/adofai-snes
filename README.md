@@ -4,6 +4,13 @@ A native SNES adaptation of A Dance of Fire and Ice, using the SA-1, Mode 7,
 and SPC700. The master also uses MSU-1 for chart data and optional PCM music.
 This is an unofficial project; it is not affiliated with 7th Beat Games.
 
+The current master catalog contains 93 charts. Its latest additions are the
+May 2023 Featured revision of endless.reality, Classic Wave 1 (Barrage,
+Final Phase and MAKE IT FUNKY NOW), and 15 Firestix Workshop charts. The
+Workshop 1-X and B-X variants are separate entries; five matching Joke Worlds
+are reused and the cursed MN-X chart is excluded. These additions target the
+master editions, not the older standalone cartridges.
+
 ## Contributing graphics
 
 Editable CHR, tilemaps and palettes are in [`assets/graphics`](assets/graphics/).
@@ -38,6 +45,9 @@ build guide before attempting a full catalog build.
 Keep master files together and extract archives before playing. Revisions may
 change the MSU dataset: replace both `adofai.sfc` and `adofai.msu` when instructed.
 Start a fresh session instead of loading save states from an older build.
+The current master `.msu` is about 1 GiB even without PCM files: it contains
+the compiled graphics as well as compressed audio. Removing PCM does not
+remove that graphics data.
 
 PCM plays at 1.0x. Other speeds use compressed music; standalone cartridges
 use lower-rate compressed music above 1.0x. Tempo and pitch change together.

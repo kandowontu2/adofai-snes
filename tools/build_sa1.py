@@ -18,6 +18,7 @@ def main():
             if p.suffix=='.pcm':os.link(p,out/p.name)
             else:shutil.copyfile(p,out/p.name)
     pack=json.loads((out/'pack.json').read_text());charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
+    assert all(not c.get('projection_source_only') or (c.get('mode1_snapshot') and not c.get('snapshot_preview')) for c in charts), 'Offline projection sources must be compiled to full snapshots before building a ROM'
     if args.stream_levels:
         assert set(args.stream_levels)<=set(pack['levels']), 'Stream chart is absent from this pack'
         assert any(c.get('native_stream_format') for c in charts), 'Streaming requires the resident native master decoder'
@@ -148,6 +149,10 @@ def compile_engine(out, *, generate_pcm=True):
         if 'NEO_CODE_BYTES = $3000' in addresses:
             text=text.replace('size=$2000,type=ro,file=%O,fill=yes;\n PAY: start=$812000,size=$7EE000',
                               'size=$3000,type=ro,file=%O,fill=yes;\n PAY: start=$813000,size=$7ED000')
+        if 'NEO_CODE_BYTES = $4000' in addresses:
+            for size in ('2000','3000'):
+                text=text.replace(f'size=${size},type=ro,file=%O,fill=yes;\n PAY: start=$81{size},size=$7E{0x10000-int(size,16):04X}',
+                                  'size=$4000,type=ro,file=%O,fill=yes;\n PAY: start=$814000,size=$7EC000')
         config.write_text(text)
     if not (out/'sa1_worker.bin').exists():(out/'sa1_worker.bin').write_bytes(bytes(32768))
     subprocess.run([sys.executable,str(ROOT/'build_campaign.py'),'--pack','master','--out',str(out),'--skip-assets'],cwd=ROOT,check=True)

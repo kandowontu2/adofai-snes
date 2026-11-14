@@ -353,7 +353,24 @@ def ui_assets(pack_title='MAIN WORLDS 1-12',mode7=False):
     return write_graphics(OUT, "mode7" if mode7 else "campaign")
 
 
+def title_text(chart):
+    from neo_catalog import display_code
+    return f'{display_code(chart.get("code",str(chart["id"])+"-X"))} {chart["title"]}'[:28]
+
+
 def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
+    neo_code_bytes=0x4000 if any(c['id']>=75 for c in charts) else 0x3000
+    snapshot_only=sa1 and msu and not rom_data and any(c['id']>=75 for c in charts)
+    if snapshot_only:
+        for c in charts:
+            if c.get('mode1_snapshot'):
+                assert not c.get('fallback_stream_packets') and not c.get('snapshot_preview')
+                # The full world map remains in the build folder for the
+                # independent pixel oracle. Runtime uses immutable MSU poses.
+                assets[f'track_map{c["id"]}']=bytes(2)
+    if msu and any(c['id']>=75 for c in charts):
+        # Keep a growing catalog out of the CPU's executable 32 KiB bank.
+        assets['level_titles']=b''.join(title_text(c).encode('ascii').ljust(29,b'\0') for c in charts)
     if any(c.get('neo_cosmos') for c in charts):
         assets['neo_objects']=(ROOT/'assets/graphics/mode7/freeroam.chr').read_bytes()
         assert len(assets['neo_objects'])==2048
@@ -381,7 +398,10 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         (OUT/'zero-pauses.json').write_text(json.dumps(dict(zip((str(c['id']) for c in charts),zero_pauses))))
         (OUT/'zero_pause_tables.inc').write_text('zero_pause_tables: .byte '+','.join(str(int(v)) for v in zero_pauses)+',0\n')
     from hit_sound_assets import add_assets
-    hit_banks=add_assets(assets,charts,OUT)
+    # Featured masters already carry percussion in both music encodings.
+    # Their frame-trigger scheduler is compiled out (HITS_IN_MUSIC), so
+    # resident copies of those same samples and note selectors are unused.
+    hit_banks=False if msu and any(c['id']>=75 for c in charts) else add_assets(assets,charts,OUT)
     # Keep the sound driver in ordinary ROM space, leaving the 32-KiB
     # executable bank available for the renderer and input handling.
     from spc_campaign import assemble
@@ -401,11 +421,11 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if sa1:
         # The CPU's FastROM code mirror occupies the first 32 KiB of
         # physical bank $20. Keep it out of both static assets and streams.
-        free=[(0x13000 if any(c.get('neo_cosmos') for c in charts) else 0x10000,0x200000)]
+        free=[(0x10000+neo_code_bytes if any(c.get('neo_cosmos') for c in charts) else 0x10000,0x200000)]
         if any(c.get('fastrom_helpers_trial') for c in charts):
-            # Only CPU helpers need mirrors: 4 KiB camera + 8 KiB Neo.
+            # Only CPU helpers need mirrors: camera plus the selected Neo bank.
             # Worker code stays on SA-1; do not waste a second copy of it.
-            free.extend([(0x208000,0x20f000),(0x213000,0x800000 if rom_data else 0x400000)])
+            free.extend([(0x208000,0x20f000),(0x210000+neo_code_bytes,0x800000 if rom_data else 0x400000)])
         else:free.append((0x208000,0x800000 if rom_data else 0x400000))
         if resident and not rom_data:free.append((0x400000,0x800000))
     image=bytearray(0x800000);loc={};shared_blobs={}
@@ -496,12 +516,14 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     (OUT/'payload0.bin').write_bytes(image[:0x408000])
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     (OUT/'placements.json').write_text(json.dumps(loc,indent=2))
-    defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects','neo_math_font')]
+    defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects','neo_math_font','level_titles')]
     if any(c.get('mode1_tracks') for c in stream_charts):defs += ['SA1_MODE1_BUILD = 1']
     if stream_charts:defs += ['SA1_STREAM_BUILD = 1','STREAM_INDEX_BYTES = 2',f'STREAM_DESCRIPTORS_ADDR = ${loc["stream_descriptors"]:06X}']
     if 'stream_fallback_descriptors' in loc:defs += [f'STREAM_FALLBACK_DESCRIPTORS_ADDR = ${loc["stream_fallback_descriptors"]:06X}']
     defs.append('HITS_IN_MUSIC = 1')
-    if any(c.get('neo_cosmos') for c in charts):defs+=['NEO_BUILD = 1','NEO_CODE_BYTES = $3000']
+    if snapshot_only:defs.append('SNAPSHOT_ONLY_MAPS = 1')
+    if any(c.get('neo_cosmos') for c in charts):defs+=['NEO_BUILD = 1',f'NEO_CODE_BYTES = ${neo_code_bytes:04X}']
+    if any(c['id']>=75 for c in charts):defs+=['FEATURED_BUILD = 1']
     defs += [f'BACKGROUND_CHR_BYTES = {len(assets["background_chr"])}']
     defs += [f'SPC_DRIVER_ADDR = ${loc["spc_driver"]:06X}',f'SPC_DRIVER_BYTES = {len(assets["spc_driver"])}']
     defs += [f'LEVEL_COUNT = {len(charts)}']
@@ -542,7 +564,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         for name in (f'chart{n}',f'music{n}',f'track_chr{n}',f'track_map{n}'):
             desc+=loc[name].to_bytes(3,'little')
         desc+=struct.pack('<HHHHHHH',c['steps'],c['first_frame'],c['end_frame'],c['beat_frames'],
-                          c['track_tiles']*(64 if c.get('mode7') else 32),min(65535,len(assets[f'track_map{n}'])),c['map_height'])
+                          c['track_tiles']*(64 if c.get('mode7') else 32),min(65535,len(assets[f'track_map{n}'])),0 if snapshot_only and c.get('mode1_snapshot') else c['map_height'])
         desc+=struct.pack('<H',c['first_arc_frames'])
         desc+=loc[f'checkpoints{n}'].to_bytes(3,'little')+bytes([len(c['checkpoints'])]);descriptors.append(desc)
         checkpoint_data=bytearray()
@@ -642,12 +664,11 @@ def common_tables(charts=None, adaptive_audio=False):
     from official_catalog import WORLDS
     charts=charts or WORLDS[:12]
     placements=json.loads((OUT/'placements.json').read_text()) if (OUT/'placements.json').exists() else {}
-    values.append('level_title_pointers: .word '+','.join('title'+str(i) for i in range(len(charts))))
+    banked_titles='level_titles' in placements
+    values.append('level_title_pointers: .word '+','.join(str(0x4000+i*29) if banked_titles else 'title'+str(i) for i in range(len(charts))))
     values.append('level_view_insets: .byte '+','.join(str(c.get('viewport_inset',0)) for c in charts))
     for i,c in enumerate(charts):
-        from neo_catalog import display_code
-        title=f'{display_code(c.get("code",str(c["id"])+"-X"))} {c["title"]}'[:28]
-        values.append(f'title{i}: .byte "{title}",0')
+        if not banked_titles:values.append(f'title{i}: .byte "{title_text(c)}",0')
     from menu_sets import tables as menu_tables,write_count as write_menu_count
     write_menu_count(OUT,[c['id'] for c in charts])
     (OUT/'tables.inc').write_text('\n'.join(values)+'\n'+presentation.tables(FPS,compact=charts[0].get('mode7',False),adaptive_audio=adaptive_audio)+menu_tables([c['id'] for c in charts]))
@@ -661,6 +682,8 @@ def main():
     from import_tech import TECH
     from import_community import COMMUNITY
     from neo_catalog import NEO
+    from import_featured import FEATURED
+    from import_firestix import FIRESTIX
     ap=argparse.ArgumentParser();ap.add_argument('--pack',choices=[*PACKS,'master'],default='main');ap.add_argument('--out',type=Path);ap.add_argument('--levels',type=int,nargs='+');ap.add_argument('--chart-cache-only',action='store_true')
     ap.add_argument('--preview-tiles',type=int,choices=range(4,65),default=16)
     ap.add_argument('--past-tiles',type=int,choices=range(0,5),default=1)
@@ -680,12 +703,18 @@ def main():
     ap.add_argument('--motion-step',type=int,choices=(1,2,4,8),default=None)
     ap.add_argument('--no-pcm',action='store_true',help='Generate the compressed master without full-size PCM tracks')
     args=ap.parse_args();msu=args.pack=='master'
-    pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=[m['id'] for m in WORLDS+TECH+COMMUNITY+NEO]) if msu else PACKS[args.pack]
+    pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=[m['id'] for m in WORLDS+TECH+COMMUNITY+NEO+FEATURED+FIRESTIX]) if msu else PACKS[args.pack]
     if args.levels:pack=dict(pack,levels=args.levels)
     OUT=args.out or (ROOT/'build/campaign' if args.pack=='main' else ROOT/f'build/packs/{args.pack}')
     OUT.mkdir(parents=True,exist_ok=True)
-    if any(n>=66 and not (ROOT/f'assets/private/level{n}.json').exists() for n in pack['levels']):
+    if any(66<=n<=74 and not (ROOT/f'assets/private/level{n}.json').exists() for n in pack['levels']):
         subprocess.run([sys.executable,str(ROOT/'tools/import_neo.py')],check=True)
+    missing_featured=[n for n in pack['levels'] if n in {m['id'] for m in FEATURED} and not (ROOT/f'assets/private/level{n}.json').exists()]
+    if missing_featured:
+        subprocess.run([sys.executable,str(ROOT/'tools/import_featured.py'),'--levels',*map(str,missing_featured)],check=True)
+    missing_firestix=[n for n in pack['levels'] if n in {m['id'] for m in FIRESTIX} and not (ROOT/f'assets/private/level{n}.json').exists()]
+    if missing_firestix:
+        subprocess.run([sys.executable,str(ROOT/'tools/import_firestix.py'),'--levels',*map(str,missing_firestix)],check=True)
     if not all((ROOT/f'assets/private/level{n}.json').exists() and 'checkpoints' in json.loads((ROOT/f'assets/private/level{n}.json').read_text()) for n in pack['levels']):
         importer='import_campaign.py' if args.pack=='main' else 'import_official.py'
         subprocess.run([sys.executable,str(ROOT/'tools'/importer)],check=True)
@@ -725,7 +754,7 @@ def main():
         cached_metadata=json.loads((OUT/f'level{n}.json').read_text()) if stamp.exists() else {}
         depth=cached_metadata.get('readability_window',{})
         valid_depth=not msu or cached_metadata.get('authored_visibility') is True
-        if msu and (bool(cached_metadata.get('native_follow_timing')) != (n in (67,72)) or
+        if msu and (bool(cached_metadata.get('native_follow_timing')) != (n in (67,68,72,73)) or
                     cached_metadata.get('native_follow_ranges',[]) != ([[479,494]] if n==74 else [])):
             valid_depth=False
         if valid_depth and stamp.exists() and json.loads(stamp.read_text())==fingerprint and all((OUT/(a+'.bin')).exists() for a in names):
@@ -748,13 +777,17 @@ def main():
             c['mode7']=True
             c['compiled_reference_sets']=True
             c['motion_step']=motion_step
+            if n==49 or n in {m['id'] for m in FEATURED+FIRESTIX}:
+                c.update(projected_zoom_range=True,precise_viewport_cells=True,
+                         pattern_pinned_limit=0,strict_pattern_quality=True,
+                         share_palette_patterns=True,projected_pattern_overflow=True)
             if optimal_pattern_cache:c['optimal_pattern_cache']=True
             if delta_pattern_cache:c['delta_pattern_cache']=True
             if precise_pattern_view:c['precise_viewport_cells']=True
             if n in (68,73,74):c.update(pattern_pinned_limit=0,strict_pattern_quality=True,optimal_pattern_cache=False,
                               share_palette_patterns=True,raster_origin_bias=[0,1])
             if n in (68,73):c['projected_pattern_overflow']=True
-            if n in (67,72):c['native_follow_timing']=True
+            if n in (67,68,72,73):c['native_follow_timing']=True
             if n==74:c['native_follow_ranges']=[[479,494]]
             c['reuse_motion_phase']=reuse_motion_phase
             if n in (67,69,72,74):c['motion_phase_min_group']=8

@@ -18,7 +18,7 @@ def phase(ease, value, parts=1, mirror=True):
 
 
 def table_source(out,levels):
-    records=[];samples=[];phases=[];starts=[];counts=[];shared={}
+    records=[];samples=[];phases=[];radius_samples=[];starts=[];counts=[];shared={}
     for level in levels:
         starts.append(len(records)*8)
         chart=json.loads((out/f'level{level}.json').read_text())
@@ -29,13 +29,14 @@ def table_source(out,levels):
         for i,floor in enumerate(raw['floors'][:-1]):
             n=chart['notes'][i];end=chart['notes'][i+1]['frame']
             hold=n.get('hold_length',-1)>=0
-            if floor.get('planetEase',1)==1 and not hold:continue
+            radius=floor.get('radiusScale',1);next_radius=raw['floors'][i+1].get('radiusScale',1)
+            if floor.get('planetEase',1)==1 and not hold and radius==next_radius:continue
             duration=end-n['frame']
             if duration<=0:continue
             # The original applies easing to the whole floor arc, including
             # each complete hold turn, rather than easing every video step.
             span=sweep(n)*128/math.pi if hold else duration*n['rate']/256
-            angles=[];fractions=[]
+            angles=[];fractions=[];sizes=[]
             for frame in range(duration+1):
                 p=phase(floor.get('planetEase',1),frame/duration,floor.get('planetEaseParts',1),floor.get('planetEasePartBehavior',0)==0)
                 # Translation and orbital angle must sample the same phase.
@@ -44,9 +45,10 @@ def table_source(out,levels):
                 if hold:p=round(p*256)/256
                 angles.append(round(n['angle']+span*p)&255)
                 fractions.append(round(p*256)&65535)
-            key=(tuple(angles),tuple(fractions))
+                sizes.append(round((radius+(next_radius-radius)*max(0,min(1,p)))*256))
+            key=(tuple(angles),tuple(fractions),tuple(sizes))
             if key not in shared:
-                shared[key]=len(samples);samples.extend(angles);phases.extend(fractions)
+                shared[key]=len(samples);samples.extend(angles);phases.extend(fractions);radius_samples.extend(sizes)
             records.append((i,n['frame'],duration,shared[key]))
             count+=1
         counts.append(count)
@@ -57,15 +59,24 @@ def table_source(out,levels):
     lines+=['.byte '+','.join(map(str,samples[i:i+32])) for i in range(0,len(samples),32)]
     lines+=['neo_ease_phases:']
     lines+=['.word '+','.join(map(str,phases[i:i+16])) for i in range(0,len(phases),16)]
-    hold_starts=[];hold_styles=[]
+    lines+=['neo_ease_radii:']+['.word '+','.join(map(str,radius_samples[i:i+16])) for i in range(0,len(radius_samples),16)]
+    hold_starts=[];hold_styles=[];motion_starts=[];radii=[];margins=[]
     for level in levels:
         hold_starts.append(len(hold_styles))
         chart=json.loads((out/f'level{level}.json').read_text())
         if not chart.get('neo_cosmos'):
+            motion_starts.append(65535)
             continue
+        raw=json.loads((ROOT/f'assets/private/level{level}.json').read_text())
+        scaled=any(f.get('radiusScale',1)!=1 or n.get('margin',100)!=(800 if n.get('margin',100)>100 else 100)
+                   for f,n in zip(raw['floors'],chart['notes']))
+        motion_starts.append(len(radii)*2 if scaled else 65535)
         roles = (0, 1, 2)
         previous = None
         for i, note in enumerate(chart['notes']):
+            if scaled:
+                radii.append(round(raw['floors'][i].get('radiusScale',1)*256))
+                margins.append(round(note.get('margin',100)))
             if note['planets'] == 3:
                 if previous is None or previous['planets'] != 3:
                     roles = (i & 1, (i & 1) ^ 1, 2)
@@ -83,18 +94,28 @@ def table_source(out,levels):
             previous = note
     lines+=['neo_hold_starts: .word '+','.join(map(str,hold_starts)),'neo_hold_styles:']
     lines+=['.byte '+','.join(map(str,hold_styles[i:i+32])) for i in range(0,len(hold_styles),32)]
-    free_records=[];free_starts=[];free_counts=[];free_phases=[];free_cells=[];coins=[];hazards=[];routes=[];lasers=[];deaths=[]
+    for name,values in [('neo_motion_starts',motion_starts),('neo_orbit_radii',radii),('neo_note_margins',margins)]:
+        lines += [name+':']+['.word '+','.join(map(str,values[i:i+16])) for i in range(0,len(values),16)]
+    free_records=[];free_starts=[];free_counts=[];free_phases=[];free_cells=[];coins=[];hazards=[];routes=[];lasers=[];deaths=[];entries=[];twirls=[]
+    twirl_ranges=[];twirl_positions=[]
     for level in levels:
         chart=json.loads((out/f'level{level}.json').read_text())
         regions=chart.get('freeroam_regions',[])
         free_starts.append(len(free_records)*64);free_counts.append(len(regions))
         for r in regions:
             n=chart['notes'][r['step']];following=chart['notes'][r['step']+1]
+            origin_offset=n.get('position_track_offset',(0,0))
+            exit_offset=following.get('position_track_offset',(0,0))
+            entries.extend(r.get('entry',(0,0)))
+            twirl_cells={tuple(p) for p in r.get('twirls',[])}
+            twirl_ranges.append((len(twirl_positions)*2,len(twirl_cells)))
+            twirl_positions.extend(v for p in sorted(twirl_cells) for v in p)
+            twirls.extend(int(tuple(p) in twirl_cells) for p in r['cells'])
             offset=len(free_phases)*2
             free_phases.extend(round(easing(r['ease'],i/r['return_duration'])*256) for i in range(r['return_duration']+1))
             rate=abs(n['rate'])*(-1 if following['ccw'] else 1)
             free_records.append((r['step'],r['start'],r['return_start'],r['return_duration'],r['unlock'],r['end'],*r['bounds'],
-                                 following['x']-n['x']+r['exit_offset'][0],following['y']-n['y']+r['exit_offset'][1],offset,
+                                 following['x']-n['x']+r['exit_offset'][0]+exit_offset[0]-origin_offset[0],following['y']-n['y']+r['exit_offset'][1]+exit_offset[1]-origin_offset[1],offset,
                                  (following['angle']+128)&255,rate,int(r['move_camera']),len(free_cells)*2,len(r['cells']),
                                  len(coins)*2,len(r.get('coins',[])),r.get('coin_check',65535),len(hazards)*10,len(r.get('hazards',[])),
                                  int(chart['code'] in ('T3-X', 'T3EX-X')),
@@ -107,6 +128,7 @@ def table_source(out,levels):
             for h in r.get('hazards',[]):
                 hazards.append((h['warn'],h['check'],h['end'],len(free_cells)*2,len(h['cells'])))
                 free_cells.extend(v for p in h['cells'] for v in p)
+                twirls.extend(0 for p in h['cells'])
     lines+=['neo_free_starts: .word '+','.join(map(str,free_starts)),
             'neo_free_counts: .word '+','.join(map(str,free_counts)), 'neo_free_records:']
     lines+=['.word '+','.join(str(v&65535) for v in row) for row in free_records]
@@ -114,6 +136,10 @@ def table_source(out,levels):
     lines+=['.word '+','.join(map(str,free_phases[i:i+16])) for i in range(0,len(free_phases),16)]
     lines+=['neo_free_cells:']
     lines+=['.word '+','.join(str(v&65535) for v in free_cells[i:i+16]) for i in range(0,len(free_cells),16)]
+    lines+=['neo_free_entries:']+['.word '+','.join(str(v&65535) for v in entries[i:i+16]) for i in range(0,len(entries),16)]
+    lines+=['neo_free_twirls:']+['.byte '+','.join(map(str,twirls[i:i+32])) for i in range(0,len(twirls),32)]
+    lines+=['neo_free_twirl_ranges:']+['.word '+','.join(map(str,row)) for row in twirl_ranges]
+    lines+=['neo_free_twirl_positions:']+['.word '+','.join(str(v&65535) for v in twirl_positions[i:i+16]) for i in range(0,len(twirl_positions),16)]
     lines+=['neo_free_coins:']
     lines+=['.word '+','.join(str(v&65535) for v in coins[i:i+16]) for i in range(0,len(coins),16)]
     lines+=['neo_free_hazards:']

@@ -629,7 +629,11 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
                         if versions[-1][0]==frame:versions[-1]=(frame,value)
                         elif versions[-1][1]!=value:versions.append((frame,value))
                 offsets.append(len(timeline));timeline+=struct.pack('<H',len(versions))+b''.join(struct.pack('<HH',f,v) for f,v in versions)
-    if chart.get('pattern_versions'):
+    if chart.get('projected_zoom_range') and chart.get('pattern_count',0)>=0xFE00:
+        # Large offline atlases stay in JSON/32-bit host memory. They must
+        # be projected into independent screen snapshots before ROM packing.
+        chart['projection_source_only']=True
+    if chart.get('pattern_versions') and not chart.get('projection_source_only'):
         chart['pattern_node_base']=len(offsets)
         for versions in chart['pattern_versions']:
             offsets.append(len(timeline));timeline+=struct.pack('<H',len(versions))+b''.join(struct.pack('<HH',f,v) for f,v in versions)

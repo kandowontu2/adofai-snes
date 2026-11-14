@@ -39,7 +39,7 @@ def depth_schedule(chart,initial,changes,motion=None,camera_data=None):
         ex=(128*abs(c)+half*abs(s)+255)//256;ey=(half*abs(c)+128*abs(s)+255)//256
         extents[frame]=(ex+20,ey+20)
         norm=c*c+s*s
-        transforms[frame]=(round(c*65536/norm),round(s*65536/norm),x+128,y+104)
+        transforms[frame]=((round(c*65536/norm),round(s*65536/norm)) if norm else (0,0))+(x+128,y+104)
         views[frame]=((x+128-ex)//8,(y+104-ey)//8,(2*ex+14)//8,(2*ey+14)//8)
 
     from neo_freeroam import widen_views

@@ -99,13 +99,23 @@ early_dma_nmi_gate:
     sta f:EARLY_DMA_WARMUP
     lda f:EARLY_DMA_ENABLE
     beq @ordinary
-    lda state
-    cmp #1
-    bne @ordinary
+@active:
     lda f:EARLY_IRQ_RUNNING
     inc a
     rtl
 @ordinary:
+    ; A checkpoint seed is deliberately blanked, but its first staged
+    ; atlas can still exceed one transfer budget. Use the same back-bank
+    ; prefetch as gameplay before publishing that initial scene.
+    lda pattern_blanked
+    beq @no_prefetch
+    lda frame_ready
+    beq @no_prefetch
+    jsl snapshot_dma_preflight
+    bcc @no_prefetch
+    lda #1
+    rtl
+@no_prefetch:
     lda #0
     rtl
 
@@ -115,12 +125,26 @@ early_dma_configure:
     lda #0
     ldx m7_loading
     bne @flag
+    ldx pattern_blanked
+    bne @flag
     ldx state
     cpx #1
-    bne @flag
+    bcc @retain
+    cpx #5
+    bcs @retain
+@scene:
+    ; Death, pause and results can retain a gameplay atlas still queued.
+    ; Retain its upload window and preflight until leaving the song; an
+    ; ordinary VBlank cannot safely drain a full snapshot at this boundary.
     ldx selected_level
     lda f:level_early_dma,x
     and #255
+    bra @flag
+@retain:
+    ; Returning to a menu can precede the last atlas commit. Keep the
+    ; loaded scene's safe window until the next load explicitly suspends
+    ; it; selecting another menu item does not load that chart's graphics.
+    lda f:EARLY_DMA_ENABLE
 @flag:
     sta f:EARLY_DMA_ENABLE
     ; Select the HDMA mask once per frame. Individual DMA sites retain
@@ -152,6 +176,7 @@ early_dma_configure:
     beq @disable
     lda m7_loading
     ora msu_data_busy
+    ora pattern_blanked
     bne @disable
     sep #$20
     .a8
@@ -208,9 +233,7 @@ early_irq:
     beq @return
     lda f:EARLY_DMA_WARMUP
     bne @return
-    lda state
-    cmp #1
-    bne @return
+@scene:
     lda #1
     sta f:EARLY_IRQ_RUNNING
     jsl snapshot_dma_preflight
