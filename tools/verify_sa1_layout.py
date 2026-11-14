@@ -22,16 +22,30 @@ def verify(base,source):
         addresses=[constants[name] for name in (*camera_state,*diagnostics)]
         assert len(set(addresses))==len(addresses),'VBlank diagnostics overlap live camera state'
         assert all(0x41FCD0<=address<0x41FD00 and address%2==0 for address in addresses)
+    helper_mirror='SA1_FASTROM_HELPERS = 1' in (base/'addresses.inc').read_text()
+    unmirror=lambda a:a&0x7fffff if helper_mirror else a
+    if helper_mirror:
+        helper_end=0x13000 if 'NEO_CODE_BYTES = $3000' in (base/'addresses.inc').read_text() else 0x12000
+        assert rom[0x20f000:0x200000+helper_end]==rom[0xf000:helper_end]
+        assert 0x81f000<=labels['mode7_rotation_bounds']<0x820000
+    if 'STREAM_ROUTE_LEFT' in constants:
+        assert 0x42bc70<=constants['STREAM_ROUTE_BEGIN']<=constants['STREAM_ROUTE_LEFT']<0x42c000
+        assert constants['STREAM_OAM_DIRECT']+2<=constants['STREAM_ROUTE_BEGIN']
+        snapshot=constants['STREAM_SPILL_SNAPSHOT']
+        assert constants['STREAM_DELTA_TARGET']+512<=snapshot
+        assert constants['STREAM_SPILL_PALETTE_DIRTY']+2<=snapshot
+        assert snapshot+512<=constants['STREAM_BUFFER']
     if '__FASTNMI_RUN__' in labels:
         for name in ('mode7_rotation_bounds','camera_scale_sprite'):
-            assert 0x01F000<=labels[name]<0x020000,(name,labels[name])
-        assert labels['__FASTWRAM_RUN__']<=labels['mode7_rotate_project']<0x1800
+            assert 0x01F000<=unmirror(labels[name])<0x020000,(name,labels[name])
+        projection=unmirror(labels['mode7_rotate_project'])
+        assert labels['__FASTWRAM_RUN__']<=projection<0x1800 or 0x01f000<=projection<0x020000
         assert labels['__FASTNMI_RUN__']<=labels['camera_scale_offset']<labels['__FASTNMI_RUN__']+labels['__FASTNMI_SIZE__']
     nmi_start=labels['__FASTNMI_RUN__']
-    nmi_end=0x0e00 if nmi_start==0x0800 else 0x3780
+    nmi_end=labels['__FASTWRAM_RUN__'] if nmi_start==0x0800 else 0x3780
     assert nmi_start in (0x0800,0x3100) and nmi_start+labels['__FASTNMI_SIZE__']<=nmi_end
     assert 0x0e00<=labels['__FASTWRAM_RUN__'] and labels['__FASTWRAM_RUN__']+labels['__FASTWRAM_SIZE__']<=0x1800
-    assert 0x01F000<=labels['__FASTWRAM_LOAD__'] and labels['__FASTWRAM_LOAD__']+labels['__FASTWRAM_SIZE__']<=0x020000
+    assert 0x01F000<=unmirror(labels['__FASTWRAM_LOAD__']) and unmirror(labels['__FASTWRAM_LOAD__'])+labels['__FASTWRAM_SIZE__']<=0x020000
     if labels.get('NOTE_X') == 0x7F8000:
         assert labels['NOTE_Y'] == 0x7FA200 and labels['M7_CHR_HIGH'] == 0x7F6800
         ranges=[(0x7F0000,0x7F6600),(0x7F6800,0x7F7000),(0x7F7C00,0x7F8000),

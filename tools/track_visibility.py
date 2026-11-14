@@ -99,6 +99,12 @@ def visibility_schedule(data,chart):
         # The original fades all unoccupied cells over one base beat when
         # the return begins. The selected cell is rendered by the runtime.
         move(i,region['return_start']/common.FPS,region['fade_duration']/common.FPS,0)
+    if chart.get('singsing_route_window'):
+        start,end=chart['singsing_route_window']
+        for i in chart['singsing_connectors']:
+            commands[i]=[c for c in commands[i] if not start<=c[0]<=end]
+        for e in chart['singsing_route_events']:
+            move(e['floor'],e['time'],0,e['opacity'])
     for i,cs in enumerate(commands):
         current=initial[i];prior=initial_float[i]
         cs.sort(key=lambda c:c[0])
@@ -144,6 +150,21 @@ def visibility_schedule(data,chart):
     for i in hidden:initial[i]=0
     for updates in combined.values():
         for i in hidden:updates.pop(i,None)
+    if chart.get('singsing_connectors'):
+        # Shared cubicle turns have hidden rhythm-floor meshes underneath
+        # their visible midspins. Their connector must share the marker's
+        # visibility before palette allocation and viewport compilation.
+        raw=list(initial);shown=list(initial)
+        connectors={j-1:j for j in chart['singsing_connectors']}
+        for i,j in connectors.items():initial[i]=shown[i]=max(raw[i],raw[j])
+        result=collections.defaultdict(dict)
+        for frame,updates in sorted(combined.items()):
+            for i,v in updates.items():raw[i]=v
+            affected=set(updates)|{i for i,j in connectors.items() if i in updates or j in updates}
+            for i in affected:
+                value=max(raw[i],raw[connectors[i]]) if i in connectors else raw[i]
+                if value!=shown[i]:result[frame][i]=value;shown[i]=value
+        combined=result
     return initial,dict(sorted(combined.items()))
 
 def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,authored=None):
@@ -236,12 +257,30 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             for x,y in piece_cells(i,round(dx/grid)*grid,round(dy/grid)*grid):cells[x,y].add(i)
     mode7=chart.get('mode7',False)
     if mode7 and chart.get('shared_track_contour'):chart['track_separators_version']=1
+    scene=None
+    if color_data and color_data.get('native_singsing_visuals') and (not chart.get('singsing_backgrounds_disabled') or chart.get('singsing_note_cues')):
+        from neo_singsing import Scene
+        scene=Scene(color_data,chart)
+        chart['authored_material_capacity']=min(44,chart.get('authored_material_capacity',48))
+        chart['singsing_scene_version']=3
     color_slots=[0]*len(notes);color_changes={}
     if mode7 and color_data:
         from track_colors import palette_schedule
         color_slots,color_changes=palette_schedule(color_data,chart,initial,changes)
+        if scene:
+            writes={(f,i):v for f,i,v in chart['track_palette_versions']}
+            writes.update({(f,i):v for f,i,v in scene.palette()})
+            chart['track_palette_versions']=[(f,i,v) for (f,i),v in sorted(writes.items())]
     alpha=list(initial);tiles=[bytes(64 if mode7 else 32)];lookup={tiles[0]:0};history={};current={}
     view_events={int(f):v for f,v in chart.get('render_viewports',{}).items()}
+    if scene:
+        previous=view_events[0]
+        for f in sorted(set(view_events)|set(scene.frames)):
+            previous=view_events.get(f,previous)
+            if scene.first<=f<=scene.last:
+                x,y,w,h=previous
+                for yy in range(max(0,y),min(height,y+h)):
+                    for xx in range(max(0,x),min(width,x+w)):cells[xx,yy]
     viewport=view_events.get(0)
     transforms={int(f):v for f,v in chart.get('render_transforms',{}).items()}
     transform=transforms.get(0)
@@ -283,17 +322,62 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
         # floors cover later floors. Composite opaque tile surfaces in
         # that order; a union of masks exposes outlines from lower layers.
         material=Image.new('L',size);separators=Image.new('L',size)
-        for i in sorted(ids,reverse=True):
-            if not alpha[i]:continue
+        overlap_edges=Image.new('L',size) if chart.get('shared_track_contour') else None
+        def scene_layers(front):
+            if scene is None:return
+            for slot,above,px,py,part in scene.layers(frame):
+                if above!=front:continue
+                coverage=Image.new('L',size);coverage.paste(part,(px-x0,py-y0))
+                layer=coverage.point(lambda v:255 if v>=64 else 0)
+                bright=coverage.point(lambda v:255 if v>=192 else 0)
+                mask.paste(255,mask=layer);levels.paste(3,mask=layer);owners.paste(slot,mask=layer)
+                material.paste(1,mask=layer);material.paste(3,mask=bright)
+        scene_layers(False)
+        # The chapter reuses identical centers for a straight pass and a
+        # midspin turn. Keep the active turn's actual geometry above the old
+        # straight pass; no synthetic arrows or extra connectors are added.
+        active_connectors={j-1:alpha[j] for j in chart.get('singsing_connectors',[]) if alpha[j]}
+        active_centers={(notes[i]['x']+offsets_xy[i][0],notes[i]['y']+offsets_xy[i][1]):i
+                        for i in active_connectors}
+        for i in sorted(ids,key=lambda i:(i not in active_connectors,i),reverse=True):
+            center=(notes[i]['x']+offsets_xy[i][0],notes[i]['y']+offsets_xy[i][1])
+            if notes[i].get('spin_kind')=='normal' and center in active_centers and i!=active_centers[center]:
+                continue
+            visible_alpha=max(alpha[i],active_connectors.get(i,0))
+            if not visible_alpha:continue
             px,py,part=preview_pieces[i] if mode7 and frame<detail_starts[i] else pieces[i]
-            layer=Image.new('L',size);layer.paste(part,(px-x0,py-y0));mask=ImageChops.lighter(mask,layer)
-            levels.paste(alpha[i],mask=layer)
+            layer=Image.new('L',size);layer.paste(part,(px-x0,py-y0))
+            gem_light=None
+            if notes[i].get('gem_platform'):
+                gem_light=layer.point(lambda v:255 if v==128 else 0)
+                layer=layer.point(lambda v:255 if v else 0)
+            if i in active_connectors and i+2<len(notes):
+                # A midspin returns to the same center. Its incoming and
+                # outgoing rhythm floors form one three-way junction, not
+                # two competing surfaces or an isolated arrow-shaped cap.
+                qx,qy,other=pieces[i+2]
+                tail=Image.new('L',size);tail.paste(other,(qx-x0,qy-y0))
+                layer=ImageChops.lighter(layer,tail)
             # Keep every individual contour, including the top edge where
             # two floors cross, while fully occluding lower-floor detail.
             contour=ImageChops.subtract(layer,layer.filter(ImageFilter.MinFilter(3)))
+            if overlap_edges is not None:
+                # A shared exterior may remove redundant outer edges, but
+                # it must not weld crossing floors into one surface.
+                crossing=ImageChops.multiply(contour,mask)
+                overlap_edges.paste(0,mask=layer)
+                overlap_edges.paste(255,mask=crossing)
+            mask=ImageChops.lighter(mask,layer)
+            levels.paste(visible_alpha,mask=layer)
             material.paste(1,mask=layer);material.paste(3,mask=contour)
+            if gem_light is not None:
+                material.paste(1,mask=layer);material.paste(3,mask=gem_light)
             if notes[i].get('scene_visual',{}).get('cutout'):
                 v=notes[i]['scene_visual'];ink=Image.frombytes('1',tuple(v['size']),bytes.fromhex(v['cutout'])).convert('L')
+                if v.get('text'):
+                    text=Image.frombytes('1',tuple(v['size']),bytes.fromhex(v['text'])).convert('L')
+                    text_layer=Image.new('L',size);text_layer.paste(text,(px-x0,py-y0))
+                    material.paste(3,mask=text_layer)
                 ink_layer=Image.new('L',size);ink_layer.paste(ink,(px-x0,py-y0))
                 material.paste(0,mask=ink_layer)
             if notes[i].get('taps_needed',1)>1 and frame<notes[i]['frame']:
@@ -302,7 +386,7 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
                 inner_border=ImageChops.subtract(inner,inner.filter(ImageFilter.MinFilter(3)))
                 material.paste(3,mask=inner_border)
             separators.paste(0,mask=layer)
-            if chart.get('authored_visibility') and i+1<len(notes) and notes[i].get('spin_kind','normal')=='normal' and notes[i].get('hold_length',-1)<0 and not any(k in notes[i] for k in ('platform_group','warp_visual','scene_visual')):
+            if chart.get('authored_visibility') and i+1<len(notes) and notes[i].get('spin_kind','normal')=='normal' and notes[i].get('hold_length',-1)<0 and not any(k in notes[i] for k in ('platform_group','warp_visual','scene_visual','gem_platform')):
                 # A recessed join belongs to this piece, before higher pieces
                 # occlude it. Never draw seams through overlapping upper floors.
                 a=notes[i].get('exit_angle')
@@ -319,12 +403,20 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
                     material.paste(join,mask=join_mask)
                     separators.paste(join,mask=join_mask)
             if color_data:owners.paste(color_slots[i],mask=layer)
+        scene_layers(True)
         border=ImageChops.subtract(mask,mask.filter(ImageFilter.MinFilter(3)))
         if chart.get('shared_track_contour'):
             im=Image.new('P',size);im.paste(1,mask=mask);im.paste(3,mask=border)
+            im.paste(3,mask=overlap_edges)
             # Sharing an exterior contour must not merge the playable steps.
             im.paste(separators,mask=separators.point(lambda p:255 if p else 0))
         else:im=Image.fromarray(np.array(material),mode='P')
+        if scene:
+            # Scene sprites carry authored alpha, including the faint lane
+            # backboard beneath its bright beat ticks. Shared track contours
+            # must not flatten both intensities into an opaque gray slab.
+            scene_mask=owners.point(lambda v:255 if v>=44 else 0)
+            im.paste(material,mask=scene_mask)
         d=ImageDraw.Draw(im)
         if chart.get('readability_window') and not chart.get('simplified_depth'):
             from track_readability import draw_depth
@@ -375,7 +467,7 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
     for region in chart.get('freeroam_regions',[]):
         for frame in set(region.get('cell_deaths',[]))-{65535}:grid_events[frame].append(region['step'])
     render(set(cells) if viewport is None else rectangle(viewport),0)
-    for frame in sorted(set(changes)|set(render_motion)|set(rotations)|set(color_changes)|set(detail_events)|set(view_events)|set(scales)|set(grid_events)):
+    for frame in sorted(set(changes)|set(render_motion)|set(rotations)|set(color_changes)|set(detail_events)|set(view_events)|set(scales)|set(grid_events)|set(scene.frames if scene else [])):
         # While the final landing is pending, mode7_landing_time clamps the
         # scene to its frame minus one. Accepting it freezes the scene for
         # results. Never allocate patterns for unreachable post-clear views.
@@ -387,6 +479,8 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             transform=transforms.get(frame,transform)
             if precise is not None:precise=sampled(frame)
             dirty.update(old ^ rectangle(viewport))
+        if scene and scene.first<=frame<=scene.last:
+            dirty.update(rectangle(viewport))
         for i in grid_events.get(frame,[]):
             dirty.update(piece_cells(i,*offsets_xy[i]))
             notes[i]['freeroam_grid']['render_frame']=frame
@@ -437,6 +531,10 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
         for i,value in updates.items():
             if alpha[i]==value:continue
             alpha[i]=value;dirty.update(piece_cells(i,*offsets_xy[i]))
+            if i in chart.get('singsing_connectors',[]):
+                center=(notes[i-1]['x'],notes[i-1]['y'])
+                for j,n in enumerate(notes):
+                    if (n['x'],n['y'])==center:dirty.update(piece_cells(j,*offsets_xy[j]))
         render({p for p in dirty if in_view(*p) or current.get(p,0)} if viewport is not None else dirty,frame)
     if chart.get('adaptive_raster'):
         from track_mipmaps import mipmap_history
@@ -444,15 +542,22 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
     print(chart['code'],f'visibility grid {grid}: {len(tiles)} CHR tiles, {len(history)} cells',flush=True)
     if chart.get('readability_window') and chart.get('allow_pattern_cache'):
         from track_patterns import cache_patterns
+        if chart.get('share_palette_patterns'):
+            from track_patterns import share_palette_patterns
+            history=share_palette_patterns(chart,tiles,history)
         if chart.get('precise_viewport_cells'):
             from viewport_cells import share_clipped_patterns
             history=share_clipped_patterns(chart,tiles,history)
+        if chart.get('projected_pattern_overflow'):
+            from projected_spill import split
+            history=split(chart,tiles,history)
         while True:
             try:
                 tiles,history=cache_patterns(chart,tiles,history)
                 break
             except AssertionError as e:
                 if not(mode7 and e.args and isinstance(e.args[0],tuple) and e.args[0][0] in ('Track pattern capacity','Pattern upload budget')):raise
+                if chart.get('strict_pattern_quality'):raise
                 if not chart.get('simplified_depth'):
                     chart['simplified_depth']=True
                     return animated_track(chart,initial,changes,8,motion,color_data,authored)

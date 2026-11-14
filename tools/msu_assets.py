@@ -22,6 +22,19 @@ def generate(out,charts,music,*,generate_pcm=True):
             end=data.tell();data.seek(table_offset)
             data.write(b''.join(struct.pack('<I',s) for s in snapshots));data.seek(end)
             descriptors+=struct.pack('<IHHIIHHI',offset,track,1000+n*32,animation_offset,table_offset,c.get('visibility_cells',0),int(bool(c.get('pattern_versions'))),timeline_offset)
+            if c.get('sa1_stream_format'):
+                c['stream_msu_base']=data.tell()
+                data.write((out/f'stream_data{n}.bin').read_bytes())
+                if c.get('mode1_tracks'):
+                    if not c.get('mode1_projected'):
+                        c['mode1_icon_base']=data.tell()
+                        data.write((out/f'mode1_icons{n}.bin').read_bytes())
+                    c['mode1_seed_base']=data.tell()
+                    data.write((out/f'mode1_seeds{n}.bin').read_bytes())
+                    if c.get('fallback_stream_packets'):
+                        c['fallback_stream_msu_base']=data.tell()
+                        data.write((out/f'stream_data_fallback{n}.bin').read_bytes())
+                (out/f'level{n}.json').write_text(json.dumps(c,indent=2))
             if not generate_pcm:
                 manifest.append(dict(id=n,code=c['code'],title=c['title'],data_offset=offset,brr_bytes=len(music[n])))
                 continue

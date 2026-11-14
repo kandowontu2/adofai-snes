@@ -3,39 +3,7 @@
 ; Checkpoint/loading passes retain the canonical MSU decoder. Ordinary
 ; frames hand the same byte offset to SA-1's immutable ROM event stream.
 native_animation_update:
-    lda f:NATIVE_READY
-    bne @ready
-    jsr symbol_coords_reset
-    jsr sa1_symbols
-    lda #1
-    sta msu_data_busy
-    lda event_count
-    sta f:NATIVE_SYMBOL_BYTES
-    lda camera_zoom
-    sta f:NATIVE_ZOOM
-    lda camera_inverse
-    sta f:NATIVE_INVERSE
-    lda f:CAMERA_SCRIPT_X
-    sta f:NATIVE_CAMERA_X
-    lda f:CAMERA_SCRIPT_Y
-    sta f:NATIVE_CAMERA_Y
-    lda #(^FLOOR_ALPHA)&1
-    sta transfer_wbank
-    ldx #.loword(FLOOR_ALPHA)
-    ldy #.loword(NATIVE_ALPHA)
-    lda last_note
-    inc a
-    jsr native_seed_span
-    lda #1
-    sta transfer_wbank
-    ldx #.loword(TRACK_PALETTE)
-    ldy #.loword(NATIVE_PALETTE)
-    lda #192
-    jsr native_seed_span
-    lda #1
-    sta f:NATIVE_READY
-    stz msu_data_busy
-@ready:
+    jsr native_animation_seed
     lda animation_cursor
     sec
     sbc animation_base
@@ -82,6 +50,7 @@ native_animation_update:
     stz animation_header
     lda #1
     sta animation_seek_dirty
+native_animation_receive:
     lda f:NATIVE_ZOOM
     sta camera_zoom
     lda f:NATIVE_INVERSE
@@ -122,6 +91,48 @@ native_animation_update:
     lda f:NATIVE_PALETTE_DIRTY
     jsr native_receive_span
 @done:
+    rts
+
+native_animation_seed:
+    lda f:NATIVE_READY
+    bne @seeded
+    jsr symbol_coords_reset
+    jsr sa1_symbols
+    lda #1
+    sta msu_data_busy
+    lda event_count
+    sta f:NATIVE_SYMBOL_BYTES
+    lda camera_zoom
+    sta f:NATIVE_ZOOM
+    lda camera_inverse
+    sta f:NATIVE_INVERSE
+    lda f:CAMERA_SCRIPT_X
+    sta f:NATIVE_CAMERA_X
+    lda f:CAMERA_SCRIPT_Y
+    sta f:NATIVE_CAMERA_Y
+    lda #(^FLOOR_ALPHA)&1
+    sta transfer_wbank
+    ldx #.loword(FLOOR_ALPHA)
+    ldy #.loword(NATIVE_ALPHA)
+    lda last_note
+    inc a
+    jsr native_seed_span
+    lda #1
+    sta transfer_wbank
+    ldx #.loword(TRACK_PALETTE)
+    ldy #.loword(NATIVE_PALETTE)
+    lda #192
+    jsr native_seed_span
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq :+
+    jsr stream_find_start
+:
+.endif
+    lda #1
+    sta f:NATIVE_READY
+    stz msu_data_busy
+@seeded:
     rts
 
 ; X=WRAM offset, Y=BW-RAM offset, A=count, transfer_wbank=WRAM bank bit.
@@ -168,4 +179,5 @@ native_receive_span:
     .a16
     stz msu_data_busy
     rts
+.include "stream_animation.inc"
 .endif

@@ -26,14 +26,25 @@ return function(C)
     if not changed and stable%8~=0 then return end
     for i=0,95 do
       local actual=word((32+i)*2,G)
-      if actual~=(expected[i] or 0) then
+      local expected_color=expected[i] or 0
+      if C.mode1_runtime and word(0x3ef0c,emu.memType.snesSaveRam)~=0 then
+        local selector=emu.read(0x29400+i,emu.memType.snesSaveRam)
+        expected_color=selector==0 and 0 or (expected[selector-32] or 0)
+      end
+      if actual~=expected_color then
         local f=io.open(C.out..'/result.txt','w')
-        f:write(string.format('CGRAM mismatch time=%d index=%d actual=%d expected=%d\nFAIL\n',time,i,actual,expected[i] or 0));f:close()
+        f:write(string.format('CGRAM mismatch time=%d index=%d actual=%d expected=%d\nFAIL\n',time,i,actual,expected_color));f:close()
         local d=io.open(C.out..'/palette-failure.txt','w')
         d:write(string.format('time=%d index=%d cgram=%d staging=%d dirty=%d\n',time,i,actual,word(0x1fa20+i*2,W),word(0x1fa04,W)))
         for _,e in ipairs({{'rows',0x1fcde},{'span',0x1fce0},{'slots',0x1fce2},{'limit',0x1fce4}})do d:write(e[1]..'='..word(e[2],emu.memType.snesSaveRam)..'\n')end
         for _,name in ipairs({'animation_time','animation_kind','animation_header','animation_value','animation_index','chart_time','pattern_vblank_overruns','vblank_first_time','vblank_first_state','vblank_first_music','vblank_first_queue'})do
           if C.addr[name] then d:write(name..'='..word(C.addr[name],W)..'\n')end
+        end
+        d:write('native='..word(0x2a000+i*2,emu.memType.snesSaveRam)..' native_dirty='..word(0x2b20e,emu.memType.snesSaveRam)..' target='..word(0x2b214,emu.memType.snesSaveRam)..' render='..word(0x1fca4,emu.memType.snesSaveRam)..' cursor='..word(0x05a2,W)..'\n')
+        if C.mode1_runtime and word(0x3ef0c,emu.memType.snesSaveRam)~=0 then
+          local S=emu.memType.snesSaveRam
+          local selector=emu.read(0x29400+i,S)
+          d:write('selector='..selector..' native='..word(0x2a000+(selector-32)*2,S)..' remapped='..word(0x29e80+i*2,S)..' ready='..word(0x3ef22,S)..'\n')
         end
         d:close()
         emu.stop(1);return

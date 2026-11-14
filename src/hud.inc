@@ -4,8 +4,6 @@ draw_hud:
     jne @refresh
     cmp hud_state
     jne @refresh
-    lda meter_dirty
-    jne @refresh
     lda step
     jeq @refresh
     cmp hud_last_step
@@ -46,23 +44,36 @@ draw_hud:
     lda last_error
     cmp hud_last_error
     jne @refresh
+    lda meter_dirty
+    bne @meter_only
     lda meter_count
     beq @unchanged
 .ifdef SA1_BUILD
     lda tick
     sec
     sbc meter_next_tick
-    bpl @refresh
+    bpl @meter_only
 .else
     lda tick
     .repeat 4
     lsr a
     .endrepeat
     cmp hud_last_timer
-    bne @refresh
+    bne @meter_only
 .endif
 @unchanged:
     rts
+@meter_only:
+    ; All displayed counters/feedback above are unchanged. Refresh the
+    ; meter at exactly its scheduled fade tick without formatting them again.
+    lda #1
+    sta hud_dirty
+    lda tick
+    .repeat 4
+    lsr a
+    .endrepeat
+    sta hud_last_timer
+    jmp draw_hit_meter
 @refresh:
     lda #1
     sta hud_dirty

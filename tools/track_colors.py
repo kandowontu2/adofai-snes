@@ -104,7 +104,9 @@ def sequences(data,chart):
             current[i].update({k:a[k] for k in FIELDS if k in a and a[k] is not None})
             if 'trackColorType' in a:origins[i]=begin
             commands[i].append((frame,duration,ease,state(current[i],i,origins[i])))
-    return [tuple([initial[i]]+commands[i]) for i in range(count)]
+    return [((0,0,'Linear',state(dict(trackColor=n['math_tint'],disableGlow=True),i,0)),)
+            if 'math_tint' in n else tuple([initial[i]]+commands[i])
+            for i,n in enumerate(chart['notes'])]
 
 def evaluate(sequence,frame):
     at,duration,ease,target=sequence[0];start=color(target,0)
@@ -120,6 +122,11 @@ def evaluate(sequence,frame):
     return sample(frame),target[5]
 
 def palette_words(value,style,glow=0):
+    if style=='Gems':
+        from track_geometry import STYLE
+        colors=[tuple(a*b for a,b in zip(value,STYLE[key])) for key in ('gem_platform_dark','gem_platform_light')]
+        return [sum(max(0,min(31,round(v*depth*31)))<<shift for v,shift in zip(c,(0,5,10)))
+                for depth in (1.,.68,.4) for c in colors]
     # Opaque black interiors are essential to Neon; index zero is transparent.
     fill=(.025,.025,.035) if style=='Neon' else tuple(v*(.65 if style=='NeonLight' else .48) for v in value)
     edge=tuple(min(1,v*.8+.2) for v in value) if style!='Neon' else value

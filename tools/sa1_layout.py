@@ -25,6 +25,7 @@ PRIVATE_NAMES = (
     'M7_ROW_CODE_VALID',
     'NATIVE_SOURCE_PAGE',
     'NATIVE_ROW_TAIL','NATIVE_ROW_BASE','NATIVE_ROW_UNDO',
+    'M7_BULK_ROWS',
 )
 PRIVATE_BASE=HOT_BASE+2*len(HOT_NAMES)
 
@@ -35,13 +36,25 @@ def worker_config():
  HOTROM: start=$E000,size=$1000,type=ro,file=%O,fill=yes;
  HOTRAM: start=$0500,size=$0200,type=rw;
  CACHEIRAM: start=$0500,size=$0200,type=rw;
+ FIXEDIRAM: start=$0500,size=$0180,type=rw;
+ MODE1IRAM: start=$0500,size=$0200,type=rw;
+ PROJECTEDIRAM: start=$0500,size=$0200,type=rw;
+ SNAPSHOTIRAM: start=$0500,size=$0200,type=rw;
+ COPYIRAM: start=$0100,size=$0400,type=rw;
  ROWIRAM: start=$0680,size=$0080,type=rw;
+ COMPAREIRAM: start=$0680,size=$0080,type=rw;
 }
 SEGMENTS {
  CODE: load=ROM,type=ro;
  HOTOBJECTS: load=HOTROM,run=HOTRAM,type=ro,define=yes,optional=yes;
  HOTCACHE: load=HOTROM,run=CACHEIRAM,type=ro,define=yes,optional=yes;
+ HOTFIXED: load=HOTROM,run=FIXEDIRAM,type=ro,define=yes,optional=yes;
+ HOTMODE1: load=HOTROM,run=MODE1IRAM,type=ro,define=yes,optional=yes;
+ HOTPROJECTED: load=HOTROM,run=PROJECTEDIRAM,type=ro,define=yes,optional=yes;
+ HOTSNAPSHOT: load=HOTROM,run=SNAPSHOTIRAM,type=ro,define=yes,optional=yes;
+ HOTCOPIES: load=HOTROM,run=COPYIRAM,type=ro,define=yes,optional=yes;
  HOTROWS: load=HOTROM,run=ROWIRAM,type=ro,define=yes,optional=yes;
+ HOTCOMPARE: load=HOTROM,run=COMPAREIRAM,type=ro,define=yes,optional=yes;
 }
 '''
 

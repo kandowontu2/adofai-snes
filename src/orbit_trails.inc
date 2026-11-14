@@ -42,6 +42,19 @@ draw_trails:
     and #1
     eor #1
     sta trail_orb
+.ifdef NEO_BUILD
+    ldx step
+    lda f:NOTE_CCW,x
+    bit #2
+    beq @trail_color_ready
+    lda neo_orb_roles
+    lsr a
+    lsr a
+    lsr a
+    and #3
+    sta trail_orb
+@trail_color_ready:
+.endif
     stz trail_age
     lda OAM+17
     and #255

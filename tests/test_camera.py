@@ -28,6 +28,37 @@ class Camera(unittest.TestCase):
         rows=follow_schedule(c,{50:{1:(216,0)}})
         x,y=next((x+128,y+104) for f,x,y in reversed(rows) if f<=50)
         self.assertEqual((x,y),(132,0))
+        before_release=next(x for f,x,y in reversed(rows) if f<100)
+        on_release=next(x for f,x,y in reversed(rows) if f<=100)
+        self.assertGreaterEqual(on_release,before_release)
+        self.assertLessEqual(on_release-before_release,2)
+
+    def test_native_adjacent_camera_tweens_share_rounded_endpoint(self):
+        from track_camera import position_schedule
+        c=dict(notes=[dict(x=0,y=0,time=0,frame=0,speed=1),
+                      dict(x=0,y=0,time=10.6/FPS,frame=11,speed=1),
+                      dict(x=0,y=0,time=15.4/FPS,frame=15,speed=1)])
+        d=dict(bpm=60,native_camera_effects=[
+            dict(floor=1,positionUsed=True,movementTypeUsed=True,movementType=0,
+                 targetPos=dict(x=1.5,y=0),duration=4.8/FPS,ease=1),
+            dict(floor=2,positionUsed=True,movementTypeUsed=True,movementType=0,
+                 targetPos=dict(x=1.5,y=0),duration=1,ease=1)])
+        rows=position_schedule(d,c,{},[(0,-128,-104)])
+        value=lambda frame:next(x+128 for f,x,y in reversed(rows) if f<=frame)
+        self.assertEqual([value(f) for f in range(11,16)],[0,6,12,18,24])
+
+    def test_native_hold_offset_is_inside_landing_tween(self):
+        from track_camera import follow_schedule
+        c=dict(bpm=60,native_follow_timing=True,notes=[
+            dict(x=0,y=0,frame=0,speed=1,hold_length=0,exit_angle=0),
+            dict(x=72,y=0,frame=round(2*FPS),speed=1)])
+        rows=follow_schedule(c,{})
+        value=lambda frame:next(x+128 for f,x,y in reversed(rows) if f<=frame)
+        # Halfway through the hold, its 24-pixel offset is itself halfway
+        # through the camera's two-beat interpolation: about 12, not 24.
+        self.assertAlmostEqual(value(round(FPS)),12,delta=1)
+        release=c['notes'][1]['frame']
+        self.assertLessEqual(abs(value(release)-value(release-1)),1)
 
     def test_initial_zoom_and_duration_endpoint(self):
         d,c=self.fixture();d['camera_initial']=2

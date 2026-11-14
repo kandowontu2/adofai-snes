@@ -23,7 +23,11 @@ def depth_schedule(chart,initial,changes,motion=None,camera_data=None):
     raster_camera=camera
     if chart.get('reuse_motion_phase'):
         from raster_phase import schedule,camera as shift_camera
-        chart['raster_origin_versions']=schedule(motion)
+        phase_context=(dict(chart=chart,initial=initial,changes=changes,cameras=camera)
+                       if chart.get('id') in (67,69,72,74) else {})
+        chart['raster_origin_versions']=schedule(motion,chart.get('motion_phase_min_group',32),**phase_context)
+        bias=chart.get('raster_origin_bias',(0,0))
+        chart['raster_origin_versions']=[[f,x+bias[0],y+bias[1]] for f,x,y in chart['raster_origin_versions']]
         raster_camera=shift_camera(camera,chart['raster_origin_versions'])
         chart['camera_follow_versions']=raster_camera
     rotations={f:(c,s) for f,c,s in chart.get('camera_world_sampling_versions',chart.get('camera_sampling_versions',chart.get('camera_rotation_versions',[])))}

@@ -5,7 +5,13 @@ from make_assets import FPS
 
 
 def chapter_time(chart, beat):
-    """Mawaru's scripted beat clock starts with the first musical floor."""
+    """Chapter beat clocks include their authored BPM changes."""
+    if chart['code'] in ('T4-X','T4EX-X'):
+        bpms=[(0,150),(96,75),(104,150),(120,75),(122,150),
+              (238,112.5),(250,56.25),(252,112.5),(255,225),
+              (313,112.5),(317,225),(381,112.5)]
+        return chart['notes'][1]['time']+sum(max(0,min(beat,bpms[j+1][0] if j+1<len(bpms) else beat)-start)*60/bpm
+                                            for j,(start,bpm) in enumerate(bpms))
     bpms=[(0,170),(41,140),(117,155),(213,170),(341,185),(505,160),
           (569,200),(721,215)]
     if chart['code']=='T3EX-X':bpms += [(787,107.5),(788,215)]
@@ -18,6 +24,54 @@ def configure(data, chart):
     notes=chart['notes']
     chart['neo_opacity_events']=[]
     chart['neo_motion_events']=[]
+    if data['code'] in ('T3-X','T3EX-X','T4-X','T4EX-X'):
+        for i,c in enumerate(data.get('native_track_colors',[])):
+            if c['style']==4:notes[i]['gem_platform']=True
+    if data['code'] in ('T2-X','T2EX-X'):
+        # Keep gameplay geometry; omit the expensive decorative room texture
+        # and EX notefield backboards that obscure the route on the SNES.
+        chart['singsing_backgrounds_disabled']=True
+        chart['singsing_note_cues']=data['code']=='T2EX-X'
+        chart['singsing_connectors']=[i for i in range(58 if data['code']=='T2-X' else 82,
+                                                       148 if data['code']=='T2-X' else 194)
+                                      if notes[i].get('spin_kind')=='midspin']
+    if data['code']=='T2-X':
+        # The chapter's shared cubicle is visible during the approach. Its
+        # hot/cold route changes at CubicleTransition, independently of the
+        # underlying rhythm floors' brief on-hit flashes.
+        chart['singsing_route_window']=[notes[1]['time']+b*60/data['bpm'] for b in (28,84)]
+        when=chart['singsing_route_window'][0]
+        chart['neo_opacity_events'] += [dict(floor=i,time=when,duration=0,opacity=1)
+                                       for i in range(58,148)
+                                       if notes[i].get('spin_kind')!='midspin']
+        chart['singsing_route_events']=[]
+        for k,beat in enumerate((28,44,56,62,68,74,84)):
+            active=() if beat==84 else ((60,66) if k%2==0 else (84,90))
+            chart['singsing_route_events'] += [dict(floor=i,time=notes[1]['time']+beat*60/data['bpm'],
+                                                   duration=0,opacity=int(i in active))
+                                             for i in chart['singsing_connectors']]
+    if data['code'] in ('T4-X','T4EX-X') and len(notes)>52:
+        # ThirdSun.Bounce47, scheduled at beat 26. The EX rhythm copies
+        # share each bounce; the two elevated midspins remain stationary.
+        groups=(((47,49),28),((50,52),29)) if data['code']=='T4EX-X' else (((47,),28),((48,),29))
+        beat=60/data['bpm'];origin=notes[1]['time'];height=1/data['native_tile_size']
+        for ids,start in groups:
+            for i in ids:
+                chart['neo_motion_events'] += [
+                    dict(floor=i,time=origin+start*beat,duration=.5*beat,offset=[0,height],ease='OutCubic'),
+                    dict(floor=i,time=origin+(start+.5)*beat,duration=.5*beat,offset=[0,0],ease='InCubic')]
+        # ThirdSun.Bounce335 is a second, independent chapter coroutine.
+        # Relative moves are in the scene's XY axes, not each tile's angle.
+        groups=((379,381),(382,384),(385,387)) if data['code']=='T4EX-X' else ((335,),(336,),(337,))
+        if len(notes)>max(groups[-1]):
+            for j,(ids,offset) in enumerate(zip(groups,((.25,.433),(.5,0),(.25,-.433)))):
+                start=170+j*1.332
+                for i in ids:
+                    chart['neo_motion_events'] += [
+                        dict(floor=i,time=chapter_time(chart,start),duration=.666*beat,
+                             offset=[v/data['native_tile_size'] for v in offset],ease='OutCubic'),
+                        dict(floor=i,time=chapter_time(chart,start+.666),duration=.666*beat,
+                             offset=[0,0],ease='InCubic')]
     if data['code'] in ('T3-X','T3EX-X'):
         from neo_warps import compile_math
         compile_math(data,chart)
@@ -78,16 +132,18 @@ def configure(data, chart):
     sections={'T3-X':((370,50,3.),(754,9,2.2)),
               'T3EX-X':((484,74,3.),(951,13,2.2))}.get(data['code'],())
     chart['neo_meteors']=[]
-    for first,count,approach in sections:
+    for section,(first,count,approach) in enumerate(sections):
+        setup=round(chapter_time(chart,489 if section==0 else 962)*FPS)
         for k in range(count):
             i=first+2*k;n=notes[i];center=notes[i+1]
             dx=n['x']-center['x'];dy=n['y']-center['y'];radius=math.hypot(dx,dy)
-            duration=round(approach*FPS)
+            start=max(setup,n['frame']-round(approach*FPS))
+            duration=max(1,n['frame']-start)
             # Original spawn distance is 13 Unity units (85% after first).
             # Defense floors use a larger native radius. Match the cartridge's
             # 24-pixel orbit so the visible projectile meets the moving planet.
             distance=13*24/data['native_tile_size']*(1 if not k else .85)*24/radius
-            chart['neo_meteors'].append(dict(start=n['frame']-duration,end=n['frame'],judge=i+1,
+            chart['neo_meteors'].append(dict(start=start,end=n['frame'],judge=i+1,
                 dx=round(dx/radius*24),dy=round(dy/radius*24),
                 vx=round(dx/radius*(distance-24)*256/duration),
                 vy=round(dy/radius*(distance-24)*256/duration)))

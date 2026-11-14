@@ -22,6 +22,22 @@
 :
 .endmacro
 .include "addresses.inc"
+.macro start_dma channel
+.ifdef NEO_BUILD
+.if channel = 1
+    lda DMA_COMMANDS
+.elseif channel = 16
+    lda DMA_COMMANDS+2
+.elseif channel = 32
+    lda DMA_COMMANDS+4
+.else
+    .error "Unsupported DMA command slot"
+.endif
+.else
+    lda #$C000|channel
+.endif
+    sta $420B
+.endmacro
 .macro data_read8
 .ifdef ROM_DATA_BUILD
     lda [rom_data_ptr]
@@ -53,6 +69,7 @@ M7_SHARED_BASE=$410000
 M7_SHARED_BASE=$7F0000
 .endif
 OAM=$0200
+DMA_COMMANDS=$0778
 .ifdef MSU_BUILD
 BEST_SCORES=$7FDC00
 .else
@@ -128,7 +145,11 @@ FLOOR_ALPHA=$7FE000
 PATTERN_CURRENT=M7_SHARED_BASE+$F800
 PATTERN_NEXT=$7F8800
 .ifdef MSU_BUILD
+.ifdef SA1_BUILD
+PATTERN_QUEUE=$416E00
+.else
 PATTERN_QUEUE=$417C00
+.endif
 .else
 PATTERN_QUEUE=$7EF000
 .endif
@@ -341,11 +362,151 @@ ROM_SOURCE_PAGE=$416C84
 M7_MAP_PREPARED=$416C86
 M7_FORCE_SKIP_HUD=$416C88
 M7_CACHE_CODE_VALID=$416C8A
+M7_BULK_ROWS=$416C98
 M7_ROW_CODE_VALID=$416C8C
 NATIVE_SOURCE_PAGE=$416C8E
 NATIVE_ROW_TAIL=$416C92
 NATIVE_ROW_BASE=$416C94
 NATIVE_ROW_UNDO=$416C96
+; Stream jobs own this arena only in non-resident Neo charts. AR-X's
+; resident row-undo and bitmap prefetch arenas are inactive for those jobs.
+STREAM_CONFIG=$43EF00
+STREAM_ENABLED=STREAM_CONFIG
+STREAM_COUNT=STREAM_CONFIG+2
+STREAM_TABLE=STREAM_CONFIG+4
+STREAM_MSU=STREAM_CONFIG+8
+STREAM_MODE1=STREAM_CONFIG+12
+M1_ICON_INFO=$422000
+M1_ICON_ATTACK=$43EF28
+M1_ICON_CHECKPOINT=$43EF2A
+EARLY_DMA_ENABLE=$43EF2C
+EARLY_IRQ_RUNNING=$43EF2E
+M1_SNAPSHOT_BYTES=$43EF30
+M1_SNAPSHOT_DIRTY=$43EF32
+M1_SNAPSHOT_PENDING=$43EF34
+M1_SNAPSHOT_OFFSET=$43EF36
+M1_CGRAM_BEGIN=$43EF3A
+M1_CGRAM_BYTES=$43EF3C
+EARLY_DMA_WARMUP=$43EF3E
+M1_FRONT_BANK=$43EF80
+M1_BUILD_BANK=$43EF82
+M1_PREFETCH_BYTES=$43EF84
+CLONE_COUNT=$43EF86
+CLONE_PARAMS=$43EF88 ; four (cos,sin,shift-x,shift-y,arc-phase) Q8/Q4 transforms
+CLONE_INPUT_BYTES=$43EFB0
+CLONE_OUTPUT_BYTES=$43EFB2
+M1_PREFETCH_READY=$43EFB4
+CLONE_INPUT=$429620
+CLONE_OUTPUT=$429840
+CLONE_TEMP=$429A80
+CLONE_LINES=$429B00
+.assert CLONE_INPUT >= M1_PATTERN_RUNS+4, error, "Copy job overlaps the snapshot DMA descriptor"
+.assert CLONE_LINES+448 <= $429E00, error, "Copy job overlaps snapshot palette state"
+M1_BINDINGS=$422000
+M1_PENDING_GLYPHS=$424000
+M1_MAP_STAGE=$428000
+M1_DIRTY=$429000
+M1_PALETTE=$429400
+M1_MAP_RUNS=$429480
+M1_PATTERN_RUNS=$429600
+M1_ROW_MIN=$429E00
+M1_ROW_MAX=$429E40
+M1_CGRAM=$429E80
+M1_CHR_STAGE=$430000
+M1_RUN_COUNT=$43EF20
+M1_READY=$43EF22
+M1_SEED_CURSOR=$43EF24
+M1_SEED_SYMBOL_BYTES=$43EF26
+M1_DIRTY_BLOCKS=$43EF40
+M1_GLYPH_COUNT=STREAM_CONFIG+30
+; Inline Mode 7 descriptors use bit 15 instead of a Mode 1 glyph count.
+STREAM_DELTA_FLAGS=STREAM_CONFIG+30
+M1_SEEDS_LO=STREAM_CONFIG+14
+M1_SEEDS_HI=STREAM_CONFIG+18
+STREAM_DECODING=STREAM_CONFIG+16
+STREAM_PATTERNS=STREAM_CONFIG+20
+STREAM_ROWS=STREAM_CONFIG+24
+STREAM_PAGE=STREAM_CONFIG+28
+; Inline Mode 7 pixels must not overlap the raw-pattern lookup at
+; $422000..$429FFF. Mode 1's glyph arena is inactive for these jobs.
+STREAM_DELTA_BASE=$42B300
+STREAM_DELTA_SPAN=$42B500
+STREAM_DELTA_BUDGET=$42B700
+STREAM_SHADOW_TAG=$42B800
+STREAM_DELTA_TARGET=$42BA00
+STREAM_UPLOAD_SPAN=$42BC00
+; Reuse the abandoned delta-shadow scratch; these do not alias live tags.
+STREAM_SPILL_CELLS_COUNT=$42B800
+STREAM_SPILL_PALETTE=$42B802
+STREAM_SPILL_CELLS=$42B820
+; Retain the fast object snapshot after the packet arena becomes row undo.
+STREAM_SPILL_SNAPSHOT=$42BE00
+STREAM_SPILL_CHR_BYTES=$42BC00
+STREAM_SPILL_BUFFER_ID=$42BC02
+STREAM_SPILL_VRAM_ID=$42BC04
+STREAM_SPILL_LINES=$42BC06
+STREAM_SPILL_NEG_COUNT=$42BC26
+STREAM_SPILL_NEGATIVE=$42BC28
+STREAM_SPILL_FAST_PTR=$42BC68
+STREAM_SPILL_DIRECT=$42BC6A
+STREAM_PATTERN_DIRECT=$42BC6C
+STREAM_OAM_DIRECT=$42BC6E
+STREAM_ROUTE_BEGIN=$42BC70
+STREAM_ROUTE_END=$42BC72
+STREAM_ROUTE_DEST=$42BC74
+STREAM_ROUTE_INDEX=$42BC76
+STREAM_ROUTE_LEFT=$42BC78
+STREAM_SPILL_BASE_ID=$42BC7A
+STREAM_SPILL_DELTA_START=$42BC7C
+STREAM_SPILL_DELTA_BYTES=$42BC7E
+STREAM_SPILL_EXACT=$42BC80
+STREAM_SPILL_STRIDE=$42BC8C
+.assert STREAM_SPILL_NEGATIVE+64 <= STREAM_SPILL_FAST_PTR, error, "Spill metadata overlaps fast pointer"
+.assert STREAM_DELTA_TARGET+512 <= STREAM_SPILL_SNAPSHOT, error, "Spill snapshot overlaps live pattern tags"
+.assert STREAM_SPILL_DELTA_BYTES+2 <= STREAM_SPILL_SNAPSHOT, error, "Spill snapshot overlaps live metadata"
+.assert STREAM_SPILL_SNAPSHOT+512 <= $42C000, error, "Spill snapshot overlaps packet/rollback arena"
+.assert STREAM_OAM_DIRECT+2 <= STREAM_ROUTE_BEGIN, error, "Transport overlaps spill flags"
+.assert STREAM_ROUTE_LEFT+2 <= $42C000, error, "Transport overlaps animation packet"
+.assert STREAM_SPILL_DELTA_BYTES+2 <= $42C000, error, "Sprite delta state overlaps animation packet"
+.assert STREAM_SPILL_CELLS+80*6 <= STREAM_DELTA_TARGET, error, "Stream OBJ cells overlap delta tags"
+.assert STREAM_SPILL_CELLS+120*4 <= STREAM_DELTA_TARGET, error, "Compact OBJ cells overlap delta tags"
+
+STREAM_CHR=$430000
+.assert STREAM_CHR >= M7_RAW_TO_PPU+$8000, error, "Inline textures overlap raw pattern lookup"
+.assert STREAM_CHR+256*64 <= M7_PATTERN_STAGE, error, "Inline textures overlap staged PPU textures"
+STREAM_BUFFER=$42C000
+.assert STREAM_DELTA_BASE+512 <= STREAM_DELTA_SPAN, error, "Delta tags overlap spans"
+.assert STREAM_DELTA_SPAN+512 <= STREAM_DELTA_BUDGET, error, "Delta spans overlap budget"
+.assert STREAM_DELTA_BUDGET+2 <= STREAM_SHADOW_TAG, error, "Delta budget overlaps shadow tags"
+.assert STREAM_SHADOW_TAG+512 <= STREAM_DELTA_TARGET, error, "Delta tags overlap target tags"
+.assert STREAM_DELTA_TARGET+512 <= STREAM_UPLOAD_SPAN, error, "Delta targets overlap upload spans"
+.assert STREAM_UPLOAD_SPAN+512 <= STREAM_BUFFER, error, "Delta metadata overlaps packets"
+.ifdef SA1_BUILD
+.assert PATTERN_QUEUE+128*16 <= M7_FUTURE_DEADLINES, error, "Pattern queue overlaps future deadlines"
+.endif
+stream_cursor=$05A2
+stream_lo=$05A4
+stream_hi=$05A6
+stream_mid=$05A8
+stream_length=$05AA
+stream_offset=$05AC
+stream_skip=$05B0
+stream_choices=$05B2
+stream_more=$05D2
+stream_remaining=$05D4
+stream_destination=$05D6
+stream_copy_length=$05D8
+stream_hud_pending=$05DA
+stream_prefetch_valid=$05DC
+stream_prefetch_cursor=$05DE
+stream_prefetch_choices=$05E0
+STREAM_PREFETCH_OFFSET=$42BC80
+STREAM_PREFETCH_LENGTH=$42BC84
+STREAM_PREFETCH_BYTES=$42BC86
+STREAM_SPILL_SEED_MASK=$42BC88
+STREAM_SPILL_PALETTE_DIRTY=$42BC8A
+.assert stream_prefetch_choices+32 <= $0600, error, "Stream prefetch choices exceed reserved WRAM"
+.assert STREAM_SPILL_SEED_MASK+2 <= $42C000, error, "Stream prefetch state overlaps animation packet"
 NATIVE_STAGE_UNDO=$42C000
 NATIVE_PALETTE=$42A000
 NATIVE_ALPHA=$42A100
@@ -599,6 +760,7 @@ orb_palette: .res 64
 ; WRAM scratch gap between the HDMA tables and event/OAM budget buffer.
 ; SA-1's similarly named $0580 is in its separate internal RAM.
 third_palette=$0580
+neo_orb_roles=third_palette+32
 .endif
 last_judgment: .res 2
 judge_signed: .res 2
@@ -866,6 +1028,10 @@ m7_old_height: .res 2
 .segment "BSS"
 checkpoint_click_next: .res 2
 checkpoint_clicks_left: .res 2
+neo_curve_cache_step: .res 2
+neo_curve_cache_level: .res 2
+neo_curve_cache_record: .res 2
+sprite_limit: .res 2
 
 .segment "CODE"
 .a16
@@ -1142,6 +1308,9 @@ sa1_fast_main:
     sta $2100
     rep #$20
     .a16
+.ifdef NEO_BUILD
+    cli
+.endif
 main:
 .ifdef MSU_BUILD
     jsr audio_pump
@@ -1219,10 +1388,17 @@ main:
 @draw:
     lda #2
     sta profile_phase
+.ifdef SA1_MODE1_BUILD
+    jsr mode1_hud_before
+.else
     jsr draw_hud
+.endif
     lda #3
     sta profile_phase
     jsr render
+.ifdef SA1_MODE1_BUILD
+    jsr mode1_hud_after
+.endif
     lda state
     cmp #1
     bne @publish
@@ -1237,7 +1413,7 @@ main:
     lda f:M7_CACHE_ABORT
     jne main
 .ifdef SA1_BUILD
-    jsr spill_draw
+    jsr spill_reserve_symbols
     lda step
     pha
     lda m7_visual_step
@@ -1245,8 +1421,14 @@ main:
     jsr render_symbols
     pla
     sta step
+.ifdef NEO_BUILD
+    jsl neo_camera_copies
+.endif
 .endif
 @publish_ready:
+.endif
+.ifdef SA1_FASTROM_HELPERS
+    jsl stream_prefetch_next
 .endif
     lda #1
     sta frame_ready
@@ -1303,6 +1485,9 @@ upload_wram:
     rts
 
 load_selected_level:
+.ifdef NEO_BUILD
+    jsl early_dma_suspend
+.endif
 .ifdef ROM_PATTERN_PAGED
     ; Chart/map data for other levels can occupy C0. The resident worker
     ; is idle here, so restore the standard mapping before touching it.
@@ -1313,6 +1498,55 @@ load_selected_level:
     .a16
     lda #1
     sta f:SA1_ROM_CURRENT
+.endif
+.ifdef SA1_STREAM_BUILD
+    lda selected_level
+    .repeat 5
+    asl a
+    .endrepeat
+    tay
+    ldx #0
+@stream_descriptor:
+    phx
+    tyx
+    lda f:STREAM_DESCRIPTORS_ADDR,x
+    plx
+    sta f:STREAM_CONFIG,x
+    inx
+    inx
+    iny
+    iny
+    cpx #32
+    bcc @stream_descriptor
+.ifdef STREAM_FALLBACK_DESCRIPTORS_ADDR
+    lda f:STREAM_MODE1
+    cmp #1
+    bne @stream_loaded
+    lda speed_tenths
+    cmp #11
+    bcc @stream_loaded
+    lda selected_level
+    .repeat 5
+    asl a
+    .endrepeat
+    tay
+    ldx #0
+@stream_fallback:
+    phx
+    tyx
+    lda f:STREAM_FALLBACK_DESCRIPTORS_ADDR,x
+    plx
+    sta f:STREAM_CONFIG,x
+    inx
+    inx
+    iny
+    iny
+    cpx #32
+    bcc @stream_fallback
+@stream_loaded:
+.endif
+    lda #0
+    sta f:STREAM_DECODING
 .endif
     stz map_scan_valid
     jsr load_visibility
@@ -1359,7 +1593,11 @@ load_selected_level:
     sta transfer_len
     stz transfer_dest
 .ifdef MSU_BUILD
+.ifdef SA1_MODE1_BUILD
+    jsr mode1_load_initial_chr
+.else
     jsr mode7_upload_chr
+.endif
 .else
     jsr upload_vram
 .endif
@@ -1416,6 +1654,9 @@ load_selected_level:
 .ifdef MSU_BUILD
     jsr msu_load_song
     jsr load_patterns
+.ifdef SA1_MODE1_BUILD
+    jsr mode1_load_chart_ready
+.endif
 .endif
     jsr best_score_index
     lda BEST_SCORES,x
@@ -1605,12 +1846,16 @@ start_game:
 @sync:
     lda frame_ready
     bne @sync
+.ifdef NEO_BUILD
+    jsl early_dma_show_loaded
+.else
     sep #$20
     .a8
     lda #$0F
     sta $2100
     rep #$20
     .a16
+.endif
     lda tick
     sta last_tick
     lda #$81
@@ -1728,12 +1973,21 @@ hud8: .incbin "hud8.bin"
 .segment "CODE"
 .include "sa1.inc"
 .include "native_animation.inc"
+.include "mode1_cpu.inc"
 .include "mode7_spill.inc"
+.include "sprite_budget.inc"
+.ifdef NEO_BUILD
+.include "early_dma.inc"
+.endif
 .segment "SA1CODE"
 .incbin "sa1_worker.bin", 0, $7000
 .segment "SA1PAYLOAD"
 .ifdef NEO_BUILD
+.ifdef NEO_CODE_BYTES
+.incbin "sa1_payload.bin", NEO_CODE_BYTES
+.else
 .incbin "sa1_payload.bin", $2000
+.endif
 .else
 .incbin "sa1_payload.bin"
 .endif

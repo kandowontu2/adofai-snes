@@ -19,7 +19,7 @@ SA1_LOCAL_PEAK=$003708
 SA1_LOCAL_PCM=$00370A
 SA1_LOCAL_EVENTS=$00370C
 .ifdef SA1_WRAM_RENDERER
-.assert __FASTNMI_SIZE__ <= $600, lderror, "NMI overlaps polling WRAM"
+.assert __FASTNMI_RUN__+__FASTNMI_SIZE__ <= __FASTWRAM_RUN__, lderror, "NMI overlaps polling WRAM"
 .else
 .assert __FASTNMI_SIZE__ <= $600, lderror, "NMI overlaps SA-1 private temporaries"
 .endif
@@ -51,6 +51,21 @@ sa1_init:
     sta $222A
     rep #$20
     .a16
+.ifdef NEO_BUILD
+    lda #0
+    sta f:EARLY_DMA_ENABLE
+    sta f:EARLY_IRQ_RUNNING
+    sta f:EARLY_DMA_WARMUP
+    sta f:M1_SNAPSHOT_BYTES
+    sta f:M1_SNAPSHOT_DIRTY
+    sta f:M1_SNAPSHOT_PENDING
+    lda #$C001
+    sta DMA_COMMANDS
+    lda #$C010
+    sta DMA_COMMANDS+2
+    lda #$C020
+    sta DMA_COMMANDS+4
+.endif
     ; Copy the PPU and polling loops into their fixed RAM execution
     ; buffers before starting the independent cartridge worker.
     phb
@@ -72,6 +87,17 @@ sa1_init:
     sta f:SA1_PENDING
     sta f:SA1_ROM_REQUEST
     sta f:SA1_ROM_CURRENT
+.ifdef SA1_STREAM_BUILD
+    ; Menu NMIs run before a chart descriptor is loaded. Do not let
+    ; uninitialized cartridge RAM select a gameplay rendering backend.
+    ldx #0
+@stream_boot:
+    sta f:STREAM_CONFIG,x
+    inx
+    inx
+    cpx #128
+    bcc @stream_boot
+.endif
     ldx #0
 @clear:
     sta f:$410000,x
@@ -128,7 +154,19 @@ sa1_cache_prepare:
     jsr sa1_cache_begin
     jmp sa1_cache_finish
 
+.segment "FASTWRAM"
 sa1_cache_begin:
+.ifdef SA1_MODE1_BUILD
+    ; The decoder's C0 window is independent of the CPU's D0 Neo tables.
+    ; Select it before the asynchronous job so SA-1 can expand glyphs
+    ; while the CPU builds planets. The worker restores C0 before finishing.
+    lda f:STREAM_MODE1
+    beq :+
+    lda f:STREAM_PAGE
+    sta f:SA1_ROM_REQUEST
+    jsr sa1_service_rom_bank
+:
+.endif
     ; Only immutable job inputs cross CPUs. Scratch registers and cache
     ; temporaries belong to the worker; copying the whole 1 KiB BSS here
     ; costs more than a millisecond on every rendered frame.
@@ -215,6 +253,7 @@ sa1_cache_finish:
 .ifdef ROM_PATTERN_PAGED
 ; Only the C0 window changes. Low-bank code stays fixed, and the SNES's
 ; independent F0 audio/animation reader retains its own selected bank.
+.segment "FASTWRAM"
 sa1_service_rom_bank:
     lda f:SA1_ROM_REQUEST
     beq @done
@@ -249,6 +288,7 @@ sa1_service_rom_bank:
     sta f:SA1_ROM_CURRENT
 @done:
     rts
+.segment "CODE"
 .endif
 
 sa1_symbols:
@@ -285,8 +325,7 @@ sa1_symbols:
     sec
     sbc f:SYMBOL_DIRTY_BEGIN
     sta $4345
-    lda #$C010
-    sta $420B
+    start_dma 16
     lda f:SYMBOL_DIRTY_BEGIN
     clc
     adc #.loword(NOTE_Y)
@@ -305,8 +344,7 @@ sa1_symbols:
     sec
     sbc f:SYMBOL_DIRTY_BEGIN
     sta $4345
-    lda #$C010
-    sta $420B
+    start_dma 16
     stz msu_data_busy
     lda #0
     sta f:SYMBOL_COORDS_DIRTY
@@ -400,18 +438,9 @@ sa1_draw_arc:
     asl a
     sta trail_oam
     beq @done
-    ldy #0
-@oam:
-    tyx
-    lda f:TRAIL_JOB_OAM,x
-    ldx oam_pos
-    sta OAM,x
-    iny
-    iny
-    inc oam_pos
-    inc oam_pos
-    cpy trail_oam
-    bcc @oam
+    sta transfer_len
+    lda #.loword(TRAIL_JOB_OAM)
+    jsl sa1_copy_oam
 @done:
 sa1_arc_complete:
     rts
@@ -459,33 +488,8 @@ sa1_draw_spills:
     lda f:SPILL_OAM_BYTES
     beq @done
     sta transfer_len
-    lda #1
-    sta msu_data_busy
-    lda oam_pos
-    clc
-    adc #OAM
-    sta $2181
-    sep #$20
-    .a8
-    stz $2183
-    stz $4300
-    lda #$80
-    sta $4301
-    lda #^SPILL_OAM_OUT
-    sta $4304
-    rep #$20
-    .a16
     lda #.loword(SPILL_OAM_OUT)
-    sta $4302
-    lda transfer_len
-    sta $4305
-    lda #$C001
-    sta $420B
-    stz msu_data_busy
-    lda oam_pos
-    clc
-    adc transfer_len
-    sta oam_pos
+    jsl sa1_copy_oam
 @done:
 sa1_spill_complete:
     rts
@@ -562,8 +566,7 @@ sa1_stage_patterns:
     sta $4342
     lda #64
     sta $4345
-    lda #$C010
-    sta $420B
+    start_dma 16
 @next:
     txa
     clc
@@ -574,3 +577,37 @@ sa1_stage_patterns:
     stz msu_data_busy
 @done:
     rts
+
+.segment "CAMERA"
+; Both jobs return immutable bank-$43 OAM. One DMA replaces the per-word
+; CPU copy without changing ordering, sprite budgets or high-table bits.
+sa1_copy_oam:
+    pha
+    lda #1
+    sta msu_data_busy
+    pla
+    sta $4302
+    lda oam_pos
+    clc
+    adc #OAM
+    sta $2181
+    sep #$20
+    .a8
+    stz $2183
+    stz $4300
+    lda #$80
+    sta $4301
+    lda #$43
+    sta $4304
+    rep #$20
+    .a16
+    lda transfer_len
+    sta $4305
+    start_dma 1
+    stz msu_data_busy
+    lda oam_pos
+    clc
+    adc transfer_len
+    sta oam_pos
+    rtl
+.segment "CODE"

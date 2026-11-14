@@ -8,6 +8,8 @@ def main():
     ap=argparse.ArgumentParser();ap.add_argument('--out',type=Path,default=ROOT/'build/packs/sa1-master')
     ap.add_argument('--source',type=Path,default=ROOT/'build/packs/master')
     ap.add_argument('--no-pcm',action='store_true',help='Build ROM/data without regenerating unchanged PCM music')
+    ap.add_argument('--stream-levels',nargs='+',type=int,default=[],
+                    help='Compile canonical per-frame charts into SA-1 animation packets (requires a resident native master)')
     args=ap.parse_args()
     out=args.out.resolve();source=args.source.resolve();out.mkdir(parents=True,exist_ok=True)
     if not (out/'pack.json').exists():
@@ -16,12 +18,35 @@ def main():
             if p.suffix=='.pcm':os.link(p,out/p.name)
             else:shutil.copyfile(p,out/p.name)
     pack=json.loads((out/'pack.json').read_text());charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
+    if args.stream_levels:
+        assert set(args.stream_levels)<=set(pack['levels']), 'Stream chart is absent from this pack'
+        assert any(c.get('native_stream_format') for c in charts), 'Streaming requires the resident native master decoder'
+        from sa1_stream import prepare
+        for n in args.stream_levels:prepare(out,n)
+        charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
+        from msu_assets import generate
+        generate(out,charts,{c['id']:(out/f"level{c['id']}.brr").read_bytes() for c in charts},generate_pcm=not args.no_pcm)
     assets.OUT=out;blobs=assets.ui_assets(pack['title'],mode7=True)
     for c in charts:
         n=c['id']
-        for prefix in ('chart','track_chr','track_map'):blobs[f'{prefix}{n}']=(out/f'{prefix}{n}.bin').read_bytes()
+        for prefix in ('chart','track_chr','track_map'):
+            path=out/f'{prefix}{n}.bin';blob=path.read_bytes()
+            if prefix=='track_chr':
+                from track_packbits import decode,encode
+                raw=decode(blob);packed=encode(raw)
+                assert len(packed)<=len(blob) and decode(packed)==raw
+                blob=packed;path.write_bytes(blob)
+            blobs[f'{prefix}{n}']=blob
         if c.get('resident_pattern_format'):
             for prefix in ('resident_raw','resident_future'):blobs[f'{prefix}{n}']=(out/f'{prefix}{n}.bin').read_bytes()
+        if c.get('sa1_stream_format'):
+            from sa1_stream import rom_index
+            blobs[f'stream_index{n}']=rom_index((out/f'stream_index{n}.bin').read_bytes())
+            blobs[f'resident_stream{n}']=(out/f'resident_stream{n}.bin').read_bytes()
+            if c.get('fallback_stream_packets'):
+                for prefix in ('stream_index_fallback','resident_stream_fallback'):
+                    data=(out/f'{prefix}{n}.bin').read_bytes()
+                    blobs[f'{prefix}{n}']=rom_index(data) if prefix.startswith('stream_index') else data
         if c.get('native_stream_format'):blobs[f'resident_animation{n}']=(out/f'resident_animation{n}.bin').read_bytes()
         blobs[f'music{n}']=blobs[f'timeline{n}']=bytes(2)
         blobs[f'checkpoints{n}']=bytes(max(2,14*len(c['checkpoints'])))
@@ -72,6 +97,7 @@ def compile_engine(out, *, generate_pcm=True):
     if 'NEO_BUILD = 1' in addresses:
         from neo_runtime_assets import tables as neo_tables
         current+=neo_tables(out,menu_levels)
+        current+='\n.segment "NEOCODE"\nlevel_early_dma: .byte '+','.join(str(int(json.loads((out/f'level{n}.json').read_text()).get('early_vblank_trial',False))) for n in menu_levels)+'\n.segment "RODATA"\n'
     write_menu_count(out,menu_levels)
     assert re.search(r'^orb_colors:.*$',current,re.M), 'Missing planet color table'
     table_path.write_text(re.sub(r'^orb_colors:.*$',lambda _:colors,current,flags=re.M))
@@ -114,6 +140,14 @@ def compile_engine(out, *, generate_pcm=True):
             text=text.replace(' PAY: start=$810000,size=$7F0000',
                 ' NEOBANK: start=$028000,size=$2000,type=ro,file=%O,fill=yes;\n PAY: start=$812000,size=$7EE000')
             text=text.replace(' SA1PAYLOAD:', ' NEOCODE: load=NEOBANK,type=ro;\n SA1PAYLOAD:')
+        if 'SA1_MODE1_BUILD' in addresses:
+            text=text.replace('FASTIRAM: start=$000800,size=$0600','FASTIRAM: start=$000800,size=$0640')
+            text=text.replace('POLLWRAM: start=$000E00,size=$0A00','POLLWRAM: start=$000E40,size=$09C0')
+        if 'SA1_FASTROM_HELPERS = 1' in addresses:
+            text=text.replace('CAMERAEXT: start=$01F000','CAMERAEXT: start=$81F000').replace('NEOBANK: start=$028000','NEOBANK: start=$828000')
+        if 'NEO_CODE_BYTES = $3000' in addresses:
+            text=text.replace('size=$2000,type=ro,file=%O,fill=yes;\n PAY: start=$812000,size=$7EE000',
+                              'size=$3000,type=ro,file=%O,fill=yes;\n PAY: start=$813000,size=$7ED000')
         config.write_text(text)
     if not (out/'sa1_worker.bin').exists():(out/'sa1_worker.bin').write_bytes(bytes(32768))
     subprocess.run([sys.executable,str(ROOT/'build_campaign.py'),'--pack','master','--out',str(out),'--skip-assets'],cwd=ROOT,check=True)

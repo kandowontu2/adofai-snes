@@ -1,12 +1,45 @@
 -- Real-controller replay in a second, independent emulator core.
 local C = dofile(os.getenv('ADOFAI_TEST_CONFIG'))
+dofile(C.failfast_script)(C)
+if C.screen_script then dofile(C.screen_script)(C) end
 if C.palette_script then dofile(C.palette_script)(C) end
+if C.icons then dofile(C.icons.script)(C) end
 if C.arc then dofile(C.arc.script)(C) end
 if C.objects then dofile(C.objects.script)(C) end
+if C.copies then dofile(C.copies.script)(C) end
+if C.dma_script then dofile(C.dma_script)(C) end
+if C.input_script then dofile(C.input_script)(C) end
 if C.holds then dofile(C.holds.script)(C) end
 local W=emu.memType.snesWorkRam
 local function word(address) return emu.read(address,W)+emu.read(address+1,W)*256 end
 local frame=0
+local presentation={}
+local stalls=C.profile_ranges and io.open(C.out..'/manual-stalls.csv','w') or nil
+for _,range in ipairs(C.profile_ranges or {}) do
+  presentation[#presentation+1]={first=range[1],last=range[2],frames=0,delivered=0,gap=0,max_gap=0}
+end
+emu.addEventCallback(function()
+  for _,p in ipairs(presentation) do
+    local step=word(C.addr.step)
+    if word(C.addr.state)==1 and step>=p.first and step<=p.last then
+      p.frames=p.frames+1
+      if p.commit then p.gap=p.gap+1 end
+      local commit=word(C.addr.commits)
+      if p.commit and commit~=p.commit then
+        if p.gap>1 then stalls:write(word(C.addr.chart_time)..','..step..','..p.gap..'\n');stalls:flush() end
+        p.delivered=p.delivered+1;p.max_gap=math.max(p.max_gap,p.gap);p.gap=0
+      end
+      p.max_gap=math.max(p.max_gap,p.gap);p.commit=commit
+    end
+  end
+  if #presentation>0 and frame==C.frames-1 then
+    local f=io.open(C.out..'/manual-presentation.json','w');local rows={}
+    for _,p in ipairs(presentation) do
+      rows[#rows+1]=string.format('{"first":%d,"last":%d,"frames":%d,"delivered":%d,"max_gap":%d}',p.first,p.last,p.frames,p.delivered,p.max_gap)
+    end
+    f:write('['..table.concat(rows,',')..']');f:close()
+  end
+end,emu.eventType.endFrame)
 local lastStep=-1
 local hits={}
 local lastInput=-1
@@ -45,7 +78,7 @@ if pcProfile then
 end
 local function capture_ppu()
   local step=word(C.addr.step)
-  if C.graphics_dumps and word(C.addr.commits)%30==0 and word(C.addr.display_state)==1 then
+  if C.graphics_dumps and (word(C.addr.commits)%30==0 or (C.capture_times and C.capture_times[word(C.addr.display_chart_time)])) and word(C.addr.display_state)==1 then
     local S=emu.memType.snesSaveRam
     local V=emu.memType.snesVideoRam
     if C.addr.oam_pos then
@@ -67,6 +100,11 @@ local function capture_ppu()
     for a=0,65535 do bytes[#bytes+1]=string.char(emu.read(a,V)) end
     for a=0,511 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesCgRam)) end
     for a=0,543 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesSpriteRam)) end
+    if C.mode1_runtime and sw(0x3ef0c)~=0 then
+      bytes[#bytes+1]=string.char(sw(0x3ef0c))
+      for a=0x29400,0x2945f do bytes[#bytes+1]=string.char(emu.read(a,S)) end
+      for a=0x2a000,0x2a0bf do bytes[#bytes+1]=string.char(emu.read(a,S)) end
+    end
     local h=io.open(C.out..'/ppu-'..frame..'.bin','wb');h:write(table.concat(bytes));h:close()
   end
 end
@@ -196,6 +234,9 @@ emu.addEventCallback(function()
     f:write(stats)
     if C.palette_samples then f:write('palette_samples='..C.palette_samples..'\n') end
     if C.addr.pattern_vblank_overruns then f:write('vblank_overruns='..word(C.addr.pattern_vblank_overruns)..'\n') end
+    for _,name in ipairs({'vblank_first_time','vblank_first_state','vblank_first_music','vblank_first_queue'})do
+      if C.addr[name]then f:write(name..'='..word(C.addr[name])..'\n')end
+    end
     f:write(table.concat(hits,'\n'))
     f:write(good and '\nPASS\n' or '\nFAIL\n');f:close()
     emu.stop(good and 0 or 1)

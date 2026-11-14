@@ -1,6 +1,72 @@
 """Offline scheduling of the 1023 reusable PPU track-pattern slots."""
 import bisect,collections,heapq
 
+def palette_alias_table(palette,write_counts):
+    """Prefer colors whose CGRAM entries stay stable through the window."""
+    canonical={};table=list(range(256))
+    for index,value in sorted(palette.items(),key=lambda p:(write_counts.get(p[0],0),p[0])):
+        table[index]=canonical.setdefault(value,index)
+    return bytes(table)
+
+def share_palette_patterns(chart,tiles,history):
+    """Share identical CGRAM colors without changing a single displayed pixel.
+
+    A fill and an outline need not use the same material pair. In particular,
+    landed and upcoming floors often have identical outlines but distinct fills.
+    Re-evaluate on palette writes so later color changes cannot leak across floors.
+    """
+    events=collections.defaultdict(dict);writes=collections.defaultdict(dict)
+    for cell,rows in history.items():
+        for frame,value in rows:events[frame][cell]=value
+    for frame,index,value in chart['track_palette_versions']:
+        writes[frame][32+index]=value
+    # Color aliases are only needed at cache-pressure peaks. Keeping ordinary
+    # material indices elsewhere lets CGRAM fades run without rewriting CHR.
+    current={};windows=[];times=sorted(events);pressure=[]
+    for frame in times:
+        current.update(events[frame]);pressure.append(len(set(current.values())-{0}))
+    for j,frame in enumerate(times):
+        if pressure[j]>chart.get('palette_sharing_threshold',255):
+            # Switch representations while there is room to retain both old
+            # and new textures. Switching at an already-full atlas forces an
+            # atomic replacement larger than a single VBlank can upload.
+            left=j;right=j
+            while left>0 and pressure[left]>96:left-=1
+            while right+1<len(times) and pressure[right]>96:right+=1
+            start=times[left];end=times[right]+1
+            if windows and start<=windows[-1][1]:windows[-1][1]=max(end,windows[-1][1])
+            else:windows.append([start,end])
+    chart['palette_pattern_share_windows']=windows
+    # Choosing the lowest palette index made a fading material the alias
+    # for stationary floors. Every shade change then rewrote those floors'
+    # CHR too. A stable representative preserves the exact same RGB pixels.
+    ranks=[collections.Counter(index for f,updates in writes.items() if a<=f<b for index in updates if f!=a) for a,b in windows]
+    boundaries={f for pair in windows for f in pair};window=0
+    palette={};live={};previous={};result={};lookup={raw:i for i,raw in enumerate(tiles)}
+    translation=bytes(range(256));mapped={}
+    for frame in sorted(set(events)|set(writes)|boundaries):
+        if frame>=chart['notes'][-1]['frame']:break
+        palette.update(writes.get(frame,{}));live.update(events.get(frame,{}))
+        new=bytes(range(256))
+        while window<len(windows) and frame>=windows[window][1]:window+=1
+        if window<len(windows) and windows[window][0]<=frame:
+            new=palette_alias_table(palette,ranks[window])
+        if new!=translation:translation=new;mapped={}
+        current={}
+        for cell,p in live.items():
+            if not p:continue
+            if p not in mapped:
+                raw=tiles[p].translate(translation)
+                if raw not in lookup:lookup[raw]=len(tiles);tiles.append(raw)
+                mapped[p]=lookup[raw]
+            current[cell]=mapped[p]
+        for cell in previous.keys()|current.keys():
+            value=current.get(cell,0)
+            if value!=previous.get(cell,0):result.setdefault(cell,[]).append((frame,value))
+        previous=current
+    chart['palette_pattern_alias_version']=2
+    return result
+
 def cache_patterns(chart,tiles,history):
     # Rasterization can create intermediate textures outside the sampled
     # viewport. They need no global IDs or cartridge snapshot storage.
@@ -42,15 +108,39 @@ def cache_patterns(chart,tiles,history):
         versions[slot]=[(0,p)];initial[slot]=p
         pattern_intervals[p].append((0,65535,slot))
     pinned=set(pinned)
+    future_starts=collections.defaultdict(list)
+    if chart.get('optimal_pattern_cache'):
+        for start,end,p in intervals:future_starts[p].append(start)
+    def patch_span(old,new):
+        if old is None:return 64
+        a,b=tiles[old],tiles[new]
+        first=0
+        while first<64 and a[first]==b[first]:first+=1
+        last=64
+        while last>first and a[last-1]==b[last-1]:last-=1
+        return last-first
     for start,end,p in intervals:
         if p in pinned:continue
         slot=pattern_slot.get(p)
         if slot is not None and last_pattern.get(slot)==p and slot_end[slot]<start:
             previous=slot_end[slot]
         else:
-            while True:
-                previous,slot=heapq.heappop(slots)
-                if previous==slot_end[slot]:break
+            if future_starts:
+                # Retain bitmaps needed again soon. The old oldest-end
+                # allocator discarded those repeatedly during moving loops.
+                available=[s for s in range(first_slot,capacity) if slot_end[s]<start]
+                assert available,('Track pattern capacity',chart['code'],start)
+                def eviction(s):
+                    uses=future_starts.get(last_pattern.get(s),[])
+                    j=bisect.bisect_left(uses,start)
+                    return (uses[j] if j<len(uses) else 65536,
+                            -patch_span(last_pattern.get(s),p) if chart.get('delta_pattern_cache') else 0,
+                            -slot_end[s])
+                slot=max(available,key=eviction);previous=slot_end[slot]
+            else:
+                while True:
+                    previous,slot=heapq.heappop(slots)
+                    if previous==slot_end[slot]:break
         latency=chart.get('pattern_latency',24) if chart.get('mode7') and previous>=0 and last_pattern.get(slot)!=p else 0
         assert previous+latency<start,('Track pattern capacity',chart['code'],capacity,start)
         if last_pattern.get(slot)!=p:

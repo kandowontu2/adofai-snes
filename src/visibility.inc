@@ -222,9 +222,14 @@ floor_position:
 .ifdef ROM_NATIVE_ADDR
     lda f:NATIVE_READY
     beq @ordinary_position
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    bne @native_enabled
+.endif
     lda selected_level
     cmp #ROM_PATTERN_LEVEL
     bne @ordinary_position
+@native_enabled:
     lda state
     cmp #1
     beq @native_position

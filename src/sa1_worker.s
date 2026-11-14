@@ -4,11 +4,27 @@ SA1_WORKER=1
 .include "sa1_symbols.inc"
 .ifdef SA1_WRAM_RENDERER
 .import __HOTOBJECTS_LOAD__, __HOTOBJECTS_RUN__, __HOTOBJECTS_SIZE__
+.ifdef SA1_MODE1_BUILD
+.import __HOTMODE1_LOAD__, __HOTMODE1_RUN__, __HOTMODE1_SIZE__
+.import __HOTPROJECTED_LOAD__, __HOTPROJECTED_RUN__, __HOTPROJECTED_SIZE__
+.import __HOTSNAPSHOT_LOAD__, __HOTSNAPSHOT_RUN__, __HOTSNAPSHOT_SIZE__
+.import __HOTCOPIES_LOAD__, __HOTCOPIES_RUN__, __HOTCOPIES_SIZE__
+.assert __HOTMODE1_SIZE__ <= $200, lderror, "Mode 1 decoder exceeds its IRAM overlay"
+.assert __HOTPROJECTED_SIZE__ <= $200, lderror, "Projected scheduler exceeds its IRAM overlay"
+.assert __HOTSNAPSHOT_SIZE__ <= $200, lderror, "Snapshot decoder exceeds its IRAM overlay"
+.assert __HOTCOPIES_SIZE__ <= $380, lderror, "Live camera-copy kernel overlaps its exact parent cache"
+.endif
 .ifdef ROM_PATTERN_COUNT
 .import __HOTCACHE_LOAD__, __HOTCACHE_RUN__, __HOTCACHE_SIZE__
+.ifdef ROM_DIRECT_UNTIL
+.import __HOTFIXED_LOAD__, __HOTFIXED_RUN__, __HOTFIXED_SIZE__
+.assert __HOTFIXED_SIZE__ <= $180, lderror, "Fixed cache kernel overlaps row code"
+.endif
 .endif
 .ifdef ROM_PATTERN_NO_SPILL
 .import __HOTROWS_LOAD__, __HOTROWS_RUN__, __HOTROWS_SIZE__
+.import __HOTCOMPARE_LOAD__, __HOTCOMPARE_RUN__, __HOTCOMPARE_SIZE__
+.assert __HOTCOMPARE_SIZE__ <= $80, lderror, "Row comparison exceeds IRAM overlay"
 .assert __HOTROWS_SIZE__ <= $80, lderror, "Row kernel exceeds its IRAM overlay"
 .endif
 .assert __HOTOBJECTS_SIZE__ <= $200, lderror, "Essential OBJ kernel exceeds its IRAM overlay"
@@ -82,6 +98,24 @@ worker_irq:
     rep #$20
     .a16
     pla
+.ifdef SA1_MODE1_BUILD
+    cmp #11
+    bne :+
+    jsr worker_camera_copies
+    jmp @complete
+:
+.endif
+.ifdef SA1_STREAM_BUILD
+ .ifdef SA1_MODE1_BUILD
+    cmp #10
+    bne :+
+    jsr worker_mode1_seed
+    jmp @complete
+:
+ .endif
+    cmp #9
+    jeq @stream_animation
+.endif
 .ifdef ROM_NATIVE_ADDR
     cmp #8
     jeq @native_animation
@@ -98,21 +132,16 @@ worker_irq:
     beq @project
     cmp #3
     beq @commit
-.ifdef ROM_PATTERN_COUNT
-.ifdef ROM_DIRECT_UNTIL
-    lda selected_level
-    cmp #ROM_PATTERN_LEVEL
-    bne @prepare_cache_code
-    lda f:M7_RENDER_TIME
-    cmp #ROM_DIRECT_UNTIL
-    bcc :+
-@prepare_cache_code:
-.endif
-    jsr worker_cache_code
-.ifdef ROM_DIRECT_UNTIL
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    beq :+
+    jsr worker_mode1_prepare
+    jmp @complete
 :
 .endif
-.endif
+    ; The fixed-slot path does not execute the IRAM allocator. Load that
+    ; overlay only if prepare actually chooses the versioned allocator,
+    ; preserving the planet kernel between ordinary frames.
     jsr mode7_cache_prepare
     jsr worker_pattern_runs
     bra @complete
@@ -121,6 +150,13 @@ worker_irq:
     bra @complete
 @symbols:
     jsr worker_symbols
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    cmp #1
+    bne :+
+    jsr worker_mode1_icons
+:
+.endif
     bra @complete
 @sparse_cells:
     jsr worker_sparse_cells
@@ -137,6 +173,11 @@ worker_irq:
     bra @complete
 @native_animation:
     jsr worker_native_animation
+.endif
+.ifdef SA1_STREAM_BUILD
+    bra @complete
+@stream_animation:
+    jsr worker_stream_animation
 .endif
 @complete:
     lda f:$000788
@@ -188,10 +229,22 @@ mode7_pattern_destination:
 .include "mode7_cache.inc"
 .include "sa1_rows.inc"
 .include "sa1_animation.inc"
+.include "mode1_worker.inc"
+.ifdef SA1_MODE1_BUILD
+.include "snapshot_worker.inc"
+.include "projected_worker.inc"
+.endif
+.include "mode1_icons.inc"
 .include "sa1_arc.inc"
 .include "sa1_objects.inc"
 
 worker_emit_spills:
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq worker_emit_spills_ordinary
+    jmp worker_stream_spill_objects
+.endif
+worker_emit_spills_ordinary:
 .ifdef SA1_WRAM_RENDERER
     lda #0
     sta M7_CACHE_CODE_VALID
@@ -217,10 +270,13 @@ worker_emit_spills:
 @done:
     rts
 
+
+
 worker_cache_code:
 .if .defined(SA1_WRAM_RENDERER) .and .defined(ROM_PATTERN_COUNT)
     lda M7_CACHE_CODE_VALID
-    bne @ready
+    cmp #1
+    beq @ready
     phb
     lda #__HOTCACHE_SIZE__-1
     ldx #__HOTCACHE_LOAD__
@@ -230,6 +286,79 @@ worker_cache_code:
     lda #1
     sta M7_CACHE_CODE_VALID
 @ready:
+.endif
+    rts
+
+; A full visible map is cheaper to copy than compare when its worst-case
+; DMA plus all atomic textures fits the same conservative VBlank budget.
+; Compute the bound once, so the row loop can use exact byte copies safely.
+worker_bulk_row_budget:
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    jeq @done
+    lda f:M7_IDENTITY_MODE
+    jeq @done
+    lda f:M7_VIEW_W
+    clc
+    adc #64
+    sta f:$002251
+    ; Writing operand B starts multiplication.
+    lda f:M7_VIEW_H
+    sta f:$002253
+    nop
+    nop
+    lda f:$002306
+    sta scratch
+    lda #120
+    sta f:$002251
+    lda f:M7_CACHE_ATOMIC
+    sta f:$002253
+    nop
+    nop
+    lda f:$002306
+    clc
+    adc scratch
+    sta scratch
+    ; OBJ CHR/palette share this same VBlank. Ignoring them admitted bulk
+    ; rows that later failed the exact budget, after bypassing undo capture.
+    jsr worker_stream_spill_cost
+    clc
+    adc scratch
+    cmp #4801
+    bcc @admit
+    ; The rectangular bound is pessimistic for a tall sparse viewport.
+    ; Measure the same dirty/exposed spans without touching staged bytes.
+    lda f:M7_VIEW_X
+    and #127
+    clc
+    adc f:M7_VIEW_W
+    cmp #129
+    bcs @done
+    lda #120
+    sta f:$002251
+    lda f:M7_CACHE_ATOMIC
+    sta f:$002253
+    nop
+    nop
+    lda f:$002306
+    pha
+    jsr worker_stream_spill_cost
+    clc
+    adc 1,s
+    sta 1,s
+    lda #2
+    sta M7_BULK_ROWS
+    jsr mode7_cache_sparse_map
+    stz M7_BULK_ROWS
+    pla
+    clc
+    adc m7_row_span
+    cmp #4801
+    bcs @done
+@admit:
+    lda #1
+    sta M7_BULK_ROWS
+@done:
 .endif
     rts
 
@@ -342,7 +471,8 @@ worker_symbols:
     sta f:SYMBOL_SCREEN_Y,x
 @projected:
     lda f:SYMBOL_SCREEN_X,x
-    cmp #$FFF1
+    ; Keep the edge candidate for the +1px centered extended-hold glyph.
+    cmp #$FFF0
     bcs @x_visible
     cmp #256
     jcs @next
@@ -733,10 +863,547 @@ worker_rom_dma:
     .a16
     rts
 
+ .ifdef SA1_STREAM_BUILD
+; A hint is usable only against the texture actually acknowledged by NMI.
+; Skipped events and checkpoint snapshot tags automatically use all 64 bytes.
+worker_delta_span:
+    lda f:M7_TAG_COUNT
+    bne @full
+    lda f:STREAM_DELTA_BASE,x
+    cmp f:M7_PATTERN_VRAM,x
+    bne @full
+    lda f:STREAM_DELTA_TARGET,x
+    cmp f:PATTERN_CURRENT,x
+    bne @full
+    lda f:STREAM_DELTA_SPAN,x
+    rts
+@full:
+    lda #$4000
+    rts
+
+worker_delta_fits:
+    lda f:STREAM_DELTA_FLAGS
+    bmi :+
+    jmp @no
+:
+    lda f:STREAM_ENABLED
+    jeq @no
+    lda f:STREAM_PAGE
+    jne @no
+    lda f:M7_IDENTITY_MODE
+    jeq @no
+    lda f:NATIVE_READY
+    jeq @no
+    lda f:M7_CACHE_REMAIN
+    jeq @no
+    cmp #129
+    jcs @no
+    ; Physical order lets adjacent partial textures share one DMA run.
+    ; The visible list is spatially ordered, not physical-slot ordered.
+    ; Rebuild only the still-pending slots; no pixels or updates are omitted.
+    ldy #0
+    ldx #0
+@order:
+    lda M7_PATTERN_SELECTED,x
+    and #255
+    beq @order_next
+    phx
+    txa
+    tyx
+    sep #$20
+    .a8
+    sta f:M7_DIRECT_LIST,x
+    rep #$20
+    .a16
+    plx
+    iny
+@order_next:
+    inx
+    cpx #256
+    bcc @order
+    tya
+    sta f:M7_DIRECT_COUNT
+    stz M7_BITMAP_WORK
+    lda #$FFFF
+    sta M7_BITMAP_CURSOR
+    ldy #0
+@slot:
+    tyx
+    lda f:M7_DIRECT_LIST,x
+    and #255
+    sta M7_BITMAP_URGENT
+    tax
+    lda M7_PATTERN_SELECTED,x
+    and #255
+    jeq @next
+    txa
+    asl a
+    tax
+    jsr worker_delta_span
+    pha
+    xba
+    and #255
+    sta M7_BITMAP_WORK_LIMIT
+    pla
+    and #255
+    sta M7_BITMAP_BEST
+    lda M7_BITMAP_WORK_LIMIT
+    jeq @next
+    lda M7_BITMAP_URGENT
+    .repeat 6
+    asl a
+    .endrepeat
+    clc
+    adc M7_BITMAP_BEST
+    sta M7_BITMAP_BEST
+    lda M7_BITMAP_CURSOR
+    inc a
+    cmp M7_BITMAP_URGENT
+    bne @separate
+    lda M7_BITMAP_BEST
+    sec
+    sbc M7_BITMAP_TARGET
+    cmp #57
+    bcc @charge
+@separate:
+    lda #56
+@charge:
+    clc
+    adc M7_BITMAP_WORK_LIMIT
+    adc M7_BITMAP_WORK
+    sta M7_BITMAP_WORK
+    cmp f:STREAM_DELTA_BUDGET
+    bcc @fits_so_far
+    bne @no
+@fits_so_far:
+    lda M7_BITMAP_URGENT
+    sta M7_BITMAP_CURSOR
+    lda M7_BITMAP_BEST
+    clc
+    adc M7_BITMAP_WORK_LIMIT
+    sta M7_BITMAP_TARGET
+@next:
+    iny
+    tya
+    cmp f:M7_DIRECT_COUNT
+    jcc @slot
+    sec
+    rts
+@no:
+    clc
+    rts
+
+; Held uploads have no map/OAM work. Budget the ordered free-slot prefix
+; by actual transfer bytes and setup costs instead of a fixed texture count.
+; General stream allocation stages textures by physical destination. Adjacent
+; destinations share DMA setup even when their logical IDs are unrelated.
+worker_stream_fits:
+    lda f:STREAM_ENABLED
+    beq @no
+    lda f:M7_IDENTITY_MODE
+    beq :+
+    jmp worker_delta_fits
+:
+    lda f:M7_CACHE_REMAIN
+    beq @no
+    cmp #129
+    bcs @no
+    lda f:STREAM_DELTA_BUDGET
+    sta M7_BITMAP_EXPIRES
+    stz M7_BITMAP_TAG
+    jsr worker_stream_budget
+    cmp f:M7_CACHE_REMAIN
+    rts
+@no:
+    clc
+    rts
+
+worker_stream_held_budget:
+    lda f:STREAM_ENABLED
+    beq @done
+    lda f:M7_IDENTITY_MODE
+    beq :+
+    jmp worker_delta_held_budget
+:
+.ifdef NEO_BUILD
+    lda f:EARLY_DMA_ENABLE
+    beq :+
+    lda #7800
+    bra @budget_ready
+:
+.endif
+    lda #4800
+@budget_ready:
+    sta M7_BITMAP_EXPIRES
+    lda #1
+    sta M7_BITMAP_TAG
+    jsr worker_stream_budget
+    beq @done
+    sta M7_CACHE_BUDGET
+@done:
+    rts
+
+worker_stream_budget:
+    lda #0
+    ldx #0
+@clear:
+    sta f:M7_PATTERN_DIRTY,x
+    inx
+    inx
+    cpx #256
+    bcc @clear
+    stz M7_BITMAP_WORK
+    stz map_left
+    ldy #0
+@entry:
+    tyx
+    lda f:M7_VISIBLE_LIST,x
+    and #255
+    tax
+    lda M7_PATTERN_SELECTED,x
+    and #255
+    jeq @next
+    lda M7_BITMAP_TAG
+    beq @selected
+    lda M7_PATTERN_SELECTED,x
+    and #255
+    cmp #1
+    jne @next
+@selected:
+    lda M7_LOGICAL_TO_PPU,x
+    and #255
+    tax
+    lda f:M7_PATTERN_DIRTY,x
+    and #255
+    bne @accepted
+    lda #120
+    sta scratch
+    cpx #0
+    beq @right
+    dex
+    lda f:M7_PATTERN_DIRTY,x
+    and #255
+    inx
+    cmp #0
+    beq @right
+    lda scratch
+    sec
+    sbc #56
+    sta scratch
+@right:
+    cpx #255
+    beq @cost
+    inx
+    lda f:M7_PATTERN_DIRTY,x
+    and #255
+    dex
+    cmp #0
+    beq @cost
+    lda scratch
+    sec
+    sbc #56
+    sta scratch
+@cost:
+    lda scratch
+    clc
+    adc M7_BITMAP_WORK
+    cmp M7_BITMAP_EXPIRES
+    bcc @within_budget
+    bne @finish
+@within_budget:
+    sta M7_BITMAP_WORK
+    sep #$20
+    .a8
+    lda #1
+    sta f:M7_PATTERN_DIRTY,x
+    rep #$20
+    .a16
+@accepted:
+    inc map_left
+    lda map_left
+    cmp #128
+    bcs @finish
+@next:
+    iny
+    tya
+    cmp f:M7_CACHE_ACTIVE_COUNT
+    jcc @entry
+@finish:
+    lda map_left
+    rts
+
+worker_delta_held_budget:
+    lda f:STREAM_DELTA_FLAGS
+    bmi :+
+    jmp @done
+:
+    lda f:STREAM_ENABLED
+    jeq @done
+    lda f:STREAM_PAGE
+    jne @done
+    lda f:M7_IDENTITY_MODE
+    jeq @done
+    lda f:NATIVE_READY
+    jeq @done
+    stz M7_BITMAP_WORK
+    stz map_left
+    lda #$FFFF
+    sta M7_BITMAP_CURSOR
+    ldy #0
+@slot:
+    tyx
+    lda f:M7_DIRECT_LIST,x
+    and #255
+    sta M7_BITMAP_URGENT
+    tax
+    lda M7_PATTERN_SELECTED,x
+    and #255
+    cmp #1
+    jne @next
+    txa
+    asl a
+    tax
+    jsr worker_delta_span
+    pha
+    xba
+    and #255
+    sta M7_BITMAP_WORK_LIMIT
+    pla
+    and #255
+    sta M7_BITMAP_BEST
+    lda M7_BITMAP_WORK_LIMIT
+    beq @accepted
+    lda M7_BITMAP_URGENT
+    .repeat 6
+    asl a
+    .endrepeat
+    clc
+    adc M7_BITMAP_BEST
+    sta M7_BITMAP_BEST
+    lda M7_BITMAP_CURSOR
+    inc a
+    cmp M7_BITMAP_URGENT
+    bne @separate
+    lda M7_BITMAP_BEST
+    sec
+    sbc M7_BITMAP_TARGET
+    cmp #57
+    bcc @charge
+@separate:
+    lda #56
+@charge:
+    clc
+    adc M7_BITMAP_WORK_LIMIT
+    adc M7_BITMAP_WORK
+    cmp #4801
+    bcs @finish
+    sta M7_BITMAP_WORK
+    lda M7_BITMAP_URGENT
+    sta M7_BITMAP_CURSOR
+    lda M7_BITMAP_BEST
+    clc
+    adc M7_BITMAP_WORK_LIMIT
+    sta M7_BITMAP_TARGET
+@accepted:
+    inc map_left
+    lda map_left
+    cmp #128
+    bcs @finish
+@next:
+    iny
+    tya
+    cmp f:M7_DIRECT_COUNT
+    jcc @slot
+@finish:
+    lda map_left
+    jeq @done
+    sta M7_CACHE_BUDGET
+@done:
+    rts
+
+worker_delta_cost:
+    jsr worker_delta_span
+    xba
+    and #255
+    beq @zero
+    clc
+    adc #56
+@zero:
+    rts
+
+; Speculative uploads use the same byte/run budget as the visible commit.
+; Never alter a slot referenced by the displayed or next scene.
+worker_delta_future:
+    stz M7_BITMAP_WORK
+    ldy #0
+@queued:
+    cpy pattern_queue_count
+    beq @scan_begin
+    tya
+    .repeat 4
+    asl a
+    .endrepeat
+    tax
+    lda f:PATTERN_QUEUE+4,x
+    .repeat 5
+    lsr a
+    .endrepeat
+    tax
+    jsr worker_delta_cost
+    clc
+    adc M7_BITMAP_WORK
+    sta M7_BITMAP_WORK
+    iny
+    bra @queued
+@scan_begin:
+    lda f:M7_PREFETCH_CURSOR
+    sta M7_BITMAP_CURSOR
+    lda #64
+    sta M7_BITMAP_WORK_LIMIT
+@slot:
+    lda m7_upload_slots
+    cmp #128
+    bcs @done
+    lda M7_BITMAP_CURSOR
+    inc a
+    and #255
+    sta M7_BITMAP_CURSOR
+    tax
+    lda M7_NEW_VISIBLE,x
+    ora M7_OLD_VISIBLE,x
+    and #255
+    bne @next
+    txa
+    asl a
+    tax
+    lda f:PATTERN_CURRENT,x
+    beq @next
+    cmp f:M7_PATTERN_VRAM,x
+    beq @next
+    jsr worker_delta_cost
+    clc
+    adc M7_BITMAP_WORK
+    cmp f:STREAM_DELTA_BUDGET
+    bcc @add
+    bne @next
+@add:
+    sta M7_BITMAP_WORK
+    lda M7_BITMAP_CURSOR
+    sta pattern_hi
+    sta M7_CACHE_PHYSICAL
+    jsr mode7_queue_slot
+@next:
+    dec M7_BITMAP_WORK_LIMIT
+    bne @slot
+@done:
+    lda M7_BITMAP_CURSOR
+    sta f:M7_PREFETCH_CURSOR
+    rts
+
+worker_delta_runs:
+    stz map_scan_x
+    stz map_left
+    lda #$FFFF
+    sta M7_BITMAP_CURSOR
+@entry:
+    ldx map_scan_x
+    lda f:PATTERN_QUEUE+4,x
+    sta scratch2
+    .repeat 6
+    lsr a
+    .endrepeat
+    sta M7_BITMAP_URGENT
+    asl a
+    tax
+    jsr worker_delta_span
+    pha
+    xba
+    and #255
+    sta M7_BITMAP_WORK_LIMIT
+    pla
+    and #255
+    clc
+    adc scratch2
+    sta M7_BITMAP_BEST
+    lda M7_BITMAP_WORK_LIMIT
+    jeq @next
+    lda M7_BITMAP_CURSOR
+    inc a
+    cmp M7_BITMAP_URGENT
+    bne @new_run
+    lda M7_BITMAP_BEST
+    sec
+    sbc M7_BITMAP_TARGET
+    cmp #57
+    bcs @new_run
+    clc
+    adc M7_BITMAP_WORK_LIMIT
+    sta scratch
+    lda map_left
+    sec
+    sbc #4
+    tax
+    lda f:M7_PATTERN_RUNS+2,x
+    clc
+    adc scratch
+    sta f:M7_PATTERN_RUNS+2,x
+    bra @end_run
+@new_run:
+    ldx map_left
+    lda M7_BITMAP_BEST
+    sta f:M7_PATTERN_RUNS,x
+    lda M7_BITMAP_WORK_LIMIT
+    sta f:M7_PATTERN_RUNS+2,x
+    lda map_left
+    clc
+    adc #4
+    sta map_left
+    lda f:M7_PATTERN_RUN_COUNT
+    inc a
+    sta f:M7_PATTERN_RUN_COUNT
+@end_run:
+    lda M7_BITMAP_URGENT
+    sta M7_BITMAP_CURSOR
+    lda M7_BITMAP_BEST
+    clc
+    adc M7_BITMAP_WORK_LIMIT
+    sta M7_BITMAP_TARGET
+@next:
+    lda map_scan_x
+    clc
+    adc #16
+    sta map_scan_x
+    .repeat 4
+    lsr a
+    .endrepeat
+    cmp pattern_queue_count
+    jcc @entry
+    rts
+
+.endif
+
 worker_pattern_runs:
     lda #0
     sta f:M7_PATTERN_RUN_COUNT
     sta f:M7_WRAM_STAGE_REQUIRED
+    lda pattern_queue_count
+    jeq @done
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_DELTA_FLAGS
+    bpl :+
+    lda f:STREAM_ENABLED
+    beq :+
+    lda f:STREAM_PAGE
+    bne :+
+    lda f:M7_IDENTITY_MODE
+    beq :+
+    lda f:NATIVE_READY
+    beq :+
+    jsr worker_delta_runs
+    jmp @done
+:
+.endif
+    lda #0
     ldx #0
 @clear:
     sta f:M7_PATTERN_DIRTY,x
@@ -771,6 +1438,33 @@ worker_pattern_runs:
     sta f:M7_WRAM_STAGE_REQUIRED
     jmp @entry_next
 @cartridge_source:
+.ifdef SA1_STREAM_BUILD
+    pha
+    lda f:STREAM_ENABLED
+    beq @ordinary_cartridge
+    lda f:NATIVE_READY
+    beq @ordinary_cartridge
+    lda f:STREAM_PAGE
+    bne @dictionary_cartridge
+    lda f:M7_IDENTITY_MODE
+    beq @ordinary_cartridge
+    ; Logical and physical slots coincide. NMI can read these exact pixels
+    ; directly from STREAM_CHR; copying them to the staging bank is redundant.
+    pla
+    jmp @entry_next
+@dictionary_cartridge:
+    pla
+    lda f:STREAM_PAGE
+    jsr worker_select_rom_bank
+    lda f:PATTERN_QUEUE+4,x
+    tay
+    lda f:PATTERN_QUEUE+8,x
+    tyx
+    jsr worker_stream_pattern
+    jmp @entry_next
+@ordinary_cartridge:
+    pla
+.endif
     sta scratch2
     lda f:PATTERN_QUEUE,x
     sta scratch
@@ -862,7 +1556,16 @@ worker_pattern_runs:
     bcc @scan
 @done:
     jsr worker_spill_runs
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq :+
+    lda #1
+    jsr worker_select_rom_bank
+:
+.endif
     rts
+
+
 
 worker_commit_tags:
     lda f:M7_TAG_COUNT
@@ -1062,9 +1765,14 @@ worker_rom_find:
     lda #$FFFF
     rts
 worker_rom_commit:
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    bne @commit
+.endif
     lda selected_level
     cmp #ROM_PATTERN_LEVEL
     bne @done
+@commit:
     phy
     phx
     txa
@@ -1085,4 +1793,11 @@ worker_rom_commit:
     ply
 @done:
     rts
+.endif
+
+.ifdef SA1_STREAM_BUILD
+.include "stream_spill.inc"
+.ifdef SA1_MODE1_BUILD
+.include "camera_copies_worker.inc"
+.endif
 .endif

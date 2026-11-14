@@ -358,10 +358,18 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         assets['neo_objects']=(ROOT/'assets/graphics/mode7/freeroam.chr').read_bytes()
         assert len(assets['neo_objects'])==2048
     for c in charts:
+        if c.get('projected_spill_frames') and not (sa1 and c.get('sa1_stream_format')):
+            raise ValueError(f"{c['code']}: projected overflow requires the SA-1 stream build; refusing to omit its pixels")
         if c.get('neo_cosmos') and any(n.get('freeroam') for n in c['notes']) and not c.get('neo_freeroam_runtime'):
             raise ValueError(f"{c['code']}: free-roam runtime is not implemented; refusing to package it as an ordinary fixed track")
     resident=[c for c in charts if c.get('resident_pattern_format')]
     assert len(resident)<=1,'One paged resident dictionary is supported per cartridge'
+    stream_charts=[c for c in charts if c.get('sa1_stream_format')] if sa1 and not rom_data else []
+    if stream_charts:
+        assert any(c.get('native_stream_format') for c in resident),'Stream worker requires native decoder'
+        assets['stream_descriptors']=bytes(32*len(charts))
+        if any(c.get('fallback_stream_packets') for c in stream_charts):
+            assets['stream_fallback_descriptors']=bytes(32*len(charts))
     zero_pauses=[]
     if sa1 and not rom_data and len(charts)>61:
         for c in charts:
@@ -391,19 +399,24 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if sa1:
         # The CPU's FastROM code mirror occupies the first 32 KiB of
         # physical bank $20. Keep it out of both static assets and streams.
-        free=[(0x12000 if any(c.get('neo_cosmos') for c in charts) else 0x10000,0x200000),(0x208000,0x800000 if rom_data else 0x400000)]
+        free=[(0x13000 if any(c.get('neo_cosmos') for c in charts) else 0x10000,0x200000)]
+        if any(c.get('fastrom_helpers_trial') for c in charts):
+            # Only CPU helpers need mirrors: 4 KiB camera + 8 KiB Neo.
+            # Worker code stays on SA-1; do not waste a second copy of it.
+            free.extend([(0x208000,0x20f000),(0x213000,0x800000 if rom_data else 0x400000)])
+        else:free.append((0x208000,0x800000 if rom_data else 0x400000))
         if resident and not rom_data:free.append((0x400000,0x800000))
     image=bytearray(0x800000);loc={};shared_blobs={}
     def address(offset):
         if offset<0x400000:return offset+0xC00000
         if offset>=0x7E8000 and not sa1:return offset-0x400000
         return offset
-    for name,blob in sorted(assets.items(),key=lambda p:(int(sa1 and p[0].startswith('romdata')),-len(p[1]))):
+    for name,blob in sorted(assets.items(),key=lambda p:(0 if sa1 and not rom_data and p[0].startswith('resident_') else 1 if sa1 and not rom_data and p[0].startswith('stream_index') else 2+int(sa1 and p[0].startswith('romdata')),-len(p[1]))):
         static_future=name.startswith('resident_future') and len(blob)<=32768
         # A different level can use the C0 window after its loader restores
         # page zero. Keep common graphics/audio and the resident level's
         # own chart data outside C0, since its worker pages that window.
-        other_level_data=bool(resident and re.fullmatch(r'(chart|track_map|visibility_index)\d+',name)
+        other_level_data=bool(resident and re.fullmatch(r'(chart|track_chr|track_map|visibility_index)\d+',name)
                               and int(re.search(r'\d+$',name).group())!=resident[0]['id'])
         # Banks of percussion samples and initial graphics are immutable and
         # often identical across charts. Share their ROM bytes in large packs.
@@ -411,11 +424,15 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         key=(share,blob) if share else None
         if key is not None and key in shared_blobs:
             loc[name]=shared_blobs[key];continue
-        if share=='hitnotes':
-            prior=next((address for (kind,data),address in shared_blobs.items() if kind==share and data.startswith(blob)),None)
+        if share in ('hitnotes','hitbank'):
+            # These read-only byte tables may be a complete slice of a
+            # larger song's table, not just its prefix. The containing
+            # allocation already satisfies the same ROM-bank constraint.
+            prior=next((address+at for (kind,data),address in shared_blobs.items()
+                        if kind==share and (at:=data.find(blob))>=0),None)
             if prior is not None:
                 loc[name]=prior;continue
-        for i,(start,end) in enumerate(free):
+        for i,(start,end) in sorted(enumerate(free),key=lambda item: int(name.startswith(("resident_stream","stream_index")) and item[1][0]<0x400000)):
             # Sequential ROM data must use full banks with linear CPU
             # addresses; the final 32-KiB mirrors have unmapped lower halves.
             if name.startswith('romdata') and start>=0x7E0000 and not sa1:continue
@@ -425,14 +442,25 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
             static_minimum=0x208000 if sa1 and rom_data and any(c.get('neo_cosmos') for c in resident) else 0x100000
             minimum=(0x400000 if name.startswith('resident_') and not static_future else
                      static_minimum if resident and not other_level_data and not name.startswith('romdata') else 0)
+            # Packet dictionaries use a selectable 1-MiB window. They do
+            # not require AR-X's fixed upper-half resident address range.
+            if name.startswith('resident_stream'):minimum=0x100000
+            paged_index=sa1 and not rom_data and name.startswith('stream_index')
+            if paged_index:minimum=0x100000
             if any(c.get('native_stream_format') and name==f'visibility_index{c["id"]}' for c in charts):minimum=0x208000
             aligned=(max(start,minimum)+1)&~1
+            if name.startswith('resident_stream') and (aligned&0xFFFFF)+len(blob)>0x100000:
+                aligned=(aligned+0xFFFFF)&~0xFFFFF
             if name.startswith('patterns'):aligned=(aligned+15)&~15
-            if not name.startswith(('music','timeline','visibility_index','track_map','patterns','romdata')) and (aligned&65535)+len(blob)>65536:
+            packed_stream=any(c.get('mode1_tracks') and name==f'resident_stream{c["id"]}' for c in charts)
+            if not (packed_stream or name.startswith(('music','timeline','visibility_index','track_map','patterns','romdata','stream_index'))) and (aligned&65535)+len(blob)>65536:
                 aligned=(aligned+65535)&~65535
+            if name.startswith('resident_stream') and (aligned&0xFFFFF)+len(blob)>0x100000:
+                aligned=(aligned+0xFFFFF)&~0xFFFFF
             limit=min(end,0x300000) if sa1 and rom_data and not name.startswith(('romdata','resident_')) else end
             if resident and not name.startswith(('romdata','resident_')):limit=min(limit,0x300000 if rom_data else 0x400000)
             if static_future:limit=min(limit,0x300000 if rom_data else 0x400000)
+            if paged_index:limit=end
             if aligned+len(blob)<=limit:
                 image[aligned:aligned+len(blob)]=blob;loc[name]=address(aligned)
                 if key is not None:shared_blobs[key]=loc[name]
@@ -445,12 +473,33 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
             row=b''.join(loc[k+str(c['id'])].to_bytes(3,'little') for k in ('hitnotes','hitbank'))
             row+=struct.pack('<HH',*sound_banks[c['id']]['packet_counts'])+bytes(6)
             image[start+16*i:start+16*i+16]=row
+    if stream_charts:
+        at=loc['stream_descriptors'];at=at-0xC00000 if at>=0xC00000 else at
+        for i,c in enumerate(charts):
+            if c in stream_charts:
+                table=loc[f'stream_index{c["id"]}'];base=c['stream_msu_base']
+                dictionary=loc[f'resident_stream{c["id"]}'];rows=dictionary+c['stream_row_offset']
+                assert dictionary>>20==(dictionary+len(assets[f'resident_stream{c["id"]}'])-1)>>20
+                ptr=0xC00000+(dictionary&0xFFFFF);rowptr=c.get("mode1_icon_base",0xC00000+(rows&0xFFFFF))
+                page=0 if c.get('sa1_inline_patterns') else ((dictionary-0xC00000 if dictionary>=0xC00000 else dictionary)>>20)+1
+                image[at+32*i:at+32*(i+1)]=struct.pack('<16H',1,c['stream_packets'],table&65535,table>>16,base&65535,base>>16,int(c.get("mode1_tracks",0)),c.get("mode1_seed_base",0)&65535,0,c.get("mode1_seed_base",0)>>16,ptr&65535,ptr>>16,rowptr&65535,rowptr>>16,page,c.get("mode1_glyph_count",0)|(0x8000 if c.get("sa1_delta_patterns") and not c.get("mode1_tracks") else 0))
+                if c.get('fallback_stream_packets'):
+                    dest=loc['stream_fallback_descriptors'];dest=dest-0xC00000 if dest>=0xC00000 else dest
+                    table=loc[f'stream_index_fallback{c["id"]}'];base=c['fallback_stream_msu_base']
+                    dictionary=loc[f'resident_stream_fallback{c["id"]}'];rows=dictionary+c['fallback_stream_row_offset']
+                    assert dictionary>>20==(dictionary+len(assets[f'resident_stream_fallback{c["id"]}'])-1)>>20
+                    ptr=0xC00000+(dictionary&0xFFFFF);rowptr=0xC00000+(rows&0xFFFFF)
+                    page=((dictionary-0xC00000 if dictionary>=0xC00000 else dictionary)>>20)+1
+                    image[dest+32*i:dest+32*(i+1)]=struct.pack('<16H',1,c['fallback_stream_packets'],table&65535,table>>16,base&65535,base>>16,0,0,0,0,ptr&65535,ptr>>16,rowptr&65535,rowptr>>16,page,0)
     (OUT/'payload0.bin').write_bytes(image[:0x408000])
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     (OUT/'placements.json').write_text(json.dumps(loc,indent=2))
     defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects')]
+    if any(c.get('mode1_tracks') for c in stream_charts):defs += ['SA1_MODE1_BUILD = 1']
+    if stream_charts:defs += ['SA1_STREAM_BUILD = 1','STREAM_INDEX_BYTES = 2',f'STREAM_DESCRIPTORS_ADDR = ${loc["stream_descriptors"]:06X}']
+    if 'stream_fallback_descriptors' in loc:defs += [f'STREAM_FALLBACK_DESCRIPTORS_ADDR = ${loc["stream_fallback_descriptors"]:06X}']
     defs.append('HITS_IN_MUSIC = 1')
-    if any(c.get('neo_cosmos') for c in charts):defs.append('NEO_BUILD = 1')
+    if any(c.get('neo_cosmos') for c in charts):defs+=['NEO_BUILD = 1','NEO_CODE_BYTES = $3000']
     defs += [f'BACKGROUND_CHR_BYTES = {len(assets["background_chr"])}']
     defs += [f'SPC_DRIVER_ADDR = ${loc["spc_driver"]:06X}',f'SPC_DRIVER_BYTES = {len(assets["spc_driver"])}']
     defs += [f'LEVEL_COUNT = {len(charts)}']
@@ -466,6 +515,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if msu:defs+=['MSU_BUILD = 1',f'MSU_DATA_VERSION = {20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get("adaptive_raster") for c in charts) else 18 if any(c.get("mode7_zoom_enabled") for c in charts) else 17 if any(c.get("camera_position_events",0) for c in charts) else 16 if any(c.get("native_layout_version",0)>=2 for c in charts) else 15 if any(c.get("track_separators_version") for c in charts) else 14 if any(c.get("opacity_curve_version") for c in charts) else 13 if any(c.get("camera_rotation_versions") for c in charts) else 12}']
     if rom_data:defs+=['ROM_DATA_BUILD = 1']
     if sa1:defs+=['SA1_BUILD = 1','SA1_FASTROM_MIRROR = 1']
+    if sa1 and any(c.get('fastrom_helpers_trial') for c in charts):defs+=['SA1_FASTROM_HELPERS = 1']
     if resident:
         defs+=['ROM_PACKED_COORDS = 1']
         c=resident[0];n=c['id']
@@ -651,18 +701,26 @@ def main():
         motion_step=args.motion_step if args.motion_step is not None else (1 if n in (20,22,23,24,26) or n>=66 else 8)
         # These lossless raster-phase choices and stable color clustering
         # are part of the chart build, not private release-cache settings.
-        reuse_motion_phase=args.reuse_motion_phase or n in (43,60)
-        stable_color_quantization=args.stable_color_quantization or n in (22,58)
-        material_capacity=args.material_capacity if args.material_capacity is not None else (12 if n==58 else 48)
-        fingerprint=hashlib.sha256((ROOT/'tools/neo_visuals.py').read_bytes()+bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,args.adaptive_motion_raster,reuse_motion_phase,args.viewport_inset,stable_color_quantization])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
-            (ROOT/'tools/neo_freeroam.py').read_bytes()+(ROOT/'tools/neo_mechanics.py').read_bytes()+(ROOT/'tools/neo_audio.py').read_bytes()+(ROOT/'tools/track_visibility.py').read_bytes()+(ROOT/'tools/viewport_cells.py').read_bytes()+(ROOT/'tools/track_geometry.py').read_bytes()+(ROOT/'assets/graphics/track-shapes.json').read_bytes()+(ROOT/'tools/track_motion.py').read_bytes()+(ROOT/'tools/track_events.py').read_bytes()+(ROOT/'tools/raster_phase.py').read_bytes()+(ROOT/'tools/track_mipmaps.py').read_bytes()+
+        reuse_motion_phase=args.reuse_motion_phase or n in (43,60,67,69,72,74)
+        optimal_pattern_cache=n in (66,67,69,71,72)
+        delta_pattern_cache=False  # Similarity placement regressed T2 presentation.
+        precise_pattern_view=n in (67,68,69,72,73,74)
+        stable_color_quantization=args.stable_color_quantization or n in (22,58,71,74)
+        material_capacity=args.material_capacity if args.material_capacity is not None else (3 if n==71 else 12 if n==58 else 48)
+        adaptive_motion=args.adaptive_motion_raster
+        shared_contours=args.shared_contours or n==71
+        fingerprint=hashlib.sha256((ROOT/'tools/neo_visuals.py').read_bytes()+(ROOT/'tools/neo_singsing.py').read_bytes()+(ROOT/'tools/neo_mawaru.py').read_bytes()+(ROOT/'tools/neo_warps.py').read_bytes()+bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,adaptive_motion,reuse_motion_phase,args.viewport_inset,stable_color_quantization,optimal_pattern_cache,delta_pattern_cache,precise_pattern_view])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
+            (ROOT/'tools/neo_freeroam.py').read_bytes()+(ROOT/'tools/neo_mechanics.py').read_bytes()+(ROOT/'tools/neo_audio.py').read_bytes()+(ROOT/'tools/track_visibility.py').read_bytes()+(ROOT/'tools/viewport_cells.py').read_bytes()+(ROOT/'tools/projected_spill.py').read_bytes()+(ROOT/'tools/track_geometry.py').read_bytes()+(ROOT/'assets/graphics/track-shapes.json').read_bytes()+(ROOT/'tools/track_motion.py').read_bytes()+(ROOT/'tools/track_events.py').read_bytes()+(ROOT/'tools/raster_phase.py').read_bytes()+(ROOT/'tools/track_mipmaps.py').read_bytes()+
             ((ROOT/'tools/track_readability.py').read_bytes()+(ROOT/'tools/track_patterns.py').read_bytes()+(ROOT/'tools/track_camera.py').read_bytes() if msu or n in (26,31) or n>=40 else b'')+
-            ((ROOT/'tools/track_colors.py').read_bytes() if msu else b'')+bytes([msu,1,args.preview_tiles,args.past_tiles,args.fixed_tile_positions,material_capacity,args.shared_contours,motion_step])+ (b'compact' if args.compact_graphics else b'')).hexdigest()
+            ((ROOT/'tools/track_colors.py').read_bytes() if msu else b'')+bytes([msu,1,args.preview_tiles,args.past_tiles,args.fixed_tile_positions,material_capacity,shared_contours,motion_step])+ (b'compact' if args.compact_graphics else b'')).hexdigest()
         stamp=OUT/f'level{n}-build.json'
         names=[f'{a}{n}' for a in ('chart','track_chr','track_map','timeline','visibility_index','checkpoints')]
         cached_metadata=json.loads((OUT/f'level{n}.json').read_text()) if stamp.exists() else {}
         depth=cached_metadata.get('readability_window',{})
         valid_depth=not msu or cached_metadata.get('authored_visibility') is True
+        if msu and (bool(cached_metadata.get('native_follow_timing')) != (n in (67,72)) or
+                    cached_metadata.get('native_follow_ranges',[]) != ([[479,494]] if n==74 else [])):
+            valid_depth=False
         if valid_depth and stamp.exists() and json.loads(stamp.read_text())==fingerprint and all((OUT/(a+'.bin')).exists() for a in names):
             c=json.loads((OUT/f'level{n}.json').read_text());charts.append(c)
             for a in names:assets[a]=(OUT/(a+'.bin')).read_bytes()
@@ -683,12 +741,21 @@ def main():
             c['mode7']=True
             c['compiled_reference_sets']=True
             c['motion_step']=motion_step
+            if optimal_pattern_cache:c['optimal_pattern_cache']=True
+            if delta_pattern_cache:c['delta_pattern_cache']=True
+            if precise_pattern_view:c['precise_viewport_cells']=True
+            if n in (68,73,74):c.update(pattern_pinned_limit=0,strict_pattern_quality=True,optimal_pattern_cache=False,
+                              share_palette_patterns=True,raster_origin_bias=[0,1])
+            if n in (68,73):c['projected_pattern_overflow']=True
+            if n in (67,72):c['native_follow_timing']=True
+            if n==74:c['native_follow_ranges']=[[479,494]]
             c['reuse_motion_phase']=reuse_motion_phase
+            if n in (67,69,72,74):c['motion_phase_min_group']=8
             c['viewport_inset']=args.viewport_inset
-            c['adaptive_motion_raster']=args.adaptive_motion_raster
+            c['adaptive_motion_raster']=adaptive_motion
             c['authored_material_capacity']=material_capacity
             c['stable_color_quantization']=stable_color_quantization
-            if args.shared_contours:c['shared_track_contour']=True
+            if shared_contours:c['shared_track_contour']=True
             if args.compact_graphics:
                 c.update(constrained_graphics=True,readability_foreground=0,readability_detail=0,nearby_motion_only=True,pattern_batch_budget=64)
             from track_camera import camera_schedule
@@ -696,6 +763,8 @@ def main():
             if args.camera_rotation:
                 from track_camera import rotation_schedule
                 rotation_schedule(data,c)
+            from neo_mawaru import camera as chapter_camera
+            chapter_camera(c)
             neo_camera=c.get('neo_cosmos') and c['id'] in (68,70,73)
             if args.camera_zoom or args.adaptive_raster or neo_camera:
                 from track_camera import mode7_zoom_schedule

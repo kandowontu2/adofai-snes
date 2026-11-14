@@ -6,16 +6,21 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def sprite_tiles(oam,vram):
     """Decode actual small tile overlays, and check both hardware limits."""
-    overlays={};objects=[0]*224;slivers=[0]*224
+    overlays={};objects=[0]*224;slivers=[0]*224;first_overlay=None
     for i in range(128):
         x,y,tile,attr=oam[i*4:i*4+4]
         high=(oam[512+i//4]>>(2*(i%4)))&3
         if high&1:x-=256
         size=16 if high&2 else 8
         if x<=-size or x>=256 or y>=224:continue
+        # SNES OBJ-to-OBJ priority is OAM order, not attr's BG priority.
+        # A perfectly valid tile cache can therefore mask parts of an icon.
+        if size==16 and attr in (0x32,0x34,0x36):
+            assert first_overlay is None,('Gameplay icon behind tile-cache OBJ',i,first_overlay,tile)
         for line in range(max(32,y),min(176,y+size)):
             objects[line]+=1;slivers[line]+=size//8
         if attr==0x21 and size==8 and tile<128:
+            if first_overlay is None:first_overlay=i
             assert (x,y) not in overlays,('Duplicate tile overlay',x,y)
             data=vram[0xE000+tile*32:0xE000+tile*32+32]
             pixels=[]
@@ -31,6 +36,9 @@ def sprite_tiles(oam,vram):
 def verify(base,level,folder):
     n=json.loads((base/'pack.json').read_text())['levels'][level-1]
     chart=json.loads((base/f'level{n}.json').read_text())
+    if chart.get('mode1_projected'):
+        from projected_tracks import Source
+        projected_source=Source(base,n)
     timeline=(base/f'timeline{n}.bin').read_bytes();patterns=(base/f'patterns{n}.bin').read_bytes()
     tile=map_reader((base/f'track_map{n}.bin').read_bytes(),chart['map_height'],chart.get('map_offset_shift',0))
     nodes=[]
@@ -39,9 +47,14 @@ def verify(base,level,folder):
         rows=[struct.unpack_from('<HH',timeline,offset+2+4*i) for i in range(count)]
         nodes.append(([t for t,v in rows],[v for t,v in rows]))
     versions=[([t for t,v in rows],[v for t,v in rows]) for rows in chart['pattern_versions']]
+    projected_frames=chart.get('projected_spill_frames',[])
+    projected_times=[f['frame'] for f in projected_frames]
     samples=0;checked_pixels=0
-    for path in sorted(folder.glob('ppu-*.bin')):
-        blob=path.read_bytes();mode=7
+    for path in sorted(folder.glob('ppu-*.bin'),key=lambda p:struct.unpack_from('<H',p.read_bytes())[0]):
+        blob=path.read_bytes();mode=7;selectors=None;native_palette=None
+        if len(blob)==16+256+65536+512+544+289:
+            mode=blob[-289];assert mode in (1,2,3)
+            selectors=blob[-288:-192];native_palette=struct.unpack("<96H",blob[-192:]);blob=blob[:-289]
         if len(blob)==16+256+65536+512+544+1:
             mode=blob[-1];blob=blob[:-1];assert mode in (1,7)
         assert len(blob) in (16+256+32768,16+256+65536+512+544),path
@@ -50,8 +63,45 @@ def verify(base,level,folder):
         extended=len(blob)>16+256+32768
         palette=struct.unpack_from('<256H',blob,272+65536) if extended else None
         overlays=sprite_tiles(blob[-544:],vram) if extended else {}
+        if projected_frames and mode==7:
+            from mode1_tracks import decode_tile
+            at=bisect.bisect_right(projected_times,time)-1
+            expected_objects={}
+            if at>=0:
+                frame=projected_frames[at];glyphs=bytes.fromhex(frame['glyphs'])
+                for x,y,g in frame['objects']:
+                    raw=decode_tile(glyphs[g*32:g*32+32],list(range(1,len(frame['palette'])+1)))
+                    expected_objects[x,y]=[frame['palette'][v-1] if v else None for v in raw]
+            assert overlays.keys()==expected_objects.keys(),(path,'projected OBJ coverage',time,len(overlays),len(expected_objects),set(expected_objects)-overlays.keys())
+            for xy,expected_obj in expected_objects.items():
+                actual=overlays[xy]
+                for i,(p,want) in enumerate(zip(actual,expected_obj)):
+                    assert (p==0 if want is None else p!=0 and palette[128+p]==want),(path,'projected OBJ pixel',time,xy,i,p,want)
+                checked_pixels+=64
         expected_rotation=next(((c,s) for f,c,s in reversed(chart.get('camera_sampling_versions',chart.get('camera_rotation_versions',[]))) if f<=time),(256,0))
         assert (c,s)==expected_rotation,(path,'rotation',time,(c,s),expected_rotation)
+        if mode in (2,3):
+            # Screen-space Mode 1: compare actual VRAM/CGRAM against an
+            # independent reconstruction of the original world-space chart.
+            expected=projected_source.screen(time)
+            top=chart.get('viewport_top',32);bottom=chart.get('viewport_bottom',176)
+            for sy in range(top,bottom):
+                # The SNES adds one scanline to a BG's zero vertical scroll.
+                py=sy+1
+                for sx in range(256):
+                    addr=(py//8)*32+sx//8
+                    entry=struct.unpack_from('<H',vram,0xE000+addr*2)[0]
+                    x=(7-sx%8) if entry&0x4000 else sx%8
+                    y=(7-py%8) if entry&0x8000 else py%8
+                    raw=vram[(entry&1023)*32:(entry&1023)*32+32]
+                    p=sum(((raw[y*2+(plane&1)+(16 if plane>=2 else 0)]>>(7-x))&1)<<plane for plane in range(4))
+                    index=((entry>>10)&7)*16+p if p else 0
+                    wanted_index=int(expected[py,sx])
+                    want=int(projected_source.palette[wanted_index])
+                    assert (p==0 if wanted_index==0 else p!=0 and palette[index]==want),(path,'projected pixel',step,time,sx,sy,palette[index],want,entry)
+                    checked_pixels+=1
+            samples+=1
+            continue
         indices=[vs[bisect.bisect_right(ts,time)-1] for ts,vs in versions]
         shift=next((v for f,v in reversed(chart.get('camera_raster_shift_versions',[])) if f<=time),0)
         center=chart.get('viewport_center_y',96);half=chart.get('viewport_bottom',160)-center
@@ -66,15 +116,15 @@ def verify(base,level,folder):
                     at=bisect.bisect_right(ts,time)-1;value=vs[at] if at>=0 else 0
                 address=(wy-by)*128+wx-bx
                 if chart.get('wrapped_mode7_map'):address=((wy-by)&127)*128+((wx-bx)&127)
-                assert 0<=address<16384,(path,'map address',address)
-                physical=vram[address*2]
+                assert mode==1 or 0<=address<16384,(path,'map address',address)
+                physical=vram[address*2] if mode==7 else 0
                 # Duplicate resident patterns may use another physical slot.
                 # Validate the pixels reached by the hardware map directly.
                 expected=patterns[indices[value]*64:indices[value]*64+64]
                 actual=pixels[physical*64:physical*64+64]
                 if mode==1:
                     address=(wy&31)*32+(wx&31)+(1024 if wx&32 else 0)
-                    entry=struct.unpack_from('<H',vram,0x8000+address*2)[0]
+                    entry=struct.unpack_from('<H',vram,(0xE000 if selectors is not None else 0x8000)+address*2)[0]
                     physical=entry&1023;bank=(entry>>10)&7
                     raw=vram[physical*32:physical*32+32]
                     actual=bytes(sum(((raw[py*2+(plane&1)+(16 if plane>=2 else 0)]>>(7-px))&1)<<plane for plane in range(4)) for py in range(8) for px in range(8))
@@ -84,7 +134,12 @@ def verify(base,level,folder):
                     if mode==1:
                         for px in range(x0,x1):
                             p=actual[py*8+px];index=bank*16+p if p else 0
-                            assert palette[index]==palette[expected[py*8+px]],(path,'native tile pixels',step,time,wx,wy,px,py,physical,index,expected[py*8+px])
+                            raw_expected=expected[py*8+px]
+                            if selectors is not None:
+                                self_index=selectors[(bank-2)*16+p] if p else 0
+                                assert self_index==raw_expected,(path,'exact palette selector',time,wx,wy,px,py,self_index,raw_expected)
+                            expected_color=native_palette[raw_expected-32] if native_palette is not None and raw_expected else palette[raw_expected]
+                            assert palette[index]==expected_color,(path,'native tile pixels',step,time,wx,wy,px,py,physical,index,expected[py*8+px])
                         checked_pixels+=x1-x0
                         continue
                     if actual[py*8+x0:py*8+x1]!=expected[py*8+x0:py*8+x1]:
@@ -102,6 +157,7 @@ def verify(base,level,folder):
     evidence=identity(base/'adofai.sfc')
     manifest=json.loads((folder/'manifest.json').read_text())
     assert all(manifest.get(k)==v for k,v in evidence.items()),'Mesen capture belongs to another build'
+    assert manifest.get('passed') is True and manifest.get('vblank_overruns')==0,'Replay validation failed; pixel checks cannot turn it into a pass'
     result=dict(passed=True,code=chart['code'],samples=samples,visible_pixels_checked=checked_pixels,**evidence)
     (folder/'ppu-verification.json').write_text(json.dumps(result,indent=2));print(result)
 

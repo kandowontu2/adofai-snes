@@ -49,6 +49,14 @@ nmi_fast:
     inc msu_elapsed_frames
 @msu_clock_done:
 .endif
+.ifdef NEO_BUILD
+    jsl early_dma_nmi_gate
+    beq @frame_commit
+    dec a
+    jeq @hdma
+    jmp @pad
+.endif
+@frame_commit:
     lda frame_ready
     jeq @skip
     lda state
@@ -89,8 +97,7 @@ nmi_fast:
     sta $4305
     lda oam_pos
     sta f:OAM_PREVIOUS_COUNT
-    lda #$C001
-    sta $420B
+    start_dma 1
 @oam_high:
     sep #$20
     .a8
@@ -212,6 +219,17 @@ nmi_fast:
 .endif
     stz palette_dirty
 @camera:
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    beq :+
+    rep #$20
+    .a16
+    jsr mode1_commit_palette
+    sep #$20
+    .a8
+    jmp @track_palette_done
+:
+.endif
 .ifdef MSU_BUILD
     lda f:TRACK_PALETTE_DIRTY
     beq @track_palette_done
@@ -247,9 +265,17 @@ nmi_fast:
 .ifdef MSU_BUILD
     sep #$20
     .a8
+    lda pattern_blanked
+    bne @inside_vblank
     lda $4212
     bit #$80
     bne @inside_vblank
+.ifdef NEO_BUILD
+    rep #$20
+    .a16
+    jsl early_dma_is_blank
+    bcs @inside_vblank
+.endif
     rep #$20
     .a16
     lda pattern_vblank_overruns
@@ -307,12 +333,16 @@ nmi_fast:
 .ifdef MSU_BUILD
     lda pattern_blanked
     beq @visible
+.ifdef NEO_BUILD
+    jsl early_dma_show_loaded
+.else
     sep #$20
     .a8
     lda #$0F
     sta $2100
     rep #$20
     .a16
+.endif
     stz pattern_blanked
 @visible:
 .endif
@@ -333,6 +363,12 @@ nmi_fast:
     jsr mode7_prefetch
 .endif
 @hdma:
+.ifdef NEO_BUILD
+    lda f:EARLY_IRQ_RUNNING
+    beq :+
+    jml early_irq_done
+:
+.endif
 .ifdef MSU_BUILD
     ldx #.loword(hdma_mode1)
     lda display_state
@@ -342,6 +378,12 @@ nmi_fast:
     bne @mode1_scene
 @mode7_scene:
     ldx #.loword(hdma_mode7)
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    beq :+
+    ldx #.loword(hdma_mode1)
+:
+.endif
     stx $4362
     ldx #M7_HDMA_DISPLAY
     bra @table
@@ -361,12 +403,21 @@ nmi_fast:
 .endif
 @table:
     stx $4372
+.ifdef NEO_BUILD
+    jsl early_dma_configure
+.endif
+@pad:
+    ; The nested IRQ path jumps here with A16; every input path must set
+    ; the width before the A8 polling code and its banked readiness helper.
     sep #$20
     .a8
-@pad:
+.ifdef NEO_BUILD
+    jsl early_pad_ready
+.endif
+@pad_busy:
     lda $4212
     and #1
-    bne @pad
+    bne @pad_busy
     rep #$20
     .a16
     lda music_active
@@ -420,7 +471,7 @@ nmi_fast:
     and #TAP_MASK
 .ifdef NEO_BUILD
     beq @release_event
-    jsr neo_queue_event
+    jsl neo_queue_event
 @release_event:
     lda state
     cmp #1
@@ -428,7 +479,7 @@ nmi_fast:
     lda input_releases
     beq @input_done
     ora #2
-    jsr neo_queue_event
+    jsl neo_queue_event
     bra @input_done
 .else
     beq @input_done
@@ -472,10 +523,15 @@ nmi_fast:
     pla
     plp
     rti
+.ifdef NEO_BUILD
+nmi_commit_entry = @frame_commit
+.export nmi_commit_entry
+.endif
 
 .ifdef NEO_BUILD
 ; Both edges retain their audio timestamp. A stalled renderer must not turn
 ; a short hold into a missing release or judge it using a later video frame.
+.segment "NEOCODE"
 neo_queue_event:
     ldx tap_head
     sta tap_buttons,x
@@ -495,10 +551,17 @@ neo_queue_event:
     and #TAP_QUEUE_MASK
     sta tap_tail
 @done:
-    rts
+    rtl
+.endif
+.ifdef SA1_BUILD
+.segment "FASTNMI"
 .endif
 irq:
+.ifdef NEO_BUILD
+    jml early_irq
+.else
     rti
+.endif
 
 ; Only menu directions and shoulder adjustments repeat. Gameplay taps and
 ; START/SELECT retain rising-edge behavior.

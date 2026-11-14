@@ -6,6 +6,13 @@ from make_assets import FPS
 from track_colors import sequences,evaluate,palette_schedule,palette_words
 
 class TrackColors(unittest.TestCase):
+    def test_gems_keep_blue_facets_under_white_floor_tint(self):
+        words=palette_words((1,1,1),'Gems',1)
+        self.assertNotEqual(words[0],words[1])
+        for word in words[:2]:
+            r=word&31;g=(word>>5)&31;b=word>>10
+            self.assertGreater(b,g);self.assertGreater(g,r)
+
     def fixture(self,count=6):
         d=dict(bpm=60,track_settings=dict(trackColor='ff0000'),track_actions=[])
         c=dict(code='TEST',notes=[dict(time=float(i),frame=round(i*FPS),speed=1) for i in range(count)])

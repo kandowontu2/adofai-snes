@@ -21,7 +21,8 @@ def hold_events(data, notes):
         if config.get('holdLoopSound', 1) == 0:
             emit('HeldbeatLoopFuse', start, end)
         if config.get('holdEndSound', 1) == 0:
-            emit('HeldbeatEndFuse', end)
+            # The sample's main transient is 101 ms into the recording.
+            emit('HeldbeatEndFuse', end - .101)
         mid = config.get('holdMidSound', 2)
         if mid < 2:
             name, lead = ('Fuse', .107) if mid == 0 else ('SingSing', .212)

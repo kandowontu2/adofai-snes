@@ -180,6 +180,13 @@ def generate(out,chart,timeline,patterns):
             end=cursor+1;positions.append(len(blob));blob+=struct.pack('<HBHH',frame,kind,index,value)+data
         cursor=end
     positions.append(len(blob));blob+=struct.pack('<HBHH',65535,255,0,0)
+    if mode7 and n in (66,71):
+        # Long moving hold paths otherwise send each short map row as a
+        # separate CPU job. Preserve order and checkpoint entry positions.
+        from animation_map_batch import batch
+        blob,mapping=batch(blob,chart)
+        positions=[mapping[p] for p in positions]
+        chart['map_batch_format']=1
     (out/f'animation{n}.bin').write_bytes(blob)
     state=[0]*cells;alpha=[3]*count;xs=[x['x']+(x.get('position_track_offset',[0,0])[0] if not x.get('stick_to_floor',True) else 0) for x in chart['notes']];ys=[x['y']+(x.get('position_track_offset',[0,0])[1] if not x.get('stick_to_floor',True) else 0) for x in chart['notes']];chr_slots=[0]*(256 if mode7 else 1024);cursor=0;zoom=inverse=256;palette=[0]*96;camera_x=camera_y=256;rotation_c=256;rotation_s=rotation_phase=0;projection_c=256;projection_s=0;raster_shift=0
     origin_x=origin_y=0

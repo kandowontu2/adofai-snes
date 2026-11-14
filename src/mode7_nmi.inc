@@ -48,6 +48,12 @@ mode7_prime_hdma:
     sta M7_HDMA_DISPLAY
     ldx #.loword(hdma_mode7_inset)
 :
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    beq :+
+    ldx #.loword(hdma_mode1)
+:
+.endif
     stx $4362
     ldx #M7_HDMA_DISPLAY
     bra @pointer
@@ -61,7 +67,11 @@ mode7_prime_hdma:
 .ifdef SA1_BUILD
 .segment "FASTNMI"
 .endif
+.ifdef SA1_MODE1_BUILD
+mode7_commit_map_native:
+.else
 mode7_commit_map:
+.endif
     stz pattern_skip_hud
 .ifdef SA1_BUILD
     lda f:M7_FORCE_SKIP_HUD
@@ -79,6 +89,16 @@ mode7_commit_map:
 :
     lda m7_row_count
     jeq @done
+.ifdef SA1_STREAM_BUILD
+    ; Packet charts already have staged row spans. DMA even short spans:
+    ; the old per-byte dispatch costs more than a short DMA in a dense frame.
+    lda f:STREAM_ENABLED
+    beq :+
+    lda m7_row_count
+    jmp mode7_commit_wrapped_rows
+:
+    lda m7_row_count
+.endif
 .ifdef ROM_WRAP_MAP
     ldx selected_level
     cpx #ROM_PATTERN_LEVEL
@@ -109,8 +129,7 @@ mode7_commit_map:
     clc
     adc #.loword(M7_STAGE_MAP)
     sta $4302
-    lda #$C001
-    sta $420B
+    start_dma 1
     bra @span_done
 @direct:
     sta pattern_raw
@@ -209,12 +228,12 @@ mode7_commit_wrapped_rows:
 @row:
     lda f:M7_DMA_LIST,x
     sta $2116
+    and #M7_STAGE_MASK
     ora #.loword(M7_STAGE_MAP)
     sta $4302
     lda f:M7_DMA_LIST+2,x
     sta $4305
-    lda #$C001
-    sta $420B
+    start_dma 1
     inx
     inx
     inx
@@ -230,7 +249,11 @@ mode7_commit_wrapped_rows:
     rts
 .endif
 
+.ifdef SA1_MODE1_BUILD
+mode7_commit_patterns_native:
+.else
 mode7_commit_patterns:
+.endif
     lda display_state
     cmp #2
     bne :+
@@ -238,7 +261,7 @@ mode7_commit_patterns:
 :
     lda pattern_queue_count
     sta pattern_dma_index
-    beq @done
+    jeq @done
     lda #1
     sta f:M7_HASH_DIRTY
     lda pattern_dma_index
@@ -273,17 +296,18 @@ mode7_commit_patterns:
     lda f:M7_PATTERN_RUN_COUNT
     tay
     beq @done
+    jsl mode7_pattern_source
+    sta pattern_dma_index
     ldx #0
 @run:
     lda f:M7_PATTERN_RUNS,x
     sta $2116
     clc
-    adc #.loword(M7_PATTERN_STAGE)
+    adc pattern_dma_index
     sta $4352
     lda f:M7_PATTERN_RUNS+2,x
     sta $4355
-    lda #$C020
-    sta $420B
+    start_dma 32
     inx
     inx
     inx
@@ -306,8 +330,7 @@ mode7_commit_patterns:
     sta $4352
     lda f:PATTERN_QUEUE+6,x
     sta $4355
-    lda #$C020
-    sta $420B
+    start_dma 32
     phx
     lda f:PATTERN_QUEUE+8,x
     pha
@@ -457,6 +480,14 @@ mode7_commit_camera:
     rep #$20
     .a16
 .ifdef SA1_BUILD
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    cmp #2
+    bcc :+
+    lda #0
+    bra @bg_scroll_x
+:
+.endif
     lda f:M7_STAGE_BASE_X
     asl a
     asl a
@@ -469,6 +500,7 @@ mode7_commit_camera:
     lda cam_x
     and #511
 .endif
+@bg_scroll_x:
     sep #$20
     .a8
     sta $210D
@@ -477,6 +509,14 @@ mode7_commit_camera:
     rep #$20
     .a16
 .ifdef SA1_BUILD
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    cmp #2
+    bcc :+
+    lda #0
+    bra @bg_scroll_y
+:
+.endif
     lda f:M7_STAGE_BASE_Y
     asl a
     asl a
@@ -494,6 +534,7 @@ mode7_commit_camera:
     sec
     sbc #33
 .endif
+@bg_scroll_y:
     sep #$20
     .a8
     sta $210E
@@ -570,3 +611,25 @@ mode7_commit_camera:
     rep #$20
     .a16
     rts
+
+.ifdef SA1_BUILD
+.segment "CAMERA"
+mode7_pattern_source:
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq @staged
+    lda f:NATIVE_READY
+    beq @staged
+    lda f:STREAM_PAGE
+    bne @staged
+    lda f:M7_IDENTITY_MODE
+    beq @staged
+    .assert .bankbyte(STREAM_CHR) = .bankbyte(M7_PATTERN_STAGE), error, "Direct pattern DMA requires a shared source bank"
+    lda #.loword(STREAM_CHR)
+    rtl
+@staged:
+.endif
+    lda #.loword(M7_PATTERN_STAGE)
+    rtl
+.segment "CODE"
+.endif

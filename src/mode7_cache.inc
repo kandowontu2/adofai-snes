@@ -58,6 +58,12 @@ mode7_cache_reset:
     rts
 
 mode7_cache_commit:
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    beq :+
+    rts
+:
+.endif
 .ifdef SA1_WORKER
     jsr worker_commit_tags
     jsr worker_spill_commit
@@ -123,6 +129,14 @@ mode7_cache_prepare:
     inx
     cpx #256
     bcc @private_masks
+    ldx #0
+@private_spill:
+    sta f:SPILL_LOGICAL,x
+    inx
+    inx
+    cpx #256
+    bcc @private_spill
+
     phb
     lda #255
     ldx #$F000
@@ -147,6 +161,7 @@ mode7_cache_prepare:
     sta f:M7_STAGE_FORCE
 .ifdef SA1_WORKER
     sta M7_MAP_PREPARED
+    sta M7_BULK_ROWS
     sta M7_ROW_CODE_VALID
     sta NATIVE_ROW_UNDO
     sta f:M7_FORCE_SKIP_HUD
@@ -220,6 +235,19 @@ mode7_cache_prepare:
 @pool_changed:
     lda #1
     sta f:M7_MASKS_CHANGED
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    lda f:STREAM_ENABLED
+    beq @ordinary_pool
+    jsr mode7_cache_fixed_prepare
+    lda f:M7_CACHE_ATOMIC
+    cmp f:M7_UPLOAD_LIMIT
+    bcc @stream_fixed
+    beq @stream_fixed
+    jmp @versioned
+@stream_fixed:
+    jmp @retained
+@ordinary_pool:
+.endif
 .if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
     lda selected_level
     cmp #ROM_PATTERN_LEVEL
@@ -244,6 +272,9 @@ mode7_cache_prepare:
     sta f:M7_POOL_DIRTY
     jmp @map
 @versioned:
+.if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
+    jsr worker_cache_code
+.endif
     lda #0
     sta f:M7_IDENTITY_MODE
     lda #6
@@ -585,10 +616,17 @@ mode7_cache_prepare:
 .endif
     jcc @logical
 @retained:
+
 .if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_NO_SPILL)
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    bne @measure_map_budget
+.endif
     lda selected_level
     cmp #ROM_PATTERN_LEVEL
     bne @ordinary_budget
+@measure_map_budget:
+    jsr worker_bulk_row_budget
     ; Resolve the map before budgeting tile DMA. Zoomed views need not
     ; transfer their entire bounding rectangle when most cells are blank.
 .ifdef ROM_WRAP_MAP
@@ -605,10 +643,27 @@ mode7_cache_prepare:
     clc
     adc m7_row_span
     sta scratch
-    lda #3950
+.ifdef SA1_STREAM_BUILD
+    jsr worker_stream_spill_cost
+    clc
+    adc scratch
+    sta scratch
+.endif
+ .ifdef NEO_BUILD
+    lda f:EARLY_DMA_ENABLE
+    beq :+
+    lda #7800
+    bra @blank_budget
+:
+ .endif
+    lda #4800
+@blank_budget:
     sec
     sbc scratch
     bcc @minimum_budget
+.ifdef SA1_STREAM_BUILD
+    sta f:STREAM_DELTA_BUDGET
+.endif
     ldx #0
 @budget_pattern:
     cmp #120
@@ -616,13 +671,16 @@ mode7_cache_prepare:
     sec
     sbc #120
     inx
-    cpx #40
+    cpx #64
     bcc @budget_pattern
 @budget_counted:
     txa
     bra @dynamic_budget
 @minimum_budget:
     lda #0
+.ifdef SA1_STREAM_BUILD
+    sta f:STREAM_DELTA_BUDGET
+.endif
 @dynamic_budget:
     sta M7_CACHE_BUDGET
     lda f:M7_CACHE_REMAIN
@@ -643,7 +701,7 @@ mode7_cache_prepare:
 .else
     cmp #17
 .endif
-    bcc :+
+    bcc @batches
     ; Borrow the HUD DMA allocation for a dense atomic transition. The
     ; published track and planets still change together in VBlank.
 .ifdef SA1_BUILD
@@ -661,15 +719,38 @@ mode7_cache_prepare:
     ; Forty scattered CHR runs plus map/palette DMA exceed VBlank.
     ; Reserve room for the rest of the atomic scene commit.
     lda #32
+
 @budget_ready:
 .else
     lda #20
 .endif
     sta M7_CACHE_BUDGET
-:
     ; Sixteen scattered patterns plus a full visible map fit VBlank. A
     ; larger scene is prefetched over held frames, retaining its old map.
 @batches:
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    ; Small updates already fit the conservative count budget. Avoid a
+    ; second pass over all visible slots on the common one-frame path.
+    lda f:M7_CACHE_REMAIN
+    cmp M7_CACHE_BUDGET
+    bcc :+
+    beq :+
+    jsr worker_stream_fits
+    bcc :+
+    lda M7_CACHE_BUDGET
+    pha
+    lda f:M7_CACHE_REMAIN
+    sta M7_CACHE_BUDGET
+    lda #1
+    sta M7_CACHE_FINAL
+    jsr mode7_cache_queue
+    pla
+    sta M7_CACHE_BUDGET
+    lda #0
+    sta f:M7_POOL_DIRTY
+    jmp @map
+:
+.endif
     lda #9
     sta profile_phase
 .ifdef SA1_WORKER
@@ -693,7 +774,11 @@ mode7_cache_prepare:
     lda M7_CACHE_BUDGET
     pha
     lda #40
+
     sta M7_CACHE_BUDGET
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    jsr worker_stream_held_budget
+.endif
 .endif
     jsr mode7_cache_queue
 .ifdef SA1_BUILD
@@ -757,6 +842,30 @@ mode7_cache_prepare:
     sta f:M7_CACHE_ERRORS
     bra @abort
 @transition_defer:
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD) .and .defined(ROM_WRAP_MAP)
+    ; Fixed-slot admission precedes the exact map DMA budget. If map work
+    ; makes its atomic texture set too large, retry with movable slots now;
+    ; deferring the same physical overlap can freeze presentation indefinitely.
+    lda f:STREAM_ENABLED
+    beq @really_defer
+    lda f:M7_IDENTITY_MODE
+    beq @really_defer
+    lda NATIVE_ROW_UNDO
+    beq @retry_versioned
+    lda m7_row_count
+    beq @retry_versioned
+    jsr worker_undo_rows
+@retry_versioned:
+    stz M7_MAP_PREPARED
+    stz M7_BULK_ROWS
+    stz M7_ROW_CODE_VALID
+    stz m7_row_count
+    stz m7_row_span
+    lda #1
+    sta f:M7_STAGE_FORCE
+    jmp @versioned
+@really_defer:
+.endif
     ; Both displayed and replacement scenes fit individually. If their
     ; overlap needs more atomic uploads than VBlank permits, retain the
     ; verified old scene and try the next song-clock frame.
@@ -839,17 +948,23 @@ mode7_cache_prepare:
     rts
 
 mode7_cache_queue:
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    lda f:STREAM_ENABLED
+    beq :+
+    lda f:M7_IDENTITY_MODE
+    beq :+
+    jmp mode7_cache_fixed_queue
+:
+.endif
     stz pattern_queue_count
     stz m7_upload_slots
     lda f:M7_CACHE_REMAIN
     bne :+
     rts
 :
-    lda #0
-    sta M7_CACHE_ACTIVE_CURSOR
+    ldy #0
 @slot:
-    lda M7_CACHE_ACTIVE_CURSOR
-    tax
+    tyx
     lda f:M7_VISIBLE_LIST,x
     and #255
     sta pattern_hi
@@ -871,17 +986,19 @@ mode7_cache_queue:
     lda M7_LOGICAL_TO_PPU,x
     and #255
     sta M7_CACHE_PHYSICAL
+    phy
     jsr mode7_queue_slot
+    ply
     lda f:M7_CACHE_REMAIN
     dec a
     sta f:M7_CACHE_REMAIN
+    beq @done
     lda m7_upload_slots
     cmp M7_CACHE_BUDGET
     bcs @done
 @next:
-    lda M7_CACHE_ACTIVE_CURSOR
-    inc a
-    sta M7_CACHE_ACTIVE_CURSOR
+    iny
+    tya
     cmp f:M7_CACHE_ACTIVE_COUNT
     jcc @slot
 @done:
@@ -914,6 +1031,23 @@ mode7_queue_slot:
     sta transfer_wbank
     bra @source_ready
 @wram_source:
+.endif
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    lda f:STREAM_ENABLED
+    beq @normal_pattern_source
+    lda f:NATIVE_READY
+    beq @normal_pattern_source
+    lda pattern_hi
+    .repeat 6
+    asl a
+    .endrepeat
+    clc
+    adc #.loword(STREAM_CHR)
+    sta transfer_dest
+    lda #(.bankbyte(STREAM_CHR)-$7E)&$FFFF
+    sta transfer_wbank
+    bra @source_ready
+@normal_pattern_source:
 .endif
     lda pattern_hi
     jsr mode7_pattern_destination
@@ -1089,36 +1223,62 @@ mode7_cache_identity:
 ; leaves the previous scene intact. Keep the general allocator for later
 ; sections with simultaneous reuse of many displayed slots.
 mode7_cache_fixed_prepare:
+.ifdef SA1_WRAM_RENDERER
+    lda M7_CACHE_CODE_VALID
+    cmp #3
+    beq @loaded
+    phb
+    lda #__HOTFIXED_SIZE__-1
+    ldx #__HOTFIXED_LOAD__
+    ldy #__HOTFIXED_RUN__
+    mvn #$01,#$00
+    plb
+    lda #3
+    sta M7_CACHE_CODE_VALID
+@loaded:
+    jmp mode7_cache_fixed_kernel
+.segment "HOTFIXED"
+mode7_cache_fixed_kernel:
+.endif
     lda f:M7_IDENTITY_MODE
     bne :+
     lda #1
     sta f:M7_STAGE_FORCE
+    ldx #0
+    sep #$20
+    .a8
+@identity:
+    txa
+    sta M7_LOGICAL_TO_PPU,x
+    inx
+    cpx #256
+    bcc @identity
+    rep #$20
+    .a16
 :
     lda #1
     sta f:M7_IDENTITY_MODE
     lda #0
     sta f:M7_CACHE_REMAIN
     sta f:M7_CACHE_ATOMIC
+    sta f:M7_DIRECT_COUNT
     ldx #0
-    sep #$20
-    .a8
 @clear:
+    .repeat 8, word
+    sta M7_NEW_VISIBLE+word*2,x
+    sta M7_PATTERN_SELECTED+word*2,x
+    sta f:M7_VISIBLE_PATTERNS+word*2,x
+    .endrepeat
     txa
-    sta M7_LOGICAL_TO_PPU,x
+    clc
+    adc #16
+    tax
     lda #0
-    sta M7_NEW_VISIBLE,x
-    sta M7_PATTERN_SELECTED,x
-    sta f:M7_VISIBLE_PATTERNS,x
-    inx
     cpx #256
     bcc @clear
-    rep #$20
-    .a16
-    lda #0
-    sta M7_CACHE_ACTIVE_CURSOR
+    ldy #0
 @active:
-    lda M7_CACHE_ACTIVE_CURSOR
-    tax
+    tyx
     lda f:M7_VISIBLE_LIST,x
     and #255
     sta pattern_hi
@@ -1136,6 +1296,17 @@ mode7_cache_fixed_prepare:
     lda f:PATTERN_CURRENT,x
     cmp f:M7_PATTERN_VRAM,x
     beq @next
+    lda f:M7_DIRECT_COUNT
+    tax
+    lda pattern_hi
+    sep #$20
+    .a8
+    sta f:M7_DIRECT_LIST,x
+    rep #$20
+    .a16
+    txa
+    inc a
+    sta f:M7_DIRECT_COUNT
     lda f:M7_CACHE_REMAIN
     inc a
     sta f:M7_CACHE_REMAIN
@@ -1157,17 +1328,83 @@ mode7_cache_fixed_prepare:
     rep #$20
     .a16
 @next:
-    lda M7_CACHE_ACTIVE_CURSOR
-    inc a
-    sta M7_CACHE_ACTIVE_CURSOR
+    iny
+    tya
     cmp f:M7_CACHE_ACTIVE_COUNT
     bcc @active
+    rts
+.ifdef SA1_WRAM_RENDERER
+.segment "CODE"
+.endif
+.endif
+
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+; Fixed preparation already found the missing slots. Queue that short list
+; rather than searching the complete visible set again for every batch.
+mode7_cache_fixed_queue:
+    stz pattern_queue_count
+    stz m7_upload_slots
+    lda f:M7_CACHE_REMAIN
+    beq @done
+    ldy #0
+@slot:
+    tyx
+    lda f:M7_DIRECT_LIST,x
+    and #255
+    sta pattern_hi
+    sta M7_CACHE_PHYSICAL
+    tax
+    lda M7_PATTERN_SELECTED,x
+    and #255
+    beq @next
+    cmp #2
+    bne @add
+    lda M7_CACHE_FINAL
+    beq @next
+@add:
+    sep #$20
+    .a8
+    lda #0
+    sta M7_PATTERN_SELECTED,x
+    rep #$20
+    .a16
+    phy
+    jsr mode7_queue_slot
+    ply
+    lda f:M7_CACHE_REMAIN
+    dec a
+    sta f:M7_CACHE_REMAIN
+    beq @done
+    lda m7_upload_slots
+    cmp M7_CACHE_BUDGET
+    bcs @done
+@next:
+    iny
+    tya
+    cmp f:M7_DIRECT_COUNT
+    bcc @slot
+@done:
     rts
 .endif
 
 ; Use spare transfer capacity to fill future compiler slots while their
 ; physical cells are absent from both displayed and staged scenes.
 mode7_cache_future:
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    lda f:STREAM_DELTA_FLAGS
+    bpl :+
+    lda f:STREAM_ENABLED
+    beq :+
+    lda f:STREAM_PAGE
+    bne :+
+    lda f:M7_IDENTITY_MODE
+    beq :+
+    lda f:NATIVE_READY
+    beq :+
+    jmp worker_delta_future
+:
+.endif
+
 .if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
     lda selected_level
     cmp #ROM_PATTERN_LEVEL
@@ -1192,43 +1429,61 @@ mode7_cache_future:
     jmp worker_prefetch_bitmaps
 :
 .endif
-    lda #0
-    sta f:M7_PREFETCH_SCANNED
+    lda f:M7_PREFETCH_CURSOR
+    tax
+    ldy #64
 @slot:
     lda m7_upload_slots
 .ifdef SA1_BUILD
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    pha
+    lda f:STREAM_ENABLED
+    beq @ordinary_future_limit
+    pla
+    cmp M7_CACHE_BUDGET
+    bra @future_limit_checked
+@ordinary_future_limit:
+    pla
+.endif
     cmp f:M7_UPLOAD_LIMIT
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+@future_limit_checked:
+.endif
 .else
     cmp #16
 .endif
     jcs @done
-    lda f:M7_PREFETCH_CURSOR
+    txa
     inc a
     and #255
-    sta f:M7_PREFETCH_CURSOR
-    sta pattern_hi
     tax
     lda M7_NEW_VISIBLE,x
     ora M7_OLD_VISIBLE,x
     and #255
     bne @next
+    phx
     txa
     asl a
     tax
     lda f:PATTERN_CURRENT,x
-    beq @next
+    beq @restore
     cmp f:M7_PATTERN_VRAM,x
-    beq @next
-    lda pattern_hi
+    beq @restore
+    pla
+    pha
+    sta pattern_hi
     sta M7_CACHE_PHYSICAL
+    phy
     jsr mode7_queue_slot
+    ply
+@restore:
+    plx
 @next:
-    lda f:M7_PREFETCH_SCANNED
-    inc a
-    sta f:M7_PREFETCH_SCANNED
-    cmp #64
-    jcc @slot
+    dey
+    jne @slot
 @done:
+    txa
+    sta f:M7_PREFETCH_CURSOR
     rts
 
 .if .defined(SA1_WORKER) .and .defined(ROM_DIRECT_UNTIL)
@@ -1270,6 +1525,12 @@ mode7_cache_fixed_future:
 ; this lookup repeated shapes were uploaded again into new physical slots,
 ; wasting VBlank time and overflowing old/new scene residency at speed.
 mode7_cache_hash:
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    lda f:STREAM_ENABLED
+    beq :+
+    jmp worker_rom_hash
+:
+.endif
 .if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
     lda selected_level
     cmp #ROM_PATTERN_LEVEL
@@ -1322,6 +1583,15 @@ mode7_cache_hash:
     rts
 
 mode7_cache_find:
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    pha
+    lda f:STREAM_ENABLED
+    beq :+
+    pla
+    jmp worker_rom_find
+:
+    pla
+.endif
 .if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_COUNT)
     pha
     lda selected_level
@@ -1603,6 +1873,19 @@ mode7_cache_sparse_map:
     sbc f:M7_STAGE_FIRST
     sta transfer_len
 @copy:
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    lda M7_BULK_ROWS
+    cmp #2
+    bne @copy_measured
+    lda transfer_len
+    clc
+    adc #64
+    clc
+    adc m7_row_span
+    sta m7_row_span
+    jmp @next
+@copy_measured:
+.endif
     lda view_y
     and #127
     .repeat 7
@@ -1710,11 +1993,29 @@ mode7_cache_sparse_map:
     jcc @next
     jmp @copied
 @ordinary_copy:
+    ; Short scalar/identity rows also need rollback, but copying their
+    ; few old bytes directly is cheaper than two IRAM DMA round trips.
+    lda NATIVE_ROW_UNDO
+    beq :+
+    lda transfer_len
+    cmp #16
+    bcs :+
+    jsr worker_save_short_row
+:
 .endif
 .if .defined(SA1_WORKER) .and .defined(ROM_DIRECT_UNTIL)
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq :+
+    lda M7_BULK_ROWS
+    bne @skip_direct_row
+    bra @direct_row_allowed
+:
+.endif
     lda selected_level
     cmp #ROM_PATTERN_LEVEL
     bne @skip_direct_row
+@direct_row_allowed:
     lda f:M7_IDENTITY_MODE
     beq @skip_direct_row
     lda transfer_len
@@ -1731,9 +2032,16 @@ mode7_cache_sparse_map:
     ; Wide zoomed views contain mostly empty cells. Copying every row on
     ; an origin change can overrun VBlank even with only one new pattern.
     ; Compare the staged physical map and upload only changed row spans.
+.ifdef SA1_STREAM_BUILD
+    lda M7_BULK_ROWS
+    bne @bulk_identity_copy
+.endif
     lda f:M7_VIEW_H
     cmp #32
     bcs @translate
+.ifdef SA1_STREAM_BUILD
+@bulk_identity_copy:
+.endif
 .endif
     tya
     sta map_left
@@ -1771,9 +2079,14 @@ mode7_cache_sparse_map:
     jmp @copied
 @translate:
 .if .defined(SA1_WORKER) .and .defined(ROM_PATTERN_NO_SPILL)
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    bne @accelerated_row_allowed
+.endif
     lda selected_level
     cmp #ROM_PATTERN_LEVEL
     bne @skip_accel_row
+@accelerated_row_allowed:
     lda transfer_len
     cmp #16
     bcc @skip_accel_row
@@ -1914,6 +2227,11 @@ mode7_cache_sparse_map:
     inc view_y
     dec view_rows
     jne @row
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+    lda M7_BULK_ROWS
+    cmp #2
+    beq @measured_rows_done
+.endif
     lda #0
     ldx #0
 @clean:
@@ -1922,6 +2240,9 @@ mode7_cache_sparse_map:
     inx
     cpx #128
     bcc @clean
+.if .defined(SA1_WORKER) .and .defined(SA1_STREAM_BUILD)
+@measured_rows_done:
+.endif
     rts
 
 mode7_cache_stage_span:

@@ -187,10 +187,24 @@ mode7_rotation_bounds:
     ; VBlank for their per-span setup even when all eight slots are dirty.
     lda #10
 @limit:
+.ifdef SA1_STREAM_BUILD
+    pha
+    lda f:STREAM_ENABLED
+    beq :+
+    lda f:M7_VIEW_H
+    cmp #21
+    bcs :+
+    pla
+    lda #32
+    bra @stream_limit
+:
+    pla
+@stream_limit:
+.endif
     sta f:M7_UPLOAD_LIMIT
     rtl
 
-.segment "FASTWRAM"
+.segment "CAMERA"
 mode7_rotate_project:
     lda floor_x
     sec
@@ -216,6 +230,12 @@ mode7_rotate_project:
 :
     cmp project_limit_y
     jcs @hidden
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq :+
+    jml camera_cpu_project
+:
+.endif
     lda #0
     sta f:SA1_DONE
     lda #2
@@ -243,6 +263,135 @@ mode7_rotate_project:
     sta sprite_x
     sta sprite_y
     rtl
+
+.segment "CAMERA"
+; Keep the SA-1 cache job running while the CPU projects the two planets.
+; Products use the independent SNES multiplier and the same signed 8.8
+; rounding as worker_multiply. No map/texture state is touched here.
+camera_cpu_project:
+    lda f:M7_PROJECT_COS
+    tax
+    lda f:ROT_X
+    jsr camera_cpu_multiply
+    sta sprite_x
+    lda f:M7_PROJECT_SIN
+    tax
+    lda f:ROT_Y
+    jsr camera_cpu_multiply
+    eor #$FFFF
+    inc a
+    clc
+    adc sprite_x
+    clc
+    adc #120
+    sta sprite_x
+    lda f:M7_PROJECT_SIN
+    tax
+    lda f:ROT_X
+    jsr camera_cpu_multiply
+    sta sprite_y
+    lda f:M7_PROJECT_COS
+    tax
+    lda f:ROT_Y
+    jsr camera_cpu_multiply
+    clc
+    adc sprite_y
+    clc
+    adc #96
+    sta sprite_y
+    rtl
+
+camera_cpu_multiply:
+    sta scratch
+    stx scratch2
+    sep #$20
+    .a8
+    lda scratch
+    sta $4202
+    lda scratch2
+    sta $4203
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4216
+    clc
+    adc #128
+    xba
+    and #255
+    sta mul_product
+    sep #$20
+    .a8
+    lda scratch2+1
+    sta $4203
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4216
+    clc
+    adc mul_product
+    sta mul_product
+    sep #$20
+    .a8
+    lda scratch+1
+    sta $4202
+    lda scratch2
+    sta $4203
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4216
+    clc
+    adc mul_product
+    sta mul_product
+    sep #$20
+    .a8
+    lda scratch2+1
+    sta $4203
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4216
+    xba
+    and #$FF00
+    clc
+    adc mul_product
+    sta mul_product
+    lda scratch
+    bpl :+
+    lda scratch2
+    xba
+    and #$FF00
+    eor #$FFFF
+    inc a
+    clc
+    adc mul_product
+    sta mul_product
+:
+    lda scratch2
+    bpl :+
+    lda scratch
+    xba
+    and #$FF00
+    eor #$FFFF
+    inc a
+    clc
+    adc mul_product
+    sta mul_product
+:
+    lda mul_product
+    rts
 
 ; Signed small world-space offsets, scaled independently of cache jobs.
 ; NMI never uses the SNES multiplier; SA-1 owns its separate multiplier.

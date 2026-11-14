@@ -79,6 +79,21 @@ class Readability(unittest.TestCase):
 
 
 class SpinShapes(unittest.TestCase):
+    def test_shared_contour_does_not_merge_crossing_surfaces(self):
+        notes=[dict(x=64,y=64,entry_angle=math.pi,exit_angle=0,frame=0),
+               dict(x=64,y=64,entry_angle=-math.pi/2,exit_angle=math.pi/2,frame=10),
+               dict(x=88,y=64,exit_angle=0,frame=20)]
+        c=dict(id=77,code='CROSSING',notes=notes,mode7=True,authored_visibility=True,
+               shared_track_contour=True,map_offset_shift=2)
+        raw,compressed,_=animated_track(c,[3]*3,{})
+        read=map_reader(compressed,c['map_height'],2)
+        def pixel(x,y):return raw[read(x//8,y//8)*64+(y%8)*8+x%8]
+        # The foreground horizontal floor has an unbroken one-pixel edge
+        # across the lower vertical floor, and no hidden edge through its fill.
+        for x in range(59,70):self.assertEqual(pixel(x,57),35)
+        self.assertEqual(pixel(64,64),33)
+        self.assertEqual(pixel(64,65),33)
+
     def test_shared_outline_preserves_connected_step_boundaries(self):
         notes=[dict(x=64+24*i,y=64,exit_angle=0,frame=10*i) for i in range(4)]
         c=dict(id=77,code='SEAMS',notes=notes,mode7=True,authored_visibility=True,
@@ -139,6 +154,13 @@ class SpinShapes(unittest.TestCase):
             q=dict(x=131-round(24*math.cos(angle)),y=149-round(24*math.sin(angle)))
             x,y,im=piece([q,p,q],1)
             self.assertTrue(im.getpixel((131-x,149-y)))
+
+    def test_diagonal_connector_preserves_pointed_outer_corner(self):
+        notes=[dict(x=76,y=100,exit_angle=0),
+               dict(x=100,y=100,entry_angle=math.pi,exit_angle=math.pi/4),
+               dict(x=117,y=117,spin_kind='midspin')]
+        x,y,im=piece(notes,1)
+        self.assertTrue(im.getpixel((103-x,93-y)))
 
     def test_compiler_distinguishes_full_turn_from_automatic_midspin(self):
         floors=[dict(seqID=i,entryangle=math.pi*1.5,exitangle=math.pi*.5,speed=1.,isCCW=0,

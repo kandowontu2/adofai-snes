@@ -1,33 +1,10 @@
-; Keep the visual landing state tied to accepted inputs. An early hit may
-; light its floor immediately; a late hit must not light the next floor yet.
+; Authored camera, tile motion and disappearance events follow the musical
+; clock. Clamping the whole stream at the next unhit note pauses the world
+; on every late manual tap, even while complete frames are being published.
+; Accepted inputs still control step, planet pivots, judgments and hit marks.
 mode7_landing_time:
     lda chart_time
     sta f:M7_RENDER_TIME
-    lda checkpoint_preroll
-    bne @done
-    lda step
-    asl a
-    tax
-    lda f:NOTE_TIME,x
-    cmp f:M7_RENDER_TIME
-    bcc @next
-    sta f:M7_RENDER_TIME
-@next:
-    lda step
-    cmp last_note
-    bcs @done
-    inx
-    inx
-    lda f:NOTE_TIME,x
-    cmp f:M7_RENDER_TIME
-    beq @limit
-    bcs @done
-@limit:
-    cmp #0
-    beq @done
-    dec a
-    sta f:M7_RENDER_TIME
-@done:
     rts
 
 ; MSU animation format 9: byte cell states, translated floors, authored
@@ -183,6 +160,17 @@ animation_read_xy:
     rts
 
 update_pattern_cache:
+.ifdef SA1_STREAM_BUILD
+    lda animation_mode
+    bne :+
+    lda state
+    cmp #1
+    bne :+
+    lda f:STREAM_ENABLED
+    beq :+
+    jmp stream_animation_update
+:
+.endif
 .ifdef ROM_NATIVE_ADDR
     lda animation_mode
     bne :+
@@ -1167,6 +1155,9 @@ reset_pattern_epoch:
 restore_pattern_cache:
 .endif
 restore_pattern_cache:
+.ifdef NEO_BUILD
+    jsl early_dma_suspend
+.endif
     lda #256
 .ifdef ROM_NATIVE_ADDR
     pha
@@ -1453,6 +1444,19 @@ mode7_finish_snapshot:
     rep #$20
     .a16
     jsr mode7_upload_chr
+.ifdef SA1_STREAM_BUILD
+    ; The deferred snapshot upload replaces IDs after the first animation
+    ; seed. Reseed on the next frame, from this completed checkpoint state.
+    lda f:STREAM_ENABLED
+    beq :+
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    bne :+
+.endif
+    lda #0
+    sta f:NATIVE_READY
+:
+.endif
     stz m7_snapshot_chr
     stz m7_snapshot_chr+2
     jsr reset_pattern_epoch
@@ -1545,8 +1549,7 @@ bitmap_prefetch_read:
     .a16
     lda #64
     sta $4345
-    lda #$C010
-    sta $420B
+    start_dma 16
     lda #64
     jsr animation_advance
     stz msu_data_busy
@@ -1714,8 +1717,7 @@ animation_sparse_cells:
     sta $4342
     lda transfer_len
     sta $4345
-    lda #$C010
-    sta $420B
+    start_dma 16
     lda animation_index
     sta a:SA1_LOCAL_EVENTS
     lda #0
@@ -1780,8 +1782,7 @@ animation_symbol_set:
     sta $4342
     lda transfer_len
     sta $4345
-    lda #$C010
-    sta $420B
+    start_dma 16
     lda transfer_len
     jsr animation_advance
     lda m7_run_index

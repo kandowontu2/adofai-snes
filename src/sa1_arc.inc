@@ -1,35 +1,49 @@
 ; Native-scale streak geometry and OAM budgeting form one bounded SA-1 job.
 ; The input budget belongs to the complete planet/track/symbol prefix.
 worker_arc:
+    phb
+    sep #$20
+    .a8
+    lda #.bankbyte(TRAIL_JOB)
+    pha
+    plb
+    rep #$20
+    .a16
+    ; Keep per-piece counters in private direct-page words. The complete
+    ; result is published once, after the bounded job has finished.
+    lda a:.loword(TRAIL_JOB+4)
+    sta map_x
+    lda a:.loword(TRAIL_JOB+8)
+    sta map_y
     lda #0
-    sta f:TRAIL_JOB+16
-    sta f:TRAIL_JOB+20
+    sta view_count
+    sta view_rows
     ldx #0
 @clear_high:
-    sta f:TRAIL_JOB_HIGH,x
+    sta a:.loword(TRAIL_JOB_HIGH),x
     inx
     inx
     cpx #32
     bcc @clear_high
 @piece:
-    lda f:TRAIL_JOB+20
+    lda view_rows
     lsr a
     clc
-    adc f:TRAIL_JOB+10
+    adc a:.loword(TRAIL_JOB+10)
     cmp #4
     jcs @done
     .repeat 4
     asl a
     .endrepeat
     sta scratch
-    lda f:TRAIL_JOB+4
+    lda map_x
     tax
     lda f:orbit_arc_tiles,x
     and #255
     clc
     adc scratch
     sta map_dest
-    lda f:TRAIL_JOB+12
+    lda a:.loword(TRAIL_JOB+12)
     asl a
     clc
     adc #$38
@@ -45,7 +59,7 @@ worker_arc:
     tax
     lda f:orbit_arc_x,x
     clc
-    adc f:TRAIL_JOB
+    adc a:.loword(TRAIL_JOB)
     sta view_x
     cmp #$FFF1
     bcs @x_ok
@@ -54,7 +68,7 @@ worker_arc:
 @x_ok:
     lda f:orbit_arc_y,x
     clc
-    adc f:TRAIL_JOB+2
+    adc a:.loword(TRAIL_JOB+2)
     sta view_y
     cmp #32
     jcc @done
@@ -73,7 +87,7 @@ worker_arc:
     lsr a
     sta scratch2
 @check:
-    lda f:TRAIL_JOB_BUDGET,x
+    lda a:.loword(TRAIL_JOB_BUDGET),x
     and #255
     cmp #33
     jcs @done
@@ -81,11 +95,11 @@ worker_arc:
     cpx scratch2
     bcc @check
     beq @check
-    lda f:TRAIL_JOB+16
+    lda view_count
     asl a
     asl a
     clc
-    adc f:TRAIL_JOB+14
+    adc a:.loword(TRAIL_JOB+14)
     cmp #512
     jcs @done
     sta map_left
@@ -93,16 +107,16 @@ worker_arc:
     sep #$20
     .a8
 @charge:
-    lda f:TRAIL_JOB_BUDGET,x
+    lda a:.loword(TRAIL_JOB_BUDGET),x
     inc a
-    sta f:TRAIL_JOB_BUDGET,x
+    sta a:.loword(TRAIL_JOB_BUDGET),x
     inx
     cpx scratch2
     bcc @charge
     beq @charge
     rep #$20
     .a16
-    lda f:TRAIL_JOB+16
+    lda view_count
     asl a
     asl a
     tax
@@ -113,9 +127,9 @@ worker_arc:
     lda view_x
     and #255
     ora scratch
-    sta f:TRAIL_JOB_OAM,x
+    sta a:.loword(TRAIL_JOB_OAM),x
     lda map_dest
-    sta f:TRAIL_JOB_OAM+2,x
+    sta a:.loword(TRAIL_JOB_OAM+2),x
     lda view_x
     bpl @added
     lda map_left
@@ -131,28 +145,37 @@ worker_arc:
     tax
     sep #$20
     .a8
-    lda f:TRAIL_JOB_HIGH,x
+    lda a:.loword(TRAIL_JOB_HIGH),x
     ora scratch
-    sta f:TRAIL_JOB_HIGH,x
+    sta a:.loword(TRAIL_JOB_HIGH),x
     rep #$20
     .a16
 @added:
-    lda f:TRAIL_JOB+16
+    lda view_count
     inc a
-    sta f:TRAIL_JOB+16
-    lda f:TRAIL_JOB+4
+    sta view_count
+    lda map_x
     clc
-    adc f:TRAIL_JOB+6
+    adc a:.loword(TRAIL_JOB+6)
     and #63
-    sta f:TRAIL_JOB+4
-    lda f:TRAIL_JOB+20
+    sta map_x
+    lda view_rows
     inc a
-    sta f:TRAIL_JOB+20
-    lda f:TRAIL_JOB+8
+    sta view_rows
+    lda map_y
     dec a
-    sta f:TRAIL_JOB+8
+    sta map_y
     jne @piece
 @done:
+    lda map_x
+    sta a:.loword(TRAIL_JOB+4)
+    lda map_y
+    sta a:.loword(TRAIL_JOB+8)
+    lda view_count
+    sta a:.loword(TRAIL_JOB+16)
+    lda view_rows
+    sta a:.loword(TRAIL_JOB+20)
+    plb
     rts
 @x_high:
     .word 1,4,16,64

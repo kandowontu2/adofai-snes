@@ -31,7 +31,7 @@ class NeoMechanicsTests(unittest.TestCase):
                   holdMidSound=1,holdMidSoundType=0,holdMidSoundTiming=1,holdMidSoundDelay=.5))
         events=hold_events(data,notes)
         self.assertEqual([(e['sound'],round(e['time'],3)) for e in events],
-                         [('HeldbeatStartFuse',1),('HeldbeatLoopFuse',1),('HeldbeatMidSingSing',1.288),('HeldbeatEndFuse',2)])
+                         [('HeldbeatStartFuse',1),('HeldbeatLoopFuse',1),('HeldbeatMidSingSing',1.288),('HeldbeatEndFuse',1.899)])
         self.assertTrue(suppress_regular_hit(notes,1))
         self.assertTrue(suppress_regular_hit(notes,2))
         self.assertFalse(suppress_regular_hit(notes,3))

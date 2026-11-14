@@ -519,6 +519,12 @@ read_audio_clock:
 .ifdef MSU_BUILD
 
 msu_audio_tick:
+.ifdef NEO_BUILD
+    ; A nested NMI must not reprogram DMA 0 underneath an early scene
+    ; upload. The IRQ tail performs this refill after all PPU work ends.
+    lda f:EARLY_IRQ_RUNNING
+    jne @done
+.endif
     lda music_active
     jeq @done
     lda msu_pcm

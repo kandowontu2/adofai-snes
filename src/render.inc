@@ -1,18 +1,32 @@
+.ifdef SA1_FASTROM_HELPERS
+.segment "FASTWRAM"
+.endif
 clear_oam:
+.ifdef SA1_STREAM_BUILD
+    lda #0
+    sta f:STREAM_SPILL_EXACT
+.endif
+    lda #512
+    sta sprite_limit
     ; Only the previous frame's appended objects need hiding. Reset seeds
     ; oam_pos with 512 so the first frame still clears every hardware object.
     lda oam_pos
-    beq @high_start
+    bne :+
+    rts
+:
     ldx #0
     lda #$E000
 @hide:
-    sta OAM,x
-    inx
-    inx
-    inx
-    inx
+    .repeat 8, OBJECT
+    sta OAM+OBJECT*4,x
+    .endrepeat
+    txa
+    clc
+    adc #32
+    tax
+    lda #$E000
     cpx oam_pos
-    bne @hide
+    bcc @hide
 @high_start:
     ldx #0
 @high:
@@ -33,6 +47,7 @@ clear_oam:
 
 ; Expand losslessly packed two-plane tiles into the PPU's four-plane format.
 ; Called during loading/forced blank; a full output bank never crosses WRAM.
+.segment "CODE"
 unpack_track_chr:
 .ifdef MSU_BUILD
     jmp mode7_unpack_chr
@@ -114,7 +129,7 @@ unpack_track_chr:
 .endif
 sprite:
     lda oam_pos
-    cmp #512
+    cmp sprite_limit
     jcs @done
     lda sprite_x
     cmp #$FFF1
@@ -173,12 +188,17 @@ sprite:
     and #255
     cmp #32
     jcc @room
+.if .defined(SA1_BUILD) .and .defined(NEO_BUILD)
+    jsl sprite_exact_room
+    bcs @charge_exact
+.endif
     rts
 @room:
     inx
     cpx budget_last
     bcc @check
     beq @check
+@charge_exact:
     ldx budget_first
     sep #$20
     .a8
@@ -300,6 +320,9 @@ render_inner:
     sta step
 @no_animation:
     jsr mode7_prepare_view
+.ifdef SA1_MODE1_BUILD
+    jsr mode1_start_frame
+.endif
 .endif
     jsr clear_oam
     lda #6
@@ -515,6 +538,16 @@ render_inner:
     sta cam_y
 .endif
 @fixed_camera:
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    beq :+
+    ; An already-running cache job bypasses build_track_view's bounds
+    ; setup. Publish the current camera to the PPU scroll workspace too.
+    jsl mode7_rotation_bounds
+    lda f:SA1_PENDING
+    bne @cache_started
+:
+.endif
 .ifdef SA1_BUILD
     ; Animation has finished mutating the map. At unit projection the CPU
     ; can build planets while SA-1 prepares the immutable track snapshot;
@@ -522,11 +555,16 @@ render_inner:
     lda state
     cmp #1
     bne @cache_started
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    bne @parallel_cache
+.endif
     lda f:M7_PROJECT_COS
     cmp #256
     bne @cache_started
     lda f:M7_PROJECT_SIN
     bne @cache_started
+@parallel_cache:
     lda #1
     sta sa1_async
     jsr build_track_view
@@ -588,6 +626,20 @@ render_inner:
     clc
     adc #$38
     sta sprite_attr
+.ifdef NEO_BUILD
+    ldx step
+    lda f:NOTE_CCW,x
+    bit #2
+    beq @pivot_color_ready
+    lda step
+    jsl neo_far_orb_roles
+    sta neo_orb_roles
+    and #6
+    clc
+    adc #$38
+    sta sprite_attr
+@pivot_color_ready:
+.endif
     jsr pivot_position
 .ifdef MSU_BUILD
     jsr mode7_draw_orb
@@ -597,6 +649,20 @@ render_inner:
     lda sprite_attr
     eor #2
     sta sprite_attr
+.ifdef NEO_BUILD
+    ldx step
+    lda f:NOTE_CCW,x
+    bit #2
+    beq @orbit_color_ready
+    lda neo_orb_roles
+    lsr a
+    lsr a
+    and #6
+    clc
+    adc #$38
+    sta sprite_attr
+@orbit_color_ready:
+.endif
 .ifdef MSU_BUILD
     jsr mode7_orbit_position
     jsr mode7_draw_orb
@@ -646,7 +712,18 @@ render_inner:
     jsr mode7_orbit_position
     lda #6
     sta sprite_tile
+.ifdef NEO_BUILD
+    lda neo_orb_roles
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    and #6
+    clc
+    adc #$38
+.else
     lda #$3C
+.endif
     sta sprite_attr
     jsr mode7_draw_orb
     pla
@@ -658,13 +735,21 @@ render_inner:
 @two_planets:
 .endif
 .ifdef SA1_BUILD
-    ; Finish the track cache before optional event markers use OBJ space.
-    ; Planets and exact track tiles take precedence over decorative OAM.
+    ; Finish the track cache before projecting event markers against it.
+    ; Publication adds symbols, exact track cells, then optional trails.
     lda state
     cmp #1
     bne render_symbols
     rts
 render_symbols:
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    cmp #1
+    bne :+
+    jsr mode1_render_symbols
+    jmp @portal
+:
+.endif
     stz object_small
     jsr symbol_world_bounds
     jsr sa1_symbols
@@ -798,7 +883,7 @@ render_symbols:
     bra @neo_special_icon
 @not_hold_icon:
     cpx #0
-    beq @pause_icon
+    beq @checkpoint
     lda f:NOTE_PAUSE-2,x
     bpl @not_release_icon
     lda render_i
@@ -815,6 +900,12 @@ render_symbols:
     sta sprite_tile
     stx sprite_attr
     jsr render_symbol_position
+    ; The extended-hold CHR occupies x=2..11; center its ink on the tile.
+    lda sprite_tile
+    cmp #106
+    bne :+
+    inc sprite_x
+:
     jsr sprite
     jmp @checkpoint
 @not_release_icon:
@@ -822,7 +913,7 @@ render_symbols:
     lda f:NOTE_CCW,x
     eor f:NOTE_CCW-1,x
     and #2
-    beq @pause_icon
+    beq @checkpoint
     lda f:NOTE_CCW,x
     and #2
     beq @two_planet_icon
@@ -831,15 +922,13 @@ render_symbols:
 @two_planet_icon:
     lda #72
     bra @special_icon
-@pause_icon:
-.endif
-    lda #72
 @special_icon:
     sta sprite_tile
     lda #$36
     sta sprite_attr
     jsr render_symbol_position
     jsr sprite
+.endif
 @checkpoint:
     lda time_attack
     jne @next
@@ -906,6 +995,16 @@ render_symbols:
     sta sprite_attr
     jsr sprite
 @hidden_portal:
+.if .defined(MSU_BUILD) .and .defined(SA1_BUILD)
+    ; Earlier OAM entries win OBJ-to-OBJ priority, even when their BG
+    ; priority is lower. Keep cache tiles behind symbols, and finish this
+    ; SA-1 job BEFORE draw_trails launches the parallel cache preparation.
+    lda state
+    cmp #1
+    bne :+
+    jsr spill_after_symbols
+:
+.endif
     ; All projected symbols must finish before draw_trails starts the
     ; parallel SA-1 cache job. The end portal can be visible far ahead.
     jmp draw_trails

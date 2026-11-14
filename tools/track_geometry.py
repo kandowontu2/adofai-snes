@@ -8,9 +8,29 @@ from PIL import Image,ImageDraw
 
 STYLE=json.loads((Path(__file__).resolve().parents[1]/"assets/graphics/track-shapes.json").read_text())
 
+def gem_piece(note,rotation,scale):
+    """Two-tone faceted Gems platform; 128 marks its bright facets."""
+    outer=np.array(STYLE['gem_platform_polygon'],dtype=float)
+    inner=outer*STYLE['gem_platform_inset']
+    a=-math.radians(rotation);c,s=math.cos(a),math.sin(a)
+    matrix=np.array(((c,-s),(s,c)))
+    outer=np.round((outer@matrix.T)*scale).astype(int)
+    inner=np.round((inner@matrix.T)*scale).astype(int)
+    if min(map(abs,scale))<1e-6:return note['x'],note['y'],Image.new('L',(1,1))
+    low=outer.min(axis=0)-1;high=outer.max(axis=0)+2
+    im=Image.new('L',tuple(high-low));d=ImageDraw.Draw(im)
+    out=[tuple(p-low) for p in outer];inside=[tuple(p-low) for p in inner]
+    d.polygon(out,fill=255)
+    for i in STYLE['gem_platform_bright_facets']:
+        j=(i+1)%len(out);d.polygon([out[i],out[j],inside[j],inside[i]],fill=128)
+    d.polygon(inside,fill=128);d.line(out+[out[0]],fill=255,width=1)
+    return note['x']+int(low[0]),note['y']+int(low[1]),im
+
 def piece(notes,i,line_width=None,rotation=0,scale=(1.,1.),hold_tail=None):
     if notes[i].get('platform_hidden') or notes[i].get('scene_hidden'):
         return notes[i]['x'],notes[i]['y'],Image.new('L',(1,1))
+    if notes[i].get('gem_platform'):
+        return gem_piece(notes[i],rotation,scale)
     if notes[i].get('freeroam_grid'):
         from neo_freeroam import grid_piece
         return grid_piece(notes[i],notes[i]['freeroam_grid'])
@@ -62,6 +82,7 @@ def piece(notes,i,line_width=None,rotation=0,scale=(1.,1.),hold_tail=None):
         hold_end=tail-outgoing*24
     kind=notes[i].get('spin_kind','normal')
     hold=notes[i].get('hold_length',-1)>=0 and i+1<len(notes)
+    polygon=False
     if hold:
         # scrHoldRenderer traces the orbit as its pivot travels to the tail.
         # A wide straight ribbon conceals the turns and resembles extra floors.
@@ -79,6 +100,17 @@ def piece(notes,i,line_width=None,rotation=0,scale=(1.,1.),hold_tail=None):
         # Rasterize identical authored angles to identical local shapes. World
         # position rounding must never stretch a tile or change its slope.
         path=[tuple((p+np.round(q)).astype(int)) for q in (-incoming*STYLE['half_segment'],np.zeros(2),outgoing*STYLE['half_segment'])]
+        # FloorMesh uses intersecting straight edges for wide interior
+        # angles (>=120 degrees). A round polyline joint removes the corner
+        # pointing toward a diagonal midspin and obscures its connection.
+        dot=float(np.dot(incoming,outgoing))
+        if dot>=.5-1e-6 and dot<1-1e-6:
+            ni=np.array((-incoming[1],incoming[0]))*(line_width-1)/2
+            no=np.array((-outgoing[1],outgoing[0]))*(line_width-1)/2
+            join=(ni+no)/(1+dot)
+            a=-incoming*STYLE['half_segment'];b=outgoing*STYLE['half_segment']
+            path=[tuple((p+np.round(q)).astype(int)) for q in (a+ni,join,b+no,b-no,-join,a-ni)]
+            polygon=True
     pad=STYLE['spin_padding'] if kind!='normal' and i else STYLE['normal_padding']
     bounds=path+cap if hold else path
     x0=min(q[0] for q in bounds)-pad;y0=min(q[1] for q in bounds)-pad
@@ -88,7 +120,7 @@ def piece(notes,i,line_width=None,rotation=0,scale=(1.,1.),hold_tail=None):
     if hold:
         draw.line(points,fill=255,width=2,joint='curve')
         draw.line([(x-x0,y-y0) for x,y in cap],fill=255,width=line_width,joint='curve')
-    elif kind!='normal' and i:draw.polygon(points,fill=255)
+    elif polygon or kind!='normal' and i:draw.polygon(points,fill=255)
     else:draw.line(points,fill=255,width=line_width,joint='curve')
     if scale!=(1.,1.):
         sx,sy=scale

@@ -256,3 +256,85 @@ grid cells separately from the song notes.
 The full catalog still requires the earlier import stages described above.
 Validate full songs, checkpoint retries, multiple speeds and graphics in
 MesenCE before distributing a modified build.
+
+
+### SA-1 animation packets (development masters)
+
+The T1-X/T1-EX optimization uses full per-frame chart assets, a lossless ROM
+bitmap dictionary, and animation packets decoded by SA-1. It requires an
+existing master with the resident native decoder; the isolated one-song
+recipe above does not include that decoder.
+
+After replacing charts 66 and 71 in a **development copy** of that master
+with freshly compiled `--motion-step 1` assets, run:
+
+```powershell
+python tools/mode1_tracks.py --source build/packs/my-master-dev --out build/packs/my-master-dev --levels 66 --budget 1000 --lookahead 256
+python tools/mode1_tracks.py --source build/packs/my-master-dev --out build/packs/my-master-dev --levels 71 --budget 2000 --lookahead 64
+python tools/build_sa1.py --source build/packs/my-master-dev --out build/packs/my-master-dev --stream-levels 66 71 --no-pcm
+python -m unittest discover -s tests -p test_sa1_stream.py
+python tools/run_mesen_campaign.py --pack my-master-dev --levels 66 71 --graphics-dumps
+python tools/run_mesen_campaign.py --pack my-master-dev --levels 66 71 --checkpoints --graphics-dumps
+```
+
+Use the configured Python environment from the earlier build steps. This
+regenerates the matching ROM and MSU data file together. Keep both files
+together when testing or distributing them. PCM music is unchanged. The
+packet compiler rejects old catch-up/native or bitmap-prefetch chart formats;
+use fresh canonical chart assets rather than mixing those formats. This path
+uses a lossless Mode 1 tile cache for T1-X and T1-EX at 1× and below.
+Accelerated playback retains the established full-detail Mode 7 renderer;
+the compiler builds both streams from the same per-frame source assets.
+The preloader ramps up speculative loading after idle intervals; it does
+not limit animation updates or discard required tile uploads. Each source pixel retains
+its original color; animation is not resampled. SA-1 prepares texture and map
+uploads, while the S-CPU handles gameplay and PPU commits. Other charts keep
+the Mode 7 renderer, including camera rotation.
+
+The two `mode1_tracks.py` commands must run before `--stream-levels` converts
+the canonical animation files. If you change the graphics or chart, regenerate
+the canonical assets first and repeat all three commands. These commands are
+for master ROM/data builds; standalone packaging is a separate build path.
+
+For performance checks, use `tools/profile_ar_section_mesen.py`. It samples
+completed visible frames at `endFrame`, checks upload overruns independently,
+and records the ROM/MSU hashes. A safe NMI can finish its non-PPU bookkeeping
+in the top HUD band; sampling its completion counter at `startFrame` can
+incorrectly report a repeated frame. Pixel comparisons and checkpoint tests
+are still required before release.
+
+Mode 1 release checks must include both full manual replays and checkpoint
+retries with `--graphics-dumps`, plus autoplay inspection of moving holds.
+The runner checks actual PPU scroll and tilemap configuration against the
+published camera, and derives symbol positions from chart events rather than
+the renderer's projected-coordinate buffers. Missing coverage and VBlank
+overruns fail the run. Pixel verification alone does not establish correct
+on-screen placement; inspect screenshots from the affected moving sections too.
+
+Before trusting a new emulator/testing setup, run the negative checks:
+
+```powershell
+python tools/check_mesen_failfast.py --rom build/packs/my-master-dev/adofai.sfc --out build/failfast-checks
+```
+
+All three injected failures must be rejected. Replay reports remain failed until
+every required check completes, and record the verification code hash as well
+as ROM/data hashes. Changing checks invalidates `--resume` results.
+
+
+### Check switching songs without resetting
+
+From the project folder, after building a master test pack, run:
+
+```powershell
+python tools/run_mesen_sequence.py --pack mode1-test --levels 66 71 66
+```
+
+This uses MesenCE at `C:\mesen2\Mesen.exe` (override with `--mesen PATH`).
+It plays T1-X, returns through the menu, plays T1-EX, then returns to T1-X
+without resetting. It checks hardware scroll, symbol placement, palettes,
+and captured tile pixels. Results are in the pack's `verification/sequence-66-71-66`
+folder. A cold-boot replay alone does not cover stale state between songs.
+
+
+For the projected T3 renderer and engine-only rebuilds, see [PROJECTED-RENDERER.md](PROJECTED-RENDERER.md).

@@ -1,4 +1,4 @@
-"""Exact final-state shortcuts for AR-X intervals that are already overdue.
+"""Exact final-state shortcuts for dense animation intervals already overdue.
 
 The normal branch is byte-for-byte the original stream. Checkpoints enter
 that branch at their original event, never into a partly applied shortcut.
@@ -16,8 +16,21 @@ def unpack_events(data, chart):
     for pos,end,t,k,i,v in records(terminated):
         if k==255:break
         payload=data[pos+7:end]
-        if k in (24,26):continue
-        if k==29:
+        if k in (24,26,32,33):continue
+        if k==36:
+            at=0
+            for _ in range(i):
+                cell,count,x,y=struct.unpack_from('<HHHH',payload,at);at+=8
+                for j,value in enumerate(payload[at:at+count]):
+                    cx,cy=chart['cell_coordinates'][cell+j]
+                    put(t,9,cell+j,1,struct.pack('<HHB',cx,cy,value))
+                at+=count
+            assert at==len(payload)
+        elif k==34:
+            for n in range(i):
+                slot,tag=struct.unpack_from('<HH',payload,n*8)
+                put(t,4,slot,tag,payload[n*8+4:n*8+8]+payload[i*8+n*64:i*8+(n+1)*64])
+        elif k==29:
             for j in range(i):
                 cell,_,value=struct.unpack_from('<HHB',payload,5*j)
                 x,y=chart['cell_coordinates'][cell]
@@ -45,7 +58,7 @@ def unpack_events(data, chart):
                 x,y=chart['cell_coordinates'][i+j]
                 put(t,9,i+j,1,struct.pack('<HHB',x,y,value))
         else:
-            assert k in (1,2,3,4,6,7,10,11,12,13,14,15,16,23,27,28),k
+            assert k in (1,2,3,4,6,7,10,11,12,13,14,15,16,22,23,27,28,35,41,42,43,44),k
             put(t,k,i,v,payload)
     return events
 
@@ -90,6 +103,8 @@ def shortcut(data,chart,end_time):
         else:blob+=HEADER.pack(end_time,k,i,v)+p
         a=b
     encoded,_=batch(blob+HEADER.pack(65535,255,0,0))
+    from animation_map_batch import batch as batch_map
+    encoded,_=batch_map(encoded,chart)
     return encoded[:-7]
 
 def compile_stream(data,chart):
@@ -101,12 +116,12 @@ def compile_stream(data,chart):
             out+=data[rows[j][0]:rows[j][1]]
             j+=1
             continue
-        if 1440<=rows[j][2]<1560 or chart.get('id')==60:
+        if 1440<=rows[j][2]<1560 or chart.get('id')==60 or chart.get('catchup_every_frame'):
             # Offer a four-frame shortcut at EVERY timestamp of the dense
             # zoom transition, so entering a normal branch cannot trap a
             # late renderer inside an entire fixed-size interval.
             groups=[]
-            while j<len(rows)-1 and (chart.get('id')==60 or rows[j][2]<1560):
+            while j<len(rows)-1 and (chart.get('id')==60 or chart.get('catchup_every_frame') or rows[j][2]<1560) and (ranges is None or any(a<=rows[j][2]<b for a,b in ranges)):
                 first=j;t=rows[j][2]
                 while j<len(rows)-1 and rows[j][2]==t:j+=1
                 groups.append(rows[first:j])
@@ -146,16 +161,23 @@ def compile_stream(data,chart):
     assert semantic_digest(data)==semantic_digest(out)
     return bytes(out),mapping,dict(windows=windows,bytes=len(out),original_bytes=len(data),shortcut_bytes_saved=saved)
 
-def patch_pack(out):
+def patch_level(out,level):
     out=Path(out);pack=json.loads((out/'pack.json').read_text())
-    if 23 not in pack['levels']:return
-    chart_path=out/'level23.json';chart=json.loads(chart_path.read_text())
+    if level not in pack['levels']:return
+    chart_path=out/f'level{level}.json';chart=json.loads(chart_path.read_text())
     if chart.get('catchup_disabled'):return
+    # Expanded hold shortcuts belong to the streamed master, not an 8 MiB ROM.
+    if level in (66,71) and 'ROM_DATA_BUILD' in (out/'addresses.inc').read_text():return
+    if level in (66,71):
+        chart['catchup_every_frame']=True
+        chart['catchup_widths']=[4,8,16]
+        notes=chart['notes']
+        chart['catchup_ranges']=[(max(0,n['frame']-2),notes[i+1]['frame']+2) for i,n in enumerate(notes[:-1]) if n.get('hold_length',-1)>=0]
     if chart.get('catchup_format')==5:return
     standalone='ROM_DATA_BUILD' in (out/'addresses.inc').read_text()
     target=out/('sa1_payload.bin' if standalone else 'adofai.msu')
     image=bytearray(target.read_bytes());bias=0x10000 if standalone else 0
-    descriptors=bytearray((out/'msu_descriptors.bin').read_bytes());at=pack['levels'].index(23)*24
+    descriptors=bytearray((out/'msu_descriptors.bin').read_bytes());at=pack['levels'].index(level)*24
     old,table=struct.unpack_from('<II',descriptors,at+8)
     stored_length=chart['animation_bytes']
     original=bytes(image[old-bias:old-bias+stored_length])
@@ -180,7 +202,7 @@ def patch_pack(out):
         for name,address in list(locations.items()):
             n=offset(address)
             if n>=cut:
-                assert name.startswith('romdata23_'),name
+                assert name.startswith(f'romdata{level}_'),name
                 n+=delta;locations[name]=n+0xC00000 if n<0x400000 else n
         for field in (0,4,12):
             value=struct.unpack_from('<I',descriptors,at+field)[0]
@@ -197,13 +219,18 @@ def patch_pack(out):
         cursor=struct.unpack_from('<I',image,snapshot+4)[0]
         if prior_mapping is not None:cursor=prior_mapping[cursor]
         struct.pack_into('<I',image,snapshot+4,mapping[cursor])
-        loose=out/f'animation23-checkpoint-{c}.bin'
+        loose=out/f'animation{level}-checkpoint-{c}.bin'
         if loose.exists():
             blob=bytearray(loose.read_bytes());struct.pack_into('<I',blob,4,mapping[cursor]);loose.write_bytes(blob)
     chart['animation_bytes']=len(stream);chart['catchup_format']=5
     temp=target.with_suffix(target.suffix+'.catchup-tmp');temp.write_bytes(image);os.replace(temp,target)
     (out/'msu_descriptors.bin').write_bytes(descriptors)
-    (out/'animation23.bin').write_bytes(stream)
+    (out/f'animation{level}.bin').write_bytes(stream)
     if standalone:(out/'placements.json').write_text(json.dumps(locations,indent=2))
     chart_path.write_text(json.dumps(chart,indent=2))
-    (out/'animation-catchup.json').write_text(json.dumps(dict(passed=True,**report),indent=2))
+    (out/f'animation-catchup-{level}.json').write_text(json.dumps(dict(passed=True,**report),indent=2))
+
+
+def patch_pack(out):
+    for level in (23,66,71):
+        patch_level(out,level)

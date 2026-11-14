@@ -70,6 +70,12 @@ def compile_math(data,chart):
     roots=(319,727) if data['code']=='T3EX-X' else (248,555)
     unit=24/data['native_tile_size']
     for section,root in enumerate(roots,1):
+        chapter=next((e['data'] for e in data.get('native_chapter_entities',[]) if e['type']=='Mawaru'),{})
+        tint=chapter.get(f'math{section}_floorcolor',dict(r=.8 if section==1 else 1,g=.8,b=.8 if section==1 else .2))
+        # Real and fake branches share the chapter's tint. Neither the
+        # scene-owned alternative nor the real path should reveal an answer.
+        for i in range(root,min(root+24,len(chart['notes']))):
+            chart['notes'][i]['math_tint']=tint
         decals=[];base=data['native_positions'][root]
         transform=np.array([[unit,0,-unit*base[0]],[0,-unit,unit*base[1]],[0,0,1.]])
         for d in data.get('native_math',[]):
@@ -95,4 +101,4 @@ def compile_math(data,chart):
             if kind=='text':text=ImageChops.lighter(text,layer)
             else:floors=ImageChops.lighter(floors,layer)
         mask=ImageChops.lighter(floors,text);cutout=ImageChops.multiply(floors,text)
-        chart['notes'][root]['scene_visual']=dict(offset=[x0,y0],size=list(mask.size),bits=mask.convert('1').tobytes().hex(),cutout=cutout.convert('1').tobytes().hex())
+        chart['notes'][root]['scene_visual']=dict(offset=[x0,y0],size=list(mask.size),bits=mask.convert('1').tobytes().hex(),cutout=cutout.convert('1').tobytes().hex(),text=text.convert('1').tobytes().hex())

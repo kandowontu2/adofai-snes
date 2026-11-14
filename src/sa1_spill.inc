@@ -12,6 +12,13 @@ worker_spill_begin:
     sta f:M7_SPILL_ELIGIBLE
     sta SPILL_LIVE_COUNT
     sta SPILL_MAP_ACTIVE
+.ifdef SA1_STREAM_BUILD
+    ; Stream scenes do not use OBJ spill. Reset-serial initialization clears
+    ; their logical redirects once; they remain zero for the whole chart.
+    lda f:STREAM_ENABLED
+    bne @done
+    lda #0
+.endif
     ldx #0
 @clear:
     sta f:SPILL_LOGICAL,x
@@ -275,6 +282,12 @@ worker_spill_commit:
     rts
 
 worker_spill_cells:
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq :+
+    jmp worker_stream_spill_cells
+:
+.endif
     lda SPILL_MAP_ACTIVE
     jne @done
     lda #0
@@ -474,6 +487,27 @@ worker_spill_map_pixel:
     .a16
 
 worker_spill_runs:
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq @ordinary
+    lda f:SPILL_COUNT
+    beq @ordinary
+    lda #1
+    sta f:SPILL_RUN_COUNT
+    jsr worker_stream_spill_span
+    sta f:SPILL_RUNS+4
+    txa
+    lsr a
+    clc
+    adc #$7000
+    sta f:SPILL_RUNS
+    txa
+    clc
+    adc #.loword(SPILL_CHR)
+    sta f:SPILL_RUNS+2
+    rts
+@ordinary:
+.endif
     lda #0
     sta f:SPILL_RUN_COUNT
     lda f:SPILL_COUNT
@@ -553,6 +587,14 @@ worker_spill_runs:
     rts
 
 worker_spill_tags:
+.ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq @ordinary
+    lda #0
+    sta f:SPILL_TAG_COUNT
+    rts
+@ordinary:
+.endif
     lda f:SPILL_TAG_COUNT
     beq @done
     sta map_left

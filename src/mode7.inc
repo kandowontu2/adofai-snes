@@ -56,6 +56,12 @@ mode7_store_chr_byte:
     rts
 
 mode7_upload_chr:
+.ifdef SA1_MODE1_BUILD
+    lda f:STREAM_MODE1
+    beq :+
+    jmp mode1_initialize
+:
+.endif
     lda #0
     sta f:M7_PREFETCH_ENABLED
     stz $2116

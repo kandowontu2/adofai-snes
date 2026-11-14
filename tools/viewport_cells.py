@@ -56,10 +56,14 @@ def share_clipped_patterns(chart,tiles,history):
             if p and cell in masks:uses[p]|=masks[cell];counts[p]+=1
         aliases={p:p for p in uses}
         original_masks=dict(uses)
-        if len(uses)>255:
+        # Projected OBJ can retain overflow without changing its pixels.
+        # Leave headroom there instead of synthesizing a different partial
+        # bitmap for nearly every camera frame at a saturated BG atlas.
+        capacity=288 if chart.get('projected_pattern_overflow') else 255
+        if len(uses)>capacity:
             # Prefer existing complete patterns. Never alter sampled colors.
             for p in sorted(uses,key=lambda p:uses[p].bit_count()):
-                if len(set(aliases.values()))<=255:break
+                if len(set(aliases.values()))<=capacity:break
                 if aliases[p]!=p:continue
                 mask=byte_mask(uses[p])
                 for q in sorted(set(aliases.values())-{p},key=lambda q:-counts[q]):

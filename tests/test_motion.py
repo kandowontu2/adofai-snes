@@ -8,6 +8,50 @@ from import_official import normalize_json
 from make_assets import FPS
 
 class Motion(unittest.TestCase):
+    def test_t4_midspin_does_not_inherit_platform_translation(self):
+        d,c=self.fixture();d.update(code='T4EX-X',native_tile_size=1.5)
+        for i,n in enumerate(c['notes']):n.update(x=0,y=0,spin_kind='midspin' if i==1 else 'normal')
+        d['native_track_effects']=[dict(type='ffxMoveFloorPlus',floor=0,start=0,end=2,
+            gapLength=1,targetPos={'x':3,'y':0},positionUsed=True,duration=1,ease='Linear')]
+        c.update(mode7=True,motion_step=1)
+        updates=motion_schedule(d,c)
+        self.assertTrue(any(0 in row and 2 in row for row in updates.values()))
+        self.assertTrue(all(1 not in row for row in updates.values()))
+
+    def test_t4_ex_intro_platform_bounces_and_returns_without_moving_midspins(self):
+        from neo_visuals import configure
+        d=dict(code='T4EX-X',bpm=150,native_tile_size=1.5,native_track_effects=[])
+        c=dict(mode7=True,motion_step=1,notes=[dict(time=0,speed=1,x=0,y=0,
+               hold_length=-1,spin_kind='midspin' if i in (48,51) else 'normal') for i in range(60)])
+        configure(d,c);updates=motion_schedule(d,c)
+        def at(i,seconds):
+            return next((row[i] for f,row in reversed(list(updates.items())) if f<=round(seconds*FPS) and i in row),(0,0))
+        self.assertEqual(at(47,28.5*.4),(0,-16))
+        self.assertEqual(at(49,28.5*.4),(0,-16))
+        self.assertEqual(at(47,29*.4),(0,0))
+        self.assertEqual(at(50,29.5*.4),(0,-16))
+        self.assertEqual(at(52,30*.4),(0,0))
+        self.assertTrue(all(48 not in row and 51 not in row for row in updates.values()))
+
+    def test_t4_late_bounce_uses_authored_vectors_and_keeps_midspins_fixed(self):
+        from neo_visuals import configure
+        for code,groups,mids in [('T4EX-X',((379,381),(382,384),(385,387)),(380,383,386)),
+                                  ('T4-X',((335,),(336,),(337,)),())]:
+            d=dict(code=code,bpm=150,native_tile_size=1.5,native_track_effects=[])
+            c=dict(code=code,mode7=True,motion_step=1,notes=[dict(time=0,speed=1,x=0,y=0,
+                   hold_length=-1,spin_kind='midspin' if i in mids else 'normal') for i in range(400)])
+            configure(d,c);updates=motion_schedule(d,c)
+            def at(i,b):
+                return next((row[i] for f,row in reversed(list(updates.items())) if f<=round(b*.4*FPS) and i in row),(0,0))
+            for j,ids in enumerate(groups):
+                # Beat 170 is at 72 seconds: the earlier 75 BPM passages
+                # add four seconds. Do not repeat the constant-BPM bug here.
+                start=180+j*1.332
+                for i in ids:
+                    self.assertEqual(at(i,start+.666),((4,-7),(8,0),(4,7))[j])
+                    self.assertEqual(at(i,start+1.332),(0,0))
+            self.assertTrue(all(i not in row for row in updates.values() for i in mids))
+
     def test_native_rotation_and_scale_tweens(self):
         from track_motion import rotation_schedule,scale_schedule
         d,c=self.fixture();c.update(mode7=True,motion_step=1)

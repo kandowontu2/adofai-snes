@@ -58,6 +58,15 @@ neo_call_sine_cosine:
 ; Input A is a floor index. Zero-extra and extended holds use separate
 ; supplied CHR symbols; releases inherit the preceding hold's color.
 neo_far_hold_style:
+    jsr neo_note_presentation
+    and #1
+    rtl
+
+neo_far_orb_roles:
+    jsr neo_note_presentation
+    rtl
+
+neo_note_presentation:
     tay
     lda selected_level
     asl a
@@ -68,7 +77,7 @@ neo_far_hold_style:
     tax
     lda f:neo_hold_styles,x
     and #255
-    rtl
+    rts
 
 neo_far_prepare_hold:
     jsr neo_impl_prepare_hold
@@ -125,6 +134,17 @@ neo_impl_prepare_hold:
     lda neo_hold_duration
 :
     sta math_a
+    ; Authored easing already supplies the exact phase. Only divide for
+    ; holds without a curve; the lookup preserves math_a for that fallback.
+    jsr neo_find_curve
+    bcc @linear_phase
+    txa
+    asl a
+    tax
+    lda f:neo_ease_phases,x
+    sta neo_hold_phase
+    bra @phase_ready
+@linear_phase:
     lda #256
     sta math_b
     jsl neo_call_multiply_points
@@ -133,14 +153,7 @@ neo_impl_prepare_hold:
     jsl neo_call_divide32
     lda math_lo
     sta neo_hold_phase
-    jsr neo_find_curve
-    bcc :+
-    txa
-    asl a
-    tax
-    lda f:neo_ease_phases,x
-    sta neo_hold_phase
-:
+@phase_ready:
     lda step
     inc a
     tax
@@ -164,9 +177,21 @@ neo_impl_prepare_hold:
     lda step
     asl a
     tax
+ .ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq @wram_hold_x
+    lda f:NATIVE_READY
+    beq @wram_hold_x
+    lda f:SYMBOL_X+2,x
+    sec
+    sbc f:SYMBOL_X,x
+    bra @hold_x_ready
+@wram_hold_x:
+.endif
     lda f:NOTE_X+2,x
     sec
     sbc f:NOTE_X,x
+@hold_x_ready:
     clc
     adc neo_hold_x
     jsr neo_scale_hold
@@ -174,9 +199,21 @@ neo_impl_prepare_hold:
     lda step
     asl a
     tax
+ .ifdef SA1_STREAM_BUILD
+    lda f:STREAM_ENABLED
+    beq @wram_hold_y
+    lda f:NATIVE_READY
+    beq @wram_hold_y
+    lda f:SYMBOL_Y+2,x
+    sec
+    sbc f:SYMBOL_Y,x
+    bra @hold_y_ready
+@wram_hold_y:
+.endif
     lda f:NOTE_Y+2,x
     sec
     sbc f:NOTE_Y,x
+@hold_y_ready:
     clc
     adc neo_hold_y
     jsr neo_scale_hold
@@ -185,13 +222,59 @@ neo_impl_prepare_hold:
     rts
 
 neo_scale_hold:
+    ldx neo_hold_phase
+    cpx #256
+    bne :+
+    rts
+:
     pha
+    ; CPX above describes the phase, not the signed offset in A.
+    cmp #0
     bpl :+
     eor #$FFFF
     inc a
 :
     sta math_a
     lda neo_hold_phase
+    cmp #256
+    bcs @wide_phase
+    ; Exact floor(abs(offset) * phase / 256). NMI does not use
+    ; the S-CPU multiplier; SA-1 has its own independent unit.
+    sep #$20
+    .a8
+    lda math_a
+    sta $4202
+    lda neo_hold_phase
+    sta $4203
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4216
+    xba
+    and #255
+    sta scratch
+    sep #$20
+    .a8
+    lda math_a+1
+    sta $4202
+    lda neo_hold_phase
+    sta $4203
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4216
+    clc
+    adc scratch
+    sta scratch
+    bra @sign
+@wide_phase:
+    ; Preserve overshooting authored curves, including wrapped negatives.
     sta math_b
     jsl neo_call_multiply_points
     lda math_lo
@@ -202,6 +285,7 @@ neo_scale_hold:
     xba
     ora scratch
     sta scratch
+@sign:
     pla
     bpl :+
     lda scratch
@@ -233,29 +317,82 @@ neo_impl_apply_ease:
     rts
 
 neo_find_curve:
+    ; Preserve the arithmetic workspace used by hold interpolation.
+    lda math_a
+    pha
+    lda math_b
+    pha
+    lda math_lo
+    pha
+    jsr neo_find_curve_index
+    pla
+    sta math_lo
+    pla
+    sta math_b
+    pla
+    sta math_a
+    rts
+
+neo_find_curve_index:
+    lda step
+    inc a
+    cmp neo_curve_cache_step
+    bne @lookup
+    lda selected_level
+    cmp neo_curve_cache_level
+    bne @lookup
+    ldx neo_curve_cache_record
+    cpx #$FFFF
+    beq @done
+    jmp @curve
+@lookup:
+    lda step
+    inc a
+    sta neo_curve_cache_step
+    lda selected_level
+    sta neo_curve_cache_level
+    lda #$FFFF
+    sta neo_curve_cache_record
     lda selected_level
     asl a
     tax
     lda f:neo_ease_counts,x
     beq @done
-    sta scratch2
+    sta math_b
+    stz math_a
     lda f:neo_ease_starts,x
-    tax
+    sta scratch2
 @find:
+    lda math_a
+    cmp math_b
+    bcs @done
+    clc
+    adc math_b
+    lsr a
+    sta math_lo
+    asl a
+    asl a
+    asl a
+    clc
+    adc scratch2
+    tax
     lda f:neo_ease_records,x
     cmp step
     beq @curve
-    bcs @done
-    txa
-    clc
-    adc #8
-    tax
-    dec scratch2
-    bne @find
+    bcs @earlier
+    lda math_lo
+    inc a
+    sta math_a
+    bra @find
+@earlier:
+    lda math_lo
+    sta math_b
+    bra @find
 @done:
     clc
     rts
 @curve:
+    stx neo_curve_cache_record
     lda chart_time
     sec
     sbc f:neo_ease_records+2,x
@@ -598,11 +735,42 @@ neo_impl_free_input:
 
 neo_impl_free_camera:
     lda neo_cam_active
-    beq @done
+    bne :+
+    rts
+:
     lda neo_free_mode
     beq @smooth
     lda step
     jsl neo_call_floor_position
+    lda neo_free_mode
+    cmp #1
+    bne @follow
+    ldx neo_free_record
+    lda f:neo_free_records+46,x
+    beq @follow
+    ; T3's coin field stays in view while the player explores it.
+    lda f:neo_free_records+12,x
+    clc
+    adc f:neo_free_records+16,x
+    cmp #$8000
+    ror a
+    clc
+    adc floor_x
+    sec
+    sbc #128
+    sta cam_x
+    lda f:neo_free_records+14,x
+    clc
+    adc f:neo_free_records+18,x
+    cmp #$8000
+    ror a
+    clc
+    adc floor_y
+    sec
+    sbc #104
+    sta cam_y
+    bra @smooth
+@follow:
     lda floor_x
     clc
     adc neo_hold_x
@@ -1021,7 +1189,7 @@ neo_draw_collectibles:
     jsr neo_object_position
     lda #196
     sta sprite_tile
-    lda #$21
+    lda #$23
     sta sprite_attr
     jsl neo_call_sprite
 @next_coin:

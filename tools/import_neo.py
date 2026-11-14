@@ -22,7 +22,7 @@ from neo_catalog import NEO
 ROOT = Path(__file__).resolve().parents[1]
 TRACK_EFFECTS = {'ffxChangeTrack', 'ffxFloorAppearPlus', 'ffxFloorDisappearPlus',
                  'ffxMoveFloorPlus', 'ffxRecolorFloorPlus'}
-CHAPTER_TYPES = {'Mawaru','Mawaru2','Mawaru_Coin','DivineIntervention','LaserSpawner'}
+CHAPTER_TYPES = {'Mawaru','Mawaru2','Mawaru_Coin','DivineIntervention','LaserSpawner','SingSing','SingSing_Notefield'}
 
 
 def import_scene(objects, meta, out, all_clips):
@@ -31,6 +31,7 @@ def import_scene(objects, meta, out, all_clips):
     song_clip = None
     chapter_entities=[]
     colliders={}
+    sorting={}
     classes = Counter()
     for obj, cls in objects:
         classes[cls] += 1
@@ -67,7 +68,9 @@ def import_scene(objects, meta, out, all_clips):
             cameras.append(d)
         elif cls == 'SpriteRenderer':
             renderers[go] = d['m_Color']
+            sorting[go]=d.get('m_SortingOrder',0)
         elif cls == 'MeshRenderer' and d.get('m_Materials') and d['m_Materials'][0]['m_PathID']:
+            sorting[go]=d.get('m_SortingOrder',0)
             material = obj.read().m_Materials[0].deref().read_typetree()
             color = dict(material['m_SavedProperties']['m_Colors']).get('_Color')
             if color is not None:
@@ -122,6 +125,7 @@ def import_scene(objects, meta, out, all_clips):
                  native_controller_stick_to_floor=bool(controller.get('stickToFloor', False)),
                  native_track_effects=track, native_track_initial=[f.get('opacityVal', 1) for f in ordered],
                  native_track_colors=colors, track_color_import=1,
+                 native_track_order=[sorting.get(f['m_GameObject']['m_PathID'],0) for f in ordered],
                  hidden_icons=[bool(f.get('hideIcon') or f.get('floorIcon') == 18) for f in ordered],
                  camera_initial=next((c.get('zoomSize', 1.) for c in cameras), 1.),
                  camera_actions=[], native_camera_effects=[e for e in ordered_effects if e['type'] == 'ffxCameraPlus'],
@@ -133,6 +137,10 @@ def import_scene(objects, meta, out, all_clips):
     chart['native_hit_volume']=cond['hitSoundVolume']
     chart['native_countdown_multiplier']=cond.get('countdownSpeedMultiplier',1.)
     chart['native_chapter_entities']=[dict(path_id=i,type=cls,data=d,position=position(d)) for i,cls,d in chapter_entities]
+    if meta['code'] in ('T2-X','T2EX-X'):
+        from neo_singsing import extract
+        chapter=next(d for _,cls,d in chapter_entities if cls=='SingSing')
+        chart['native_singsing_visuals']=extract(objects,chapter,world,by_object)
     from neo_warps import extract,extract_math
     chapter=next((d for _,cls,d in chapter_entities if cls=='Mawaru'),None)
     if chapter is not None:
@@ -165,6 +173,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--game', type=Path, default=Path(DEFAULT_GAME))
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/private')
+    ap.add_argument('--levels',type=int,nargs='+',help='Reimport only these Neo chart IDs')
     args = ap.parse_args()
     bundle = args.game / 'Bundles/neocosmos_scenes_all.bundle'
     if not bundle.exists():
@@ -205,6 +214,7 @@ def main():
     hits = json.loads(hitpath.read_text()) if hitpath.exists() else {}
     audit = []
     for key, meta in sorted(scenes.items(), key=lambda row: row[1]['id']):
+        if args.levels and meta['id'] not in args.levels:continue
         chart, hitdata, classes = import_scene(groups[key], meta, args.out, all_clips)
         hits[str(meta['id'])] = hitdata
         row = dict(meta, floors=len(chart['floors']), holds=sum(f['holdLength'] >= 0 for f in chart['floors']),
@@ -213,7 +223,13 @@ def main():
         audit.append(row)
         print(meta['code'], row['floors'], 'floors,', row['holds'], 'holds,', row['freeroam_regions'], 'free-roam regions', flush=True)
     hitpath.write_text(json.dumps(hits, indent=2), encoding='utf8')
-    (args.out / 'neo-catalog.json').write_text(json.dumps(dict(bundle_sha256=hashlib.sha256(bundle.read_bytes()).hexdigest(), levels=audit), indent=2), encoding='utf8')
+    catalog_path = args.out / 'neo-catalog.json'
+    if args.levels and catalog_path.exists():
+        previous = json.loads(catalog_path.read_text(encoding='utf8'))
+        updated_ids = {row['id'] for row in audit}
+        audit.extend(row for row in previous['levels'] if row['id'] not in updated_ids)
+        audit.sort(key=lambda row: row['id'])
+    catalog_path.write_text(json.dumps(dict(bundle_sha256=hashlib.sha256(bundle.read_bytes()).hexdigest(), levels=audit), indent=2), encoding='utf8')
 
 
 if __name__ == '__main__':

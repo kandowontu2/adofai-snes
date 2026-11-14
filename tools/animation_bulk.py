@@ -11,7 +11,7 @@ def records(data):
     pos = 0
     while pos + 7 <= len(data):
         frame, kind, index, value = HEADER.unpack_from(data, pos)
-        extra = (value if kind in (25,26,28,29) else 66 if kind == 24 else 68 if kind == 4 else value if kind in (5, 14) else
+        extra = (value if kind in (22,25,26,28,29,30,31,33,34,36,37,39,41,43,44) else 4 if kind == 42 else 2 if kind == 35 else 66 if kind == 24 else 68 if kind == 4 else value if kind in (5, 14) else
                  value * 3 if kind == 8 else value + 4 if kind == 9 else
                  7 * (value - 1) if kind in (17, 18, 19) else
                  75 * value - 7 if kind == 20 else

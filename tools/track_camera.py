@@ -13,16 +13,29 @@ def follow_schedule(chart,motion,data=None):
     x=float(notes[0]['x']);y=float(notes[0]['y']);i=0;result=[];last=None
     native=chart.get('native_follow_timing',False)
     origin=(x,y);landed=0;previous_i=0
+    hold_x=hold_y=0.
+    release_follow=False
     for frame in range(notes[-1]['frame']+121):
         for j,p in motion.get(frame,{}).items():offsets[j]=p
+        occupied=i
         while i+1<len(notes) and notes[i+1]['frame']<=frame:i+=1
+        native=chart.get('native_follow_timing',False) or any(a<=i<b for a,b in chart.get('native_follow_ranges',[]))
+        if i!=occupied:
+            release_follow=notes[occupied].get('hold_length',-1)>=0
+            # Release changes the pivot by one planet radius. Use the
+            # landing tween instead of moving a quarter of that gap at once.
+            if release_follow:origin=(x+hold_x,y+hold_y);landed=frame
+            x+=hold_x
+            y+=hold_y
         dx,dy=offsets[i] if notes[i].get('stick_to_floor',True) else notes[i].get('position_track_offset',(0,0))
         target=(notes[i]['x']+dx,notes[i]['y']+dy)
-        if native:
-            if i!=previous_i:origin=(x,y);landed=frame;previous_i=i
+        follow_phase=1.
+        if native or release_follow:
+            if native and i!=previous_i:origin=(x,y);landed=frame;previous_i=i
             bpm=chart.get('bpm',data.get('bpm',120) if data else 120)
-            duration=2*60/bpm/notes[i]['speed']*FPS
+            duration=2*60/bpm/notes[i].get('speed',1)*FPS
             phase=min(1,(frame-landed+1)/max(1,duration))
+            follow_phase=phase
             x=origin[0]+(target[0]-origin[0])*phase;y=origin[1]+(target[1]-origin[1])*phase
         else:
             x+=(target[0]-x)*.25;y+=(target[1]-y)*.25
@@ -37,6 +50,13 @@ def follow_schedule(chart,motion,data=None):
             tx,ty=offsets[i+1] if notes[i+1].get('stick_to_floor',True) else notes[i+1].get('position_track_offset',(0,0))
             hx=(notes[i+1]['x']+tx-notes[i]['x']-dx-24*math.cos(a))*phase
             hy=(notes[i+1]['y']+ty-notes[i]['y']-dy-24*math.sin(a))*phase
+            if native:
+                # scrCamera interpolates toward topos + holdOffset. Adding
+                # the full hold offset after interpolation moves the camera
+                # ahead of its native tween, then reverses it on release.
+                hx*=follow_phase
+                hy*=follow_phase
+        hold_x,hold_y=hx,hy
         p=(round(x+hx)-128,round(y+hy)-104)
         if p!=last:result.append((frame,*p));last=p
     if data is not None:
@@ -77,8 +97,14 @@ def position_schedule(data,chart,motion,follow):
         if e.get('positionUsed',True):
             size=data.get('native_tile_size',1.5)
             a['position']=[e['targetPos'][axis]/size for axis in ('x','y')]
-        commands.append((max(0,round(native_event_time(data,chart,e)*FPS)),
-                         native_duration(data,chart,e)*FPS,e['floor'],a))
+        start=native_event_time(data,chart,e)*FPS
+        at=max(0,round(start))
+        # Quantize the absolute endpoint as well as the start. Adjacent
+        # native tweens must meet on the same frame: a 4.8-frame tween
+        # starting at .6 otherwise overruns its rounded successor and is
+        # forcibly completed with a visible extra jump on the handoff.
+        duration=max(0,round(start+native_duration(data,chart,e)*FPS)-at)
+        commands.append((at,duration,e['floor'],a))
     for a in actions:
         if a['eventType']!='MoveCamera' or not ('position' in a or 'relativeTo' in a):continue
         floor=a['floor'];repeat=next((repeats[floor,t] for t in a.get('eventTag','').split() if (floor,t) in repeats),{})

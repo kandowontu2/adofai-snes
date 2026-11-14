@@ -61,7 +61,26 @@ def table_source(out,levels):
     for level in levels:
         hold_starts.append(len(hold_styles))
         chart=json.loads((out/f'level{level}.json').read_text())
-        if chart.get('neo_cosmos'):hold_styles.extend(int(n.get('hold_length',-1)>0) for n in chart['notes'])
+        if not chart.get('neo_cosmos'):
+            continue
+        roles = (0, 1, 2)
+        previous = None
+        for i, note in enumerate(chart['notes']):
+            if note['planets'] == 3:
+                if previous is None or previous['planets'] != 3:
+                    roles = (i & 1, (i & 1) ^ 1, 2)
+                else:
+                    pivot, active, trailing = roles
+                    if note['ccw'] == previous['ccw']:
+                        roles = (active, trailing, pivot)
+                    else:
+                        roles = (active, pivot, trailing)
+            else:
+                roles = (i & 1, (i & 1) ^ 1, 2)
+            pivot, active, trailing = roles
+            hold_styles.append(int(note.get('hold_length', -1) > 0)
+                               | pivot << 1 | active << 3 | trailing << 5)
+            previous = note
     lines+=['neo_hold_starts: .word '+','.join(map(str,hold_starts)),'neo_hold_styles:']
     lines+=['.byte '+','.join(map(str,hold_styles[i:i+32])) for i in range(0,len(hold_styles),32)]
     free_records=[];free_starts=[];free_counts=[];free_phases=[];free_cells=[];coins=[];hazards=[];routes=[];lasers=[];deaths=[]
@@ -77,7 +96,8 @@ def table_source(out,levels):
             free_records.append((r['step'],r['start'],r['return_start'],r['return_duration'],r['unlock'],r['end'],*r['bounds'],
                                  following['x']-n['x']+r['exit_offset'][0],following['y']-n['y']+r['exit_offset'][1],offset,
                                  (following['angle']+128)&255,rate,int(r['move_camera']),len(free_cells)*2,len(r['cells']),
-                                 len(coins)*2,len(r.get('coins',[])),r.get('coin_check',65535),len(hazards)*10,len(r.get('hazards',[])),0,
+                                 len(coins)*2,len(r.get('coins',[])),r.get('coin_check',65535),len(hazards)*10,len(r.get('hazards',[])),
+                                 int(chart['code'] in ('T3-X', 'T3EX-X')),
                                  len(routes)*8,len(r.get('demo_route',[])),r['fade_duration'],len(lasers)*2,r.get('laser',{}).get('start',0),r.get('laser',{}).get('end',0),r.get('laser',{}).get('axis',0),len(deaths)*2))
             lasers.extend(v for rect in r.get('laser',{}).get('rectangles',[]) for v in rect)
             deaths.extend(r.get('cell_deaths',[65535]*len(r['cells'])))

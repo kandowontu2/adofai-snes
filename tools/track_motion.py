@@ -161,7 +161,8 @@ def motion_schedule(data,chart):
         for frame in sorted(set(axes[0])|set(axes[1])):
             new=tuple(axes[axis].get(frame,value[axis]) for axis in range(2))
             if new!=value:changes[frame][i]=new;value=new
-    return dict(sorted(changes.items()))
+    from neo_mawaru import motion
+    return motion(data,chart,dict(sorted(changes.items())))
 
 def rotation_schedule(data,chart):
     """MoveTrack rotation is an independent absolute offset from the floor pose."""

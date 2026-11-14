@@ -1,8 +1,25 @@
 -- Exercise every original checkpoint in Mesen without writing game RAM.
 local C=dofile(os.getenv('ADOFAI_TEST_CONFIG'))
+dofile(C.failfast_script)(C)
+if C.dma_script then dofile(C.dma_script)(C) end
+if C.input_script then dofile(C.input_script)(C) end
+if C.copies then dofile(C.copies.script)(C) end
+if C.screen_script then dofile(C.screen_script)(C) end
 if C.palette_script then dofile(C.palette_script)(C) end
+if C.icons then dofile(C.icons.script)(C) end
 local W=emu.memType.snesWorkRam
 local function word(name) local a=C.addr[name];return emu.read(a,W)+256*emu.read(a+1,W) end
+if C.addr.pattern_vblank_overruns then
+  local trace=assert(io.open(C.out..'/overruns.csv','w'));trace:setvbuf('no')
+  trace:write('chart,step,scanline,runs,pattern_bytes\n')
+  emu.addMemoryCallback(function()
+    local S=emu.memType.snesSaveRam
+    local function sw(a)return emu.read(a,S)+256*emu.read(a+1,S)end
+    local runs=sw(0x3ef20);local bytes=0
+    if runs<=512 then for i=0,runs-1 do bytes=bytes+sw(0x29602+i*4)end end
+    trace:write(word('chart_time')..','..word('step')..','..tostring(emu.getState()['ppu.scanline'])..','..runs..','..bytes..'\n')
+  end,emu.callbackType.write,C.addr.pattern_vblank_overruns,C.addr.pattern_vblank_overruns,emu.cpuType.snes)
+end
 local frame,index,lastInput=0,1,-1
 local nextInput,tapSerial=1,0
 local neoInput,neoHeld=1,0
@@ -25,6 +42,11 @@ local function capture_ppu()
     for a=0,65535 do bytes[#bytes+1]=string.char(emu.read(a,V)) end
     for a=0,511 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesCgRam)) end
     for a=0,543 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesSpriteRam)) end
+    if C.mode1_runtime and sw(0x3ef0c)~=0 then
+      bytes[#bytes+1]=string.char(sw(0x3ef0c))
+      for a=0x29400,0x2945f do bytes[#bytes+1]=string.char(emu.read(a,S)) end
+      for a=0x2a000,0x2a0bf do bytes[#bytes+1]=string.char(emu.read(a,S)) end
+    end
     local h=io.open(C.out..'/ppu-'..frame..'.bin','wb');h:write(table.concat(bytes));h:close()
   end
 end

@@ -181,12 +181,16 @@ retry_game:
 .ifdef MSU_BUILD
     lda pattern_blanked
     beq @audio_start
+.ifdef NEO_BUILD
+    jsl early_dma_show_loaded
+.else
     sep #$20
     .a8
     lda #$0F
     sta $2100
     rep #$20
     .a16
+.endif
     stz pattern_blanked
 @audio_start:
 .endif

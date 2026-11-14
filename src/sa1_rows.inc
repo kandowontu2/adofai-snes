@@ -46,8 +46,28 @@ worker_iram_to_bw:
     .a16
     rts
 worker_translate_row:
+    lda f:M7_IDENTITY_MODE
+    beq @translate_code
     lda M7_ROW_CODE_VALID
-    bne @kernel_ready
+    cmp #2
+    beq @kernel_ready
+    phx
+    phy
+    phb
+    lda #__HOTCOMPARE_SIZE__-1
+    ldx #__HOTCOMPARE_LOAD__
+    ldy #__HOTCOMPARE_RUN__
+    mvn #$01,#$00
+    plb
+    ply
+    plx
+    lda #2
+    sta M7_ROW_CODE_VALID
+    bra @kernel_ready
+@translate_code:
+    lda M7_ROW_CODE_VALID
+    cmp #1
+    beq @kernel_ready
     phx
     phy
     phb
@@ -146,6 +166,12 @@ worker_translate_row:
 @words:
     rep #$20
     .a16
+    lda f:M7_IDENTITY_MODE
+    beq @ordinary_compare
+    jsr worker_compare_kernel
+    bcs @span
+    rts
+@ordinary_compare:
     ldy #0
 @first:
     lda $0600,y
@@ -217,9 +243,13 @@ worker_translate_row:
     jsr worker_iram_to_bw
     sec
     rts
+
 .ifdef ROM_WRAP_MAP
 ; Revert only spans written by a cache attempt that never reached the PPU.
 worker_undo_rows:
+    ; The rollback buffer aliases the fixed-cache executable overlay.
+    lda #0
+    sta M7_CACHE_CODE_VALID
     stz map_scan_x
 @row:
     ldx map_scan_x
@@ -254,6 +284,27 @@ worker_undo_rows:
     cmp m7_row_count
     bcc @row
     rts
+
+worker_save_short_row:
+    phx
+    phy
+    phb
+    lda map_dest
+    and #M7_STAGE_MASK
+    clc
+    adc #.loword(M7_STAGE_MAP)
+    tax
+    lda map_dest
+    clc
+    adc #.loword(NATIVE_STAGE_UNDO)
+    tay
+    lda transfer_len
+    dec a
+    mvn #.bankbyte(M7_STAGE_MAP),#.bankbyte(NATIVE_STAGE_UNDO)
+    plb
+    ply
+    plx
+    rts
 .endif
 .segment "HOTROWS"
 .a8
@@ -285,4 +336,34 @@ worker_translate_kernel:
     rts
 .segment "CODE"
 .a16
+.segment "HOTCOMPARE"
+worker_compare_kernel:
+    ldy #0
+@first:
+    lda $0600,y
+    cmp $0580,y
+    bne @changed
+    iny
+    iny
+    cpy map_left
+    bcc @first
+    clc
+    rts
+@changed:
+    sty scratch
+    lda map_left
+    dec a
+    and #$FFFE
+    tay
+@last:
+    lda $0600,y
+    cmp $0580,y
+    bne @found
+    dey
+    dey
+    bra @last
+@found:
+    sec
+    rts
+.segment "CODE"
 .endif
