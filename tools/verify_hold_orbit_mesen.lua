@@ -15,6 +15,16 @@ return function(C)
     emu.stop(1)
     return false
   end
+  local return_samples=0
+  emu.addMemoryCallback(function()
+    if value('state')~=1 or value('neo_free_mode')~=2 then return end
+    local r=H.free[value('step')]
+    if not r then return end
+    local expected=(r.angle+math.floor((value('chart_time')-r.finish)*r.rate/256))%256
+    if not check(math.abs((value('angle')-expected+128)%256-128)<=1,'Free-roam orbit misses the exit floor') then return end
+    return_samples=return_samples+1
+    local f=io.open(C.out..'/free-return-orbits.txt','w');f:write('PASS samples='..return_samples..'\n');f:close()
+  end,emu.callbackType.exec,H.free_complete,H.free_complete,emu.cpuType.snes)
   emu.addMemoryCallback(function()
     if value('state')~=1 or value('palette_dirty')~=0 then return end
     for i=0,15 do
@@ -66,6 +76,12 @@ return function(C)
   end,emu.callbackType.write,C.addr.commits,C.addr.commits)
   emu.addMemoryCallback(function()
     if value('state')~=1 then return end
+    if H.projected then
+      for _,axis in ipairs({'x','y'}) do
+        local script=word(H.addr['CAMERA_SCRIPT_'..string.upper(axis)],M)
+        if not check(value('cam_'..axis)==script,'Projected track/planet camera mismatch on '..axis..' at floor '..value('step')) then return end
+      end
+    end
     local step=value('step');local h=H.notes[step]
     if not h then return end
     local time=value('chart_time')

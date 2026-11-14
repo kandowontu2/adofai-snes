@@ -239,6 +239,21 @@ neo_impl_prepare_hold:
     lda math_lo
     sta neo_hold_phase
 @phase_ready:
+    ; Curved holds have an exact authored exit vector. The release floor's
+    ; NOTE_ANGLE includes three-planet spacing, so it cannot define this
+    ; translation without moving every planet away from the drawn path.
+    ldx neo_curve_cache_record
+    cpx #$FFFF
+    beq @legacy_tail
+    txa
+    lsr a
+    tax
+    lda f:neo_ease_tails,x
+    sta neo_hold_x
+    lda f:neo_ease_tails+2,x
+    sta neo_hold_y
+    bra @tail_ready
+@legacy_tail:
     lda step
     inc a
     tax
@@ -259,6 +274,7 @@ neo_impl_prepare_hold:
     ora #$FF00
 :
     sta neo_hold_y
+@tail_ready:
     lda step
     asl a
     tax
@@ -858,6 +874,17 @@ neo_impl_free_input:
     rts
 
 neo_impl_free_camera:
+.ifdef SA1_MODE1_BUILD
+    ; Projected tracks already contain the authored camera transform.
+    ; A second live follow camera only moves OBJ, detaching planets and
+    ; twirls from their cells and leaving a lingering exit-camera tween.
+    lda f:STREAM_MODE1
+    cmp #2
+    bcc :+
+    stz neo_cam_active
+    rts
+:
+.endif
     lda neo_cam_active
     bne :+
     rts
@@ -1399,6 +1426,12 @@ neo_object_position:
 
 ; Only authored swirl cells have objects; ordinary grid cells stay in BG.
 neo_draw_free_twirls:
+    ; Generated cells fade when the return begins. Their symbols must not
+    ; survive the grid as detached objects during the exit tween.
+    ldx step
+    lda f:FLOOR_ALPHA,x
+    and #255
+    jeq @done
     lda neo_free_record
     lsr a
     lsr a

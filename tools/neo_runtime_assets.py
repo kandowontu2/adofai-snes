@@ -18,7 +18,7 @@ def phase(ease, value, parts=1, mirror=True):
 
 
 def table_source(out,levels):
-    records=[];samples=[];phases=[];radius_samples=[];starts=[];counts=[];shared={}
+    records=[];samples=[];phases=[];radius_samples=[];tails=[];starts=[];counts=[];shared={}
     for level in levels:
         starts.append(len(records)*8)
         chart=json.loads((out/f'level{level}.json').read_text())
@@ -50,11 +50,18 @@ def table_source(out,levels):
             if key not in shared:
                 shared[key]=len(samples);samples.extend(angles);phases.extend(fractions);radius_samples.extend(sizes)
             records.append((i,n['frame'],duration,shared[key]))
+            # The hold pivot ends one radius behind the release floor.
+            # NOTE_ANGLE on that floor includes multiplanet spacing and is
+            # not the hold's exit direction (60 degrees different for three).
+            tails.append((round(-24*next_radius*math.cos(n['exit_angle'])),
+                          round(-24*next_radius*math.sin(n['exit_angle']))))
             count+=1
         counts.append(count)
     lines=['; NEO_TABLES', 'neo_ease_starts: .word '+','.join(map(str,starts)),
            'neo_ease_counts: .word '+','.join(map(str,counts)), 'neo_ease_records:']
     lines+=['.word '+','.join(map(str,row)) for row in records]
+    lines+=['neo_ease_tails:']
+    lines+=['.word '+','.join(str(v&65535) for v in row) for row in tails]
     lines+=['neo_ease_samples:']
     lines+=['.byte '+','.join(map(str,samples[i:i+32])) for i in range(0,len(samples),32)]
     lines+=['neo_ease_phases:']
@@ -116,7 +123,9 @@ def table_source(out,levels):
             rate=abs(n['rate'])*(-1 if following['ccw'] else 1)
             free_records.append((r['step'],r['start'],r['return_start'],r['return_duration'],r['unlock'],r['end'],*r['bounds'],
                                  following['x']-n['x']+r['exit_offset'][0]+exit_offset[0]-origin_offset[0],following['y']-n['y']+r['exit_offset'][1]+exit_offset[1]-origin_offset[1],offset,
-                                 (following['angle']+128)&255,rate,int(r['move_camera']),len(free_cells)*2,len(r['cells']),
+                                 # UpdateFreeroam aims at the entry vector,
+                                 # before the new floor's multiplanet spacing.
+                                 (round(following['entry_angle']*128/math.pi)+128)&255,rate,int(r['move_camera']),len(free_cells)*2,len(r['cells']),
                                  len(coins)*2,len(r.get('coins',[])),r.get('coin_check',65535),len(hazards)*10,len(r.get('hazards',[])),
                                  int(chart['code'] in ('T3-X', 'T3EX-X')),
                                  len(routes)*8,len(r.get('demo_route',[])),r['fade_duration'],len(lasers)*2,r.get('laser',{}).get('start',0),r.get('laser',{}).get('end',0),r.get('laser',{}).get('axis',0),len(deaths)*2))

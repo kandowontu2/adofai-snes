@@ -4,6 +4,34 @@ Run these from the project folder after building a development master. Replace
 `my-master-dev` with its folder name under `build/packs`. Tests use MesenCE at
 `C:\mesen2\Mesen.exe`; the campaign runner also accepts `--mesen PATH`.
 
+## Three-planet holds and free-roam exits
+
+For a master containing endless.reality, run both controller and autoplay
+replays. Its current local menu index is 75; check `pack.json` for other packs.
+This change adds a native motion table, so repack an older asset pack before
+using the engine-only rebuild command:
+
+```powershell
+python tools/build_sa1.py --source build/packs/old-master --out build/packs/my-master-dev --no-pcm
+```
+
+```powershell
+python -m unittest discover -s tests -p test_featured_import.py
+python tools/run_mesen_campaign.py --pack my-master-dev --levels 75 --graphics-dumps
+python tools/run_mesen_campaign.py --pack my-master-dev --levels 75 --autoplay --graphics-dumps
+python tools/run_mesen_campaign.py --pack my-master-dev --levels 75 --checkpoints --graphics-dumps
+```
+
+The live hold check derives the release vector from the original floor's
+exit angle and next radius. Do not substitute the next note's orbit angle:
+three planets add 60 degrees to that angle, which formerly made the test
+accept the same displaced path as the renderer. Free-roam return angles are
+checked separately against the native entry vector. Projected scenes also
+assert that planets use the camera already baked into the track image.
+Inspect maze captures during rotation and after its cells fade; symbols must
+stay on their cells and disappear with them. Run T3-X/T3-EX as regressions
+because they share projected free-roam rendering.
+
 ## Math forks and copied scenes
 
 ```powershell

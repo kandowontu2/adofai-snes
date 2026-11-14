@@ -165,13 +165,26 @@ def main():
         if args.graphics_dumps and chart.get('neo_cosmos') and not args.checkpoints:
             import math
             from hold_path import sweep
+            native=json.loads((ROOT/f'assets/private/level{global_id}.json').read_text())
             holdrows=[]
             for i,n in enumerate(chart['notes'][:-1]):
                 if n.get('hold_length',-1)<0:continue
-                end=chart['notes'][i+1];a=end['angle']*math.pi/128
-                holdrows.append('['+str(i)+']={start='+str(n['frame'])+',finish='+str(end['frame'])+',angle='+str(n['angle'])+',sweep='+str(sweep(n)*128/math.pi)+',x='+str(round(24*math.cos(a)))+',y='+str(round(24*math.sin(a)))+'}')
-            hnames=('state','step','chart_time','angle','neo_hold_phase','neo_hold_x','neo_hold_y','NOTE_X','NOTE_Y','palette_dirty','cam_x','cam_y','m7_radius','orbit_x','orbit_y')
-            scheduled+=',holds={complete='+str(labels['neo_far_apply_ease']+3)+',script='+json.dumps((ROOT/'tools/verify_hold_orbit_mesen.lua').as_posix())+',addr={'+','.join(n+'='+str(labels[n]) for n in hnames)+'},notes={'+','.join(holdrows)+'}}'
+                end=chart['notes'][i+1]
+                # Derive the exit independently from the native floor, not
+                # from NOTE_ANGLE (which contains multiplanet spacing).
+                a=native['floors'][i]['exitangle']-math.pi/2
+                radius=24*native['floors'][i+1].get('radiusScale',1)
+                holdrows.append('['+str(i)+']={start='+str(n['frame'])+',finish='+str(end['frame'])+',angle='+str(n['angle'])+',sweep='+str(sweep(n)*128/math.pi)+',x='+str(round(-radius*math.cos(a)))+',y='+str(round(-radius*math.sin(a)))+'}')
+            hnames=('state','step','chart_time','angle','neo_hold_phase','neo_hold_x','neo_hold_y','NOTE_X','NOTE_Y','palette_dirty','cam_x','cam_y','m7_radius','orbit_x','orbit_y','CAMERA_SCRIPT_X','CAMERA_SCRIPT_Y','neo_free_mode')
+            for name in ('CAMERA_SCRIPT_X','CAMERA_SCRIPT_Y'):
+                labels[name]=int(re.search(r'^'+name+r'=\$([0-9A-Fa-f]+)',(ROOT/'src/campaign.s').read_text(),re.M)[1],16)
+            free_rows=[]
+            for region in chart.get('freeroam_regions',[]):
+                i=region['step'];end=chart['notes'][i+1]
+                a=native['floors'][i+1]['entryangle']-math.pi/2
+                free_rows.append('['+str(i)+']={finish='+str(region['end'])+',angle='+str((round(a*128/math.pi)+128)&255)+',rate='+str(abs(chart['notes'][i]['rate'])*(-1 if end['ccw'] else 1))+'}')
+            bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
+            scheduled+=',holds={projected='+str(bool(chart.get('mode1_projected'))).lower()+',complete='+str(labels['neo_far_apply_ease']+3)+',free_complete='+str(labels['neo_free_orbit']+4+bank)+',free={'+','.join(free_rows)+'},script='+json.dumps((ROOT/'tools/verify_hold_orbit_mesen.lua').as_posix())+',addr={'+','.join(n+'='+str(labels[n]) for n in hnames)+'},notes={'+','.join(holdrows)+'}}'
         if args.capture_times:scheduled+=',capture_times={'+','.join('['+str(t)+']=true' for t in args.capture_times)+'}'
         if args.capture_steps:scheduled+=',capture_steps={'+','.join(map(str,args.capture_steps))+'}'
         if chart.get('track_palette_versions'):

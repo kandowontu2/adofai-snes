@@ -56,8 +56,12 @@ def compile_chart(data):
             x+=math.cos(direction)*24;y+=math.sin(direction)*24
         flags=0
         if i:
-            if f['speed']>fs[i-1]['speed']+0.001:flags|=1
-            if f['speed']<fs[i-1]['speed']-0.001:flags|=2
+            # scnGame's floor-icon pass treats changes up to 5% as
+            # SameSpeed; scrFloor hides that editor-only icon in play.
+            # Tempo/rate calculation above is deliberately independent.
+            change=f['speed']/fs[i-1]['speed']-1
+            if change>0.05+1e-7:flags|=1
+            if change< -0.05-1e-7:flags|=2
             if f['isCCW']!=fs[i-1]['isCCW']:flags|=4
         if f['midSpin'] or f.get('auto',0):flags|=8
         if f['midSpin']:flags|=16

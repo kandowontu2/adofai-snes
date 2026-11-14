@@ -1,5 +1,6 @@
 import json
 import hashlib
+import math
 import tempfile
 import struct
 import sys
@@ -14,6 +15,17 @@ from menu_sets import groups
 
 
 class FeaturedImportTests(unittest.TestCase):
+    def test_small_tempo_changes_have_no_gameplay_speed_icon(self):
+        from import_official import normalize_json
+        raw=dict(settings=dict(bpm=100,offset=0),angleData=[0]*6,actions=[
+            dict(floor=i,eventType='SetSpeed',speedType='Bpm',beatsPerMinute=bpm)
+            for i,bpm in enumerate((100,105,100,110,100,103))])
+        data=normalize_json(raw,dict(id=1,code='TEST',title='TEST',text='test'))
+        chart,_=compile_chart(data)
+        self.assertEqual([n['flags']&3 for n in chart['notes'][:6]],[0,0,0,1,2,0])
+        self.assertEqual([n['speed'] for n in chart['notes'][:6]],[1,1.05,1,1.1,1,1.03])
+        self.assertNotEqual(chart['notes'][0]['rate'],chart['notes'][1]['rate'])
+
     def test_firestix_selection_has_variants_without_night_wander(self):
         from import_firestix import FIRESTIX
         ids={m['workshop'] for m in FIRESTIX}
@@ -103,8 +115,21 @@ class FeaturedImportTests(unittest.TestCase):
             blob,labels=binary_tables(out,[75])
         self.assertEqual(struct.unpack_from('<hh',blob,labels['neo_free_entries']),(48,-48))
         self.assertEqual(struct.unpack_from('<hh',blob,labels['neo_free_records']+20),(336,-96))
+        # The maze exits into three planets, but its landing vector must
+        # still point at the release floor, not 60 degrees past it.
+        self.assertEqual(struct.unpack_from('<H',blob,labels['neo_free_records']+26)[0],0)
         count=struct.unpack_from('<H',blob,labels['neo_ease_counts'])[0]
         records=list(struct.iter_unpack('<4H',blob[labels['neo_ease_records']:labels['neo_ease_records']+count*8]))
+        holds=0
+        for row,(step,start,duration,index) in enumerate(records):
+            floor=data['floors'][step]
+            if floor['holdLength']<0:continue
+            holds+=1
+            exit_angle=floor['exitangle']-math.pi/2
+            radius=24*data['floors'][step+1]['radiusScale']
+            expected=(round(-radius*math.cos(exit_angle)),round(-radius*math.sin(exit_angle)))
+            self.assertEqual(struct.unpack_from('<hh',blob,labels['neo_ease_tails']+4*row),expected)
+        self.assertEqual(holds,28)
         for step,start,duration,index in records:
             if step!=385:continue
             sizes=struct.unpack_from('<'+str(duration+1)+'H',blob,labels['neo_ease_radii']+index*2)
