@@ -75,6 +75,7 @@ def configure(data, chart):
     if data['code'] in ('T3-X','T3EX-X'):
         from neo_warps import compile_math
         compile_math(data,chart)
+        if data.get('native_fog'):chart['mawaru_fog']=data['native_fog']
         for n in notes:n.pop('warp_visual',None)
         unit=24/data['native_tile_size']
         for w in data.get('native_warps',[]):
@@ -97,9 +98,14 @@ def configure(data, chart):
                 chart['neo_opacity_events'].append(dict(floor=i,time=when,duration=0,opacity=1))
         for i,start,end in ((319 if ex else 248,301,337),(727 if ex else 555,673,713)):
             if 'scene_visual' not in notes[i]:continue
-            chart['neo_opacity_events'] += [dict(floor=i,time=0,duration=0,opacity=0),
-                dict(floor=i,time=chapter_time(chart,start),duration=8*60/170,opacity=1),
-                dict(floor=i,time=chapter_time(chart,end),duration=8*60/170,opacity=0)]
+            # The alternate routes are scene sprites; the real routes are
+            # rhythm floors. Their reveal must match as well as their tint,
+            # otherwise full-bright real floors give away the answer early.
+            branches=[i]+[root+j for root in (i,i+12) for j in (1,2,3)]
+            for branch in branches:
+                chart['neo_opacity_events'] += [dict(floor=branch,time=0,duration=0,opacity=0),
+                    dict(floor=branch,time=chapter_time(chart,start),duration=8*60/170,opacity=1),
+                    dict(floor=branch,time=chapter_time(chart,end),duration=8*60/170,opacity=0)]
         for root in ((319,331,727,739) if ex else (248,260,555,567)):
             i=root+3;a=notes[i];b=notes[i+1]
             chart['neo_motion_events'].append(dict(floor=i,time=a['time'],duration=4*60/(170 if root<500 else 200),

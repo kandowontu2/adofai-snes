@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image,ImageDraw,ImageFilter,ImageChops
 import make_assets as common
 from track_motion import enabled,easing,ease_name,native_event_time,native_duration
-from track_geometry import piece,STYLE
+from track_geometry import piece,STYLE,recessed_join
 from track_events import gameplay_actions
 
 APPEAR=['None','Assemble','Assemble_Far','Extend','Grow','Grow_Spin','Fade','Drop','Rise']
@@ -262,7 +262,7 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
         from neo_singsing import Scene
         scene=Scene(color_data,chart)
         chart['authored_material_capacity']=min(44,chart.get('authored_material_capacity',48))
-        chart['singsing_scene_version']=3
+        chart['singsing_scene_version']=4
     color_slots=[0]*len(notes);color_changes={}
     if mode7 and color_data:
         from track_colors import palette_schedule
@@ -372,14 +372,17 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             material.paste(1,mask=layer);material.paste(3,mask=contour)
             if gem_light is not None:
                 material.paste(1,mask=layer);material.paste(3,mask=gem_light)
-            if notes[i].get('scene_visual',{}).get('cutout'):
-                v=notes[i]['scene_visual'];ink=Image.frombytes('1',tuple(v['size']),bytes.fromhex(v['cutout'])).convert('L')
-                if v.get('text'):
-                    text=Image.frombytes('1',tuple(v['size']),bytes.fromhex(v['text'])).convert('L')
-                    text_layer=Image.new('L',size);text_layer.paste(text,(px-x0,py-y0))
-                    material.paste(3,mask=text_layer)
-                ink_layer=Image.new('L',size);ink_layer.paste(ink,(px-x0,py-y0))
-                material.paste(0,mask=ink_layer)
+            if notes[i].get('scene_visual'):
+                v=notes[i]['scene_visual']
+                if v.get('surface'):
+                    surface=Image.frombytes('L',tuple(v['size']),bytes.fromhex(v['surface']))
+                    painted=Image.new('L',size);painted.paste(surface,(px-x0,py-y0))
+                    material.paste(painted,mask=layer)
+                for key in ('text','light'):
+                    if v.get(key):
+                        ink=Image.frombytes('1',tuple(v['size']),bytes.fromhex(v[key])).convert('L')
+                        ink_layer=Image.new('L',size);ink_layer.paste(ink,(px-x0,py-y0))
+                        material.paste(3,mask=ink_layer)
             if notes[i].get('taps_needed',1)>1 and frame<notes[i]['frame']:
                 inset=STYLE.get('multitap_border_inset',3)
                 inner=layer.filter(ImageFilter.MinFilter(inset*2+1))
@@ -392,14 +395,8 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
                 a=notes[i].get('exit_angle')
                 if a is not None:
                     a-=math.radians(angles[i])
-                    direction=np.array((math.cos(a),math.sin(a)))
-                    normal=np.array((-direction[1],direction[0]))*7
                     center=np.array((notes[i]['x']+offsets_xy[i][0]-x0,notes[i]['y']+offsets_xy[i][1]-y0))
-                    join=Image.new('L',size);jd=ImageDraw.Draw(join)
-                    for distance,value in (((11,3),) if chart.get('shared_track_contour') else ((11,3),(12,4))):
-                        end=center+np.round(direction*distance)
-                        jd.line([tuple(np.round(end-normal).astype(int)),tuple(np.round(end+normal).astype(int))],fill=value,width=1)
-                    join_mask=ImageChops.multiply(layer.filter(ImageFilter.MinFilter(3)) if chart.get('shared_track_contour') else layer,join.point(lambda p:255 if p else 0))
+                    join,join_mask=recessed_join(size,layer,center,a,chart.get('shared_track_contour',False))
                     material.paste(join,mask=join_mask)
                     separators.paste(join,mask=join_mask)
             if color_data:owners.paste(color_slots[i],mask=layer)

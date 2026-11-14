@@ -52,3 +52,6 @@ Check the captured live-copy jobs as well as the background pixels:
 ```powershell
 python tools/verify_camera_copies.py --pack build/packs/my-master-dev --folder build/packs/my-master-dev/verification/mesen-68-autoplay
 ```
+
+See [Neo Cosmos release checks](NEO-REGRESSIONS.md) for math geometry and
+randomization, copied-sprite cleanup, and manual moving-platform transitions.

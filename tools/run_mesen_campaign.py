@@ -20,17 +20,14 @@ def main():
     for pack in PACKS if args.all else [args.pack]:
       base=ROOT/'build/campaign' if pack=='main' else ROOT/f'build/packs/{pack}'
       labels={m[1]:int(m[0],16) for m in re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)',(base/'adofai.lbl').read_text())}
+      if 'cell_hash_dirty' in labels:
+        labels['m7_visual_step']=labels['cell_hash_dirty'];labels['m7_logical_step']=labels['cell_hash_bucket']
       levels=json.loads((base/'pack.json').read_text())['levels']
       for level in args.levels or range(1,len(levels)+1):
         suffix=f'-speed-{speed:02d}'+('-attack' if args.time_attack else '') if speed!=10 or args.time_attack else ''
         if args.autoplay:suffix+='-autoplay'
         if args.prepare_only:suffix+='-prepared'
         out=base/f'verification/mesen-{"checkpoints-" if args.checkpoints else ""}{level}{suffix}';out.mkdir(parents=True,exist_ok=True)
-        if args.graphics_dumps:
-            for pattern in ('ppu-*.bin','screen-*.png','step-*.png'):
-                for capture in out.glob(pattern):capture.unlink()
-            for name in ('hold-orbits.txt','hold-planets.txt','screen-registers.txt','mode1-icon-jobs.txt','ppu-verification.json'):
-                (out/name).unlink(missing_ok=True)
         global_id=levels[level-1]
         chart=json.loads((base/f'level{global_id}.json').read_text())
         if args.checkpoints and not chart['checkpoints']:continue
@@ -43,6 +40,13 @@ def main():
             if previous.get('suite_digest')==loaded_suite and previous.get('graphics_dumps')==args.graphics_dumps and previous.get('suite_version',0)>=2 and previous.get('passed') is True and previous['sha256']==digest and previous.get('msu_sha256')==loaded_identity['msu_sha256'] and report.read_text().endswith('PASS\n'):
                 print(chart['code']+': PASS (current ROM already verified)',flush=True)
                 continue
+        # A resumed, verified replay owns its captures. Delete them only
+        # when this invocation will actually replace them with a new replay.
+        if args.graphics_dumps:
+            for pattern in ('ppu-*.bin','screen-*.png','step-*.png'):
+                for capture in out.glob(pattern):capture.unlink()
+            for name in ('hold-orbits.txt','hold-planets.txt','screen-registers.txt','mode1-icon-jobs.txt','ppu-verification.json'):
+                (out/name).unlink(missing_ok=True)
         names=('state','step','elapsed','combo','perfects','misses','selected_level','speed_tenths','time_attack','judgment_counts','score_lo','score_hi','finish_cs','nmi_audio_ticks','audio_ticks','speed_offset','joy')
         if 'pattern_vblank_overruns' in labels:names+=('pattern_vblank_overruns',)
         if chart.get('track_palette_versions'):
@@ -113,6 +117,13 @@ def main():
         if chart.get('mode1_tracks') and not args.checkpoints:
             scheduled+=',profile_ranges={{4,24}'+(',{120,180},{390,408}' if global_id==71 else '')+'}'
         if args.graphics_dumps:scheduled+=',graphics_dumps=true'
+        if args.graphics_dumps and chart.get('neo_cosmos'):
+            scheduled+=',midspin={script='+json.dumps((ROOT/'tools/verify_midspin_pose_mesen.lua').as_posix())+',entry='+str(labels['neo_far_prepare_hold'])+',addr={'+','.join(k+'='+str(labels[k]) for k in ('m7_visual_step','m7_logical_step'))+'},flags={'+','.join(str(n['flags']) for n in chart['notes'])+'}}'
+        if args.graphics_dumps and chart.get('neo_math_questions'):
+            from neo_math import POOLS,FONT_CHARS
+            mfields=('neo_math_group','neo_math_label','neo_math_choices','sprite_x','sprite_y','oam_pos')
+            pairs=','.join('['+json.dumps(k)+']={'+','.join('{'+','.join(json.dumps(str(v)) for v in (q+'=',a,b))+'}' for q,a,b in variants)+'}' for k,variants in POOLS.items())
+            scheduled+=',math={script='+json.dumps((ROOT/'tools/verify_math_mesen.lua').as_posix())+',code='+json.dumps(chart['code'])+',font='+json.dumps((ROOT/'assets/graphics/mode7/math-font.chr').as_posix())+',chars='+json.dumps(FONT_CHARS)+',before='+str(labels['neo_math_before_label'])+',after='+str(labels['neo_math_after_label'])+',addr={'+','.join(k+'='+str(labels[k]) for k in mfields)+'},pools={'+pairs+'}}'
         if args.graphics_dumps:
             bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
             scheduled+=',dma_script='+json.dumps((ROOT/'tools/verify_dma_window_mesen.lua').as_posix())+',dma_complete='+str(labels['mode7_cache_commit']+bank)
@@ -196,6 +207,9 @@ def main():
                 assert coverage.exists(),f'Missing hold verification coverage: {coverage}'
                 count=int(re.search(r'samples=(\d+)',coverage.read_text())[1])
                 assert count>(100 if chart.get('mode1_tracks') else 0),f'Insufficient hold checks: {coverage}: {count}'
+        if args.graphics_dumps and chart.get('neo_math_questions'):
+            coverage=out/'math-labels.txt'
+            assert coverage.exists() and int(re.search(r'samples=(\d+)',coverage.read_text())[1])>100,'Missing live math-label coverage'
 
         verified=json.loads(manifest.read_text());verified['passed']=True;manifest.write_text(json.dumps(verified,indent=2))
 

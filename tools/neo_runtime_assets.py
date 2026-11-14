@@ -133,7 +133,8 @@ def table_source(out,levels):
     lines+=['neo_meteor_starts: .word '+','.join(map(str,meteor_starts)),
             'neo_meteor_counts: .word '+','.join(map(str,meteor_counts)), 'neo_meteor_records:']
     lines+=['.word '+','.join(str(v&65535) for v in row) for row in meteors]
-    return '\n'.join(lines)+'\n'
+    from neo_math import table_source as math_tables
+    return '\n'.join(lines)+'\n'+math_tables(out,levels)
 
 
 def binary_tables(out, levels):

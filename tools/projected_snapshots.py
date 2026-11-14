@@ -20,16 +20,19 @@ def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,post
         extra_colors=palette_events(source,level,copy_world)
         events.extend(extra_colors)
         chart['track_palette_versions']=sorted(chart['track_palette_versions']+[[t,i,v] for t,k,i,v,p in extra_colors],key=lambda r:r[0])
+    from neo_fog import Fog
+    fog=Fog(chart) if chart.get('mawaru_fog') else None
     peak=0;previous=None;snapshots=bytearray()
     for t,(refs,palettes) in enumerate(frames):
         visible=sorted({g for g,b in refs.values()}-{0});peak=max(peak,len(visible))
-        assert len(visible)<512
+        assert len(visible)<512,('Snapshot atlas capacity',level,t,len(visible))
         slots={g:i+1 for i,g in enumerate(visible)};words=[0]*608
         for i,(g,bank) in refs.items():
             if g:words[i]=slots[g]|((bank+2)<<10)
         palette=[v for b in range(6) for v in ([0]+list(palettes[b])+[0]*(15-len(palettes[b])) if b<len(palettes) else [0]*16)]
         body=bytearray(bytes(palette)+struct.pack('<608H',*words))
         direct=bool(copy_world and copy_world['first']<=t<copy_world['last'])
+        if fog and fog.first<=t<fog.last and 1312+len(visible)*32+14<=LIMIT:direct=True
         for g in visible:
             raw=glyphs[g]
             if direct:body+=raw

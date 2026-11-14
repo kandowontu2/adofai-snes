@@ -79,6 +79,8 @@ class Source:
         copies=copy_world if copy_world is not None else c.get('mawaru_copy_world')
         self.copies=CopyWorld(copies) if copies else None
         self.native_palette=None
+        from neo_fog import Fog
+        self.fog=Fog(c) if c.get('mawaru_fog') else None
 
     def advance(self,frame):
         assert frame>=self.frame,'Projection source must advance monotonically'
@@ -111,6 +113,9 @@ class Source:
                 raw=decode_tile(glyphs[g*32:g*32+32],list(range(1,len(swatches)+1)))
                 part=np.array([indices[swatches[v-1]] if v else 0 for v in raw],dtype=np.uint8).reshape(8,8)
                 dest=image[y:y+8,x:x+8];mask=part!=0;dest[mask]=part[mask]
+        if self.fog:
+            self.native_palette=self.palette.copy()
+            image=self.fog.screen(frame,image,self.camera,self.rotation,self.palette)
         # Alias equal hardware colors before palette packing. Numeric source
         # indices are not distinct colors, and retaining those aliases makes
         # a 4-bpp atlas churn as hidden source materials enter and leave.

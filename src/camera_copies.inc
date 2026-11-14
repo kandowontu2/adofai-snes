@@ -10,12 +10,12 @@ clone_wait:
 neo_camera_copies:
     lda f:STREAM_MODE1
     cmp #3
-    bne @done
+    jne @done
     lda f:CLONE_COUNT
-    beq @done
+    jeq @done
     lda state
     cmp #1
-    bne @done
+    jne @done
     lda oam_pos
     sta f:CLONE_INPUT_BYTES
     lda #1
@@ -46,6 +46,22 @@ neo_camera_copies:
     jsl $800000+clone_wait
     lda #1
     sta msu_data_busy
+    ; Copies replace the original prefix and can contain fewer objects.
+    ; Hide its discarded tail before downloading the shorter result, or
+    ; NMI's previous-count upload can publish live, unbudgeted originals.
+    lda f:CLONE_OUTPUT_BYTES
+    tax
+    lda #$E000
+@hide_original_tail:
+    cpx oam_pos
+    bcs @download
+    sta OAM,x
+    inx
+    inx
+    inx
+    inx
+    bra @hide_original_tail
+@download:
     lda f:CLONE_OUTPUT_BYTES
     tay
     lda #OAM

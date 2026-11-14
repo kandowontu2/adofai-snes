@@ -11,6 +11,8 @@ The build reads these files directly, including on cached SA-1 rebuilds.
 See [the graphics guide](docs/GRAPHICS.md) for tile assignments, formats and
 the JSON shape definitions used for chart-generated track tiles.
 Submit a pull request with your edited assets and screenshots.
+For math forks, copied scenes, and manual moving-platform checks, see
+[the Neo Cosmos regression guide](docs/NEO-REGRESSIONS.md).
 
 ## Building
 

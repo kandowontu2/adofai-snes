@@ -357,6 +357,8 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if any(c.get('neo_cosmos') for c in charts):
         assets['neo_objects']=(ROOT/'assets/graphics/mode7/freeroam.chr').read_bytes()
         assert len(assets['neo_objects'])==2048
+        assets['neo_math_font']=(ROOT/'assets/graphics/mode7/math-font.chr').read_bytes()
+        assert len(assets['neo_math_font'])==704
     for c in charts:
         if c.get('projected_spill_frames') and not (sa1 and c.get('sa1_stream_format')):
             raise ValueError(f"{c['code']}: projected overflow requires the SA-1 stream build; refusing to omit its pixels")
@@ -494,7 +496,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     (OUT/'payload0.bin').write_bytes(image[:0x408000])
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     (OUT/'placements.json').write_text(json.dumps(loc,indent=2))
-    defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects')]
+    defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects','neo_math_font')]
     if any(c.get('mode1_tracks') for c in stream_charts):defs += ['SA1_MODE1_BUILD = 1']
     if stream_charts:defs += ['SA1_STREAM_BUILD = 1','STREAM_INDEX_BYTES = 2',f'STREAM_DESCRIPTORS_ADDR = ${loc["stream_descriptors"]:06X}']
     if 'stream_fallback_descriptors' in loc:defs += [f'STREAM_FALLBACK_DESCRIPTORS_ADDR = ${loc["stream_fallback_descriptors"]:06X}']
@@ -688,6 +690,11 @@ def main():
         importer='import_campaign.py' if args.pack=='main' else 'import_official.py'
         subprocess.run([sys.executable,str(ROOT/'tools'/importer)],check=True)
     raw_charts=[json.loads((ROOT/f'assets/private/level{n}.json').read_text()) for n in pack['levels']]
+    old_neo=[d['id'] for d in raw_charts if d.get('id') in (68,73) and
+             (not d.get('native_math') or not d.get('native_fog'))]
+    if old_neo:
+        subprocess.run([sys.executable,str(ROOT/'tools/import_neo.py'),'--levels',*map(str,old_neo)],check=True)
+        raw_charts=[json.loads((ROOT/f'assets/private/level{n}.json').read_text()) for n in pack['levels']]
     if msu and any(d.get('track_color_import')!=1 for d in raw_charts):
         subprocess.run([sys.executable,str(ROOT/'tools/import_colors.py')],check=True)
     if msu and any('camera_initial' not in d for d in raw_charts):
@@ -709,7 +716,7 @@ def main():
         material_capacity=args.material_capacity if args.material_capacity is not None else (3 if n==71 else 12 if n==58 else 48)
         adaptive_motion=args.adaptive_motion_raster
         shared_contours=args.shared_contours or n==71
-        fingerprint=hashlib.sha256((ROOT/'tools/neo_visuals.py').read_bytes()+(ROOT/'tools/neo_singsing.py').read_bytes()+(ROOT/'tools/neo_mawaru.py').read_bytes()+(ROOT/'tools/neo_warps.py').read_bytes()+bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,adaptive_motion,reuse_motion_phase,args.viewport_inset,stable_color_quantization,optimal_pattern_cache,delta_pattern_cache,precise_pattern_view])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
+        fingerprint=hashlib.sha256((ROOT/'tools/neo_visuals.py').read_bytes()+(ROOT/'tools/neo_singsing.py').read_bytes()+(ROOT/'tools/neo_mawaru.py').read_bytes()+(ROOT/'tools/neo_warps.py').read_bytes()+(ROOT/'tools/neo_math.py').read_bytes()+(ROOT/'tools/neo_fog.py').read_bytes()+bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,adaptive_motion,reuse_motion_phase,args.viewport_inset,stable_color_quantization,optimal_pattern_cache,delta_pattern_cache,precise_pattern_view])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
             (ROOT/'tools/neo_freeroam.py').read_bytes()+(ROOT/'tools/neo_mechanics.py').read_bytes()+(ROOT/'tools/neo_audio.py').read_bytes()+(ROOT/'tools/track_visibility.py').read_bytes()+(ROOT/'tools/viewport_cells.py').read_bytes()+(ROOT/'tools/projected_spill.py').read_bytes()+(ROOT/'tools/track_geometry.py').read_bytes()+(ROOT/'assets/graphics/track-shapes.json').read_bytes()+(ROOT/'tools/track_motion.py').read_bytes()+(ROOT/'tools/track_events.py').read_bytes()+(ROOT/'tools/raster_phase.py').read_bytes()+(ROOT/'tools/track_mipmaps.py').read_bytes()+
             ((ROOT/'tools/track_readability.py').read_bytes()+(ROOT/'tools/track_patterns.py').read_bytes()+(ROOT/'tools/track_camera.py').read_bytes() if msu or n in (26,31) or n>=40 else b'')+
             ((ROOT/'tools/track_colors.py').read_bytes() if msu else b'')+bytes([msu,1,args.preview_tiles,args.past_tiles,args.fixed_tile_positions,material_capacity,shared_contours,motion_step])+ (b'compact' if args.compact_graphics else b'')).hexdigest()

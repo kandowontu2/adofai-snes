@@ -14,7 +14,7 @@ for i,stage in ipairs(Q.stages) do
  if C.input_script then dofile(C.input_script)(C) end
  if C.screen_script then dofile(C.screen_script)(C) end
  if C.palette_script then dofile(C.palette_script)(C) end
- for _,key in ipairs({'icons','arc','objects','holds','copies'}) do if C[key] then dofile(C[key].script)(C) end end
+ for _,key in ipairs({'icons','arc','objects','holds','copies','math','midspin'}) do if C[key] then dofile(C[key].script)(C) end end
 local function capture_ppu()
   local step=word(C.addr.step)
   if C.graphics_dumps and word(C.addr.commits)%30==0 and word(C.addr.display_state)==1 then

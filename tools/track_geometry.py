@@ -3,10 +3,35 @@ import math
 import json
 from pathlib import Path
 import numpy as np
-from PIL import Image,ImageDraw
+from PIL import Image,ImageDraw,ImageChops,ImageFilter
 
 
 STYLE=json.loads((Path(__file__).resolve().parents[1]/"assets/graphics/track-shapes.json").read_text())
+
+
+def recessed_join(size,coverage,center,angle,shared=False):
+    direction=np.array((math.cos(angle),math.sin(angle)))
+    normal=np.array((-direction[1],direction[0]))*7
+    join=Image.new('L',size);draw=ImageDraw.Draw(join);center=np.array(center)
+    for distance,value in (((11,3),) if shared else ((11,3),(12,4))):
+        end=center+np.round(direction*distance)
+        draw.line([tuple(np.round(end-normal).astype(int)),tuple(np.round(end+normal).astype(int))],fill=value,width=1)
+    mask=ImageChops.multiply(coverage.filter(ImageFilter.MinFilter(3)) if shared else coverage,join.point(lambda p:255 if p else 0))
+    return join,mask
+
+
+def surface(notes,index,shared=False):
+    """The same one-pixel contour and recessed join used by track rastering."""
+    x,y,part=piece(notes,index);coverage=part.point(lambda p:255 if p else 0)
+    pixels=Image.new('L',part.size);pixels.paste(1,mask=coverage)
+    contour=ImageChops.subtract(coverage,coverage.filter(ImageFilter.MinFilter(3)))
+    pixels.paste(3,mask=contour);n=notes[index]
+    if n.get('gem_platform'):
+        pixels.paste(3,mask=part.point(lambda p:255 if p==128 else 0))
+    elif n.get('spin_kind','normal')=='normal' and n.get('hold_length',-1)<0 and n.get('exit_angle') is not None:
+        join,mask=recessed_join(part.size,coverage,(n['x']-x,n['y']-y),n['exit_angle'],shared)
+        pixels.paste(join,mask=mask)
+    return x,y,pixels
 
 def gem_piece(note,rotation,scale):
     """Two-tone faceted Gems platform; 128 marks its bright facets."""

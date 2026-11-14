@@ -285,8 +285,11 @@ sprite:
 render:
 .ifdef MSU_BUILD
     lda step
-    sta m7_visual_step
     sta m7_logical_step
+.ifdef NEO_BUILD
+    jsl neo_far_visual_step
+.endif
+    sta m7_visual_step
     lda tick
     sta m7_service_tick
     jsr render_inner

@@ -35,6 +35,9 @@ def patch_sa1_pack(out):
     if 'neo_objects' in placements:
         graphics['neo_objects']=(ROOT/'mode7/freeroam.chr').read_bytes()
         if len(graphics['neo_objects'])!=2048:raise ValueError('freeroam.chr must contain 64 tiles')
+    if 'neo_math_font' in placements:
+        graphics['neo_math_font']=(ROOT/'mode7/math-font.chr').read_bytes()
+        if len(graphics['neo_math_font'])!=704:raise ValueError('math-font.chr must contain 22 tiles')
     with (out / 'sa1_payload.bin').open('r+b') as payload:
         for key, data in graphics.items():
             address = placements[key]

@@ -50,6 +50,9 @@ neo_call_mode7_project:
 neo_call_sprite:
     jsr sprite
     rtl
+neo_call_upload_vram:
+    jsr upload_vram
+    rtl
 neo_call_sine_cosine:
     jsr sine_cosine
     rtl
@@ -829,6 +832,7 @@ neo_camera_delta:
 ; Only the occupied cell follows the return tween. The background grid
 ; has its own authored fade and must never be translated with the player.
 neo_impl_draw_return:
+    jsr neo_math_draw
     jsr neo_draw_collectibles
     jsr neo_draw_laser
     jsr neo_draw_meteors

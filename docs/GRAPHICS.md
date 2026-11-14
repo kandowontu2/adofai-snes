@@ -134,3 +134,12 @@ game assets, private chart data, build directories, or emulator binaries.
 During three-planet sections, the third planet averages each RGB channel of the
 two selected planet palettes, including all shade entries. Change the two primary
 colors in Options to change this blend.
+
+T3 math labels use `mode7/math-font.chr`: 704 bytes of 4bpp CHR,
+22 eight-pixel tiles in this order: `0123456789+-*/()=^SQRT`. These load
+at OBJ indices 490 through 511, in the reserved end of the Neo sheet,
+away from the HUD and track maps. Glyphs advance six pixels, so keep
+a one-pixel margin. Preserve ink index 7 and transparent index 0. Both answers use the same font and palette; there is no
+correct-answer highlight. `math-questions.json` contains the original
+four question/answer variants for each difficulty pool. New runs and
+checkpoint attempts select fresh question variants.

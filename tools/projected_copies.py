@@ -161,13 +161,18 @@ def actor_events(chart,world):
 
 
 def palette_events(folder,level,world):
-    """Retain colors newly exposed by extra cameras without quantization."""
+    """Retain extra-camera and foreground colors without changing track RGB."""
     from projected_tracks import Source
     source=Source(folder,level,world);events=[];runtime=np.zeros(256,dtype=np.uint16)
-    for frame in range(world['last']+1):
+    intervals=[(world['first'],world['last'])] if world else []
+    if source.fog:intervals.append((source.fog.first,source.fog.last))
+    if not intervals:return events
+    first=min(a for a,b in intervals);last=max(b for a,b in intervals)
+    for frame in range(last+1):
         for index,value in source.color_events.get(frame,[]):runtime[index]=value
-        if frame<world['first']:continue
-        source.screen(frame)
+        if frame<first:continue
+        if any(a<=frame<b for a,b in intervals):source.screen(frame)
+        else:source.advance(frame)
         for index in np.flatnonzero(runtime[32:128]!=source.palette[32:128])+32:
             events.append((frame,7,int(index)-32,int(source.palette[index]),b''))
             runtime[index]=source.palette[index]

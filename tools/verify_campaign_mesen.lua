@@ -7,6 +7,8 @@ if C.icons then dofile(C.icons.script)(C) end
 if C.arc then dofile(C.arc.script)(C) end
 if C.objects then dofile(C.objects.script)(C) end
 if C.copies then dofile(C.copies.script)(C) end
+if C.math then dofile(C.math.script)(C) end
+if C.midspin then dofile(C.midspin.script)(C) end
 if C.dma_script then dofile(C.dma_script)(C) end
 if C.input_script then dofile(C.input_script)(C) end
 if C.holds then dofile(C.holds.script)(C) end

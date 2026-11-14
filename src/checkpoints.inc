@@ -45,6 +45,9 @@ retry_game:
 @full:
     jmp start_game
 @checkpoint:
+.ifdef NEO_BUILD
+    jsl neo_math_randomize
+.endif
     stz music_active
     jsr reset_run_stats
     ; Leave the death scene on screen while the new audio ring is filled.

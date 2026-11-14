@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from neo_singsing import Scene
+from neo_singsing import Scene,standard_hits
 from neo_visuals import configure
 
 
@@ -67,7 +67,7 @@ class SingSingPresentationTests(unittest.TestCase):
         from make_assets import FPS
         data=dict(code='T2EX-X',bpm=114,native_singsing_visuals={
             'lane0_midspin0':dict(frames=[dict(size=[5,5],alpha=(bytes([255])*25).hex())])})
-        chart=dict(notes=[dict(time=0),dict(time=0)],render_transforms={0:[256,0,128,72]})
+        chart=dict(bpm=114,notes=[dict(time=0),dict(time=0)],render_transforms={0:[256,0,128,72]})
         scene=Scene(data,chart)
         layers=scene.layers(round(76.8*60/114*FPS))
         visible=[(slot,y+part.getbbox()[1],y+part.getbbox()[3])
@@ -81,6 +81,28 @@ class SingSingPresentationTests(unittest.TestCase):
             if slot in (45,46) and part.getbbox():
                 bounds.setdefault(slot,(x+part.getbbox()[0],x+part.getbbox()[2]))
         self.assertLess(bounds[46][1],bounds[45][0])
+
+    def test_standard_lines_use_landings_and_exclude_colored_midspins(self):
+        beats=(34,34.75,35.75,37,41)
+        chart=dict(bpm=114,notes=[dict(time=2.105),dict(time=2.105)]+
+                   [dict(time=2.105+b*60/114,spin_kind='normal') for b in beats]+
+                   [dict(time=2.105+41*60/114,spin_kind='midspin')])
+        self.assertEqual(standard_hits(chart,[41]),[34,34.75,35.75,37])
+
+    def test_standard_cues_are_thin_neutral_vertical_lines(self):
+        from make_assets import FPS
+        data=dict(code='T2EX-X',bpm=114,native_singsing_visuals={
+            'lane0_midspin0':dict(frames=[dict(size=[5,5],alpha=(bytes([255])*25).hex())])})
+        chart=dict(bpm=114,notes=[dict(time=0),dict(time=0)]+
+                   [dict(time=b*60/114,spin_kind='normal') for b in (34,34.75,35.75,37)],
+                   render_transforms={0:[256,0,128,72]})
+        scene=Scene(data,chart);layers=scene.layers(round(34.1*60/114*FPS))
+        x,y,part=next((x,y,p) for slot,front,x,y,p in layers if slot==47)
+        # The first tick extends above the short backboard and stays one
+        # pixel wide. This is the neutral lane, not a colored midspin blob.
+        self.assertEqual(part.getpixel((86-x,115-y)),255)
+        self.assertEqual(part.getpixel((85-x,115-y)),0)
+        self.assertEqual(part.getpixel((87-x,115-y)),0)
 
 
 if __name__=='__main__':unittest.main()

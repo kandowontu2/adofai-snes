@@ -50,6 +50,12 @@ class Scene:
         self.transforms=chart['render_transforms'];self.times=sorted(map(int,self.transforms))
         self.cache={}
         self.hits=[41,44,47.5,50.5,53.25,56.25,58.5,60,61.5,63,65,65.5,68,68.5,70.5,71.25,71.5,73.5,74.25,74.5,77,77.25,77.5]
+        # backBar's neutral vertical strokes are ordinary floor landings.
+        # The colored midspin sprites are additional events, not replacements
+        # for that timing grid. Use chart deadlines, including the last row's
+        # changed rhythm, instead of inventing evenly spaced metronome ticks.
+        self.standard_hits=standard_hits(chart,self.hits)
+        chart['singsing_standard_hit_beats']=self.standard_hits
 
     def layers(self,frame):
         from PIL import Image,ImageDraw
@@ -120,6 +126,11 @@ class Scene:
                 left=round(128-width/2);top=round(cy-height/2)
                 draw.rounded_rectangle((left,top,left+width-1,top+height-1),
                                        radius=min(2,height//2),fill=96,outline=200)
+                for hit in self.standard_hits:
+                    if not start<=hit<start+6:continue
+                    x=round(128+(hit-start-3)*unit)
+                    half=max(1,round(.33*unit*vertical))
+                    draw.line((x,round(cy)-half,x,round(cy)+half),fill=255,width=1)
                 for hit in self.hits:
                     if not start<=hit<start+6 or beat>=hit+.6:continue
                     slot=44 if hit%1==0 else 45 if hit%1==.5 else 46
@@ -152,3 +163,12 @@ class Scene:
         colors=((1,.7,.7,.8),(.7,.7,1,.8),(1,1,.7,.8),(1,1,1,.4)) if self.ex else ((1,.4,0,.3),(0,.4,1,.3),(1,1,.7,.8),(1,1,1,.6))
         return [(0,(44+k)*2+j,sum(round(v*a*strength*31)<<(5*i) for i,v in enumerate((r,g,b))))
                 for k,(r,g,b,a) in enumerate(colors) for j,strength in enumerate((.35,1.))]
+
+
+def standard_hits(chart,midspins):
+    origin=chart['notes'][1]['time'];bpm=chart['bpm'];beats=[]
+    for note in chart['notes']:
+        if note.get('spin_kind','normal')!='normal':continue
+        beat=(note['time']-origin)*bpm/60
+        if 34-.005<=beat<84 and not any(abs(beat-m)<.005 for m in midspins):beats.append(round(beat,5))
+    return sorted(set(beats))

@@ -146,6 +146,8 @@ def import_scene(objects, meta, out, all_clips):
     if chapter is not None:
         chart['native_warps']=extract({o.path_id:o for o,_ in objects},chapter,world,by_object)
         chart['native_math']=extract_math({o.path_id:o for o,_ in objects},chapter,world,by_object,meta['code']=='T3EX-X')
+        from neo_fog import extract as extract_fog
+        chart['native_fog']=extract_fog({o.path_id:o for o,_ in objects},chapter)
     for entity in chart['native_chapter_entities']:
         if entity['type']!='LaserSpawner':continue
         go=entity['data']['m_GameObject']['m_PathID'];t=by_object[go]

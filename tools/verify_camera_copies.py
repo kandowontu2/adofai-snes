@@ -47,15 +47,17 @@ def verify(pack,folder):
         arc[key]=[signed(v) for v in struct.unpack_from('<64H',rom,at)] if key in ('x','y') else list(rom[at:at+64])
     blob=(folder/'camera-copies.bin').read_bytes();stride=8+40+544*2
     assert blob and len(blob)%stride==0
+    shorter_replacements=0
     for at in range(0,len(blob),stride):
         frame,ni,no,count=struct.unpack_from('<4H',blob,at);assert 1<=count<=4
+        shorter_replacements+=int(no<ni)
         views=[tuple(signed(v) for v in struct.unpack_from('<5H',blob,at+8+j*10)) for j in range(count)]
         source=blob[at+48:at+48+544];actual=blob[at+48+544:at+stride]
         expected,n=sprites(source,ni,views,arc)
         assert n==no,('Copy object count differs',frame,n,no)
         for a,b in ((0,n),(512,544)):
             assert expected[a:b]==actual[a:b],('Live camera-copy sprite differs',frame,next(i for i in range(a,b) if expected[i]!=actual[i]),expected[a:b].hex(),actual[a:b].hex())
-    result=dict(passed=True,jobs=len(blob)//stride)
+    result=dict(passed=True,jobs=len(blob)//stride,shorter_replacements=shorter_replacements)
     (folder/'camera-copy-verification.json').write_text(json.dumps(result,indent=2));print(result,flush=True)
 
 if __name__=='__main__':

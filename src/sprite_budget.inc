@@ -16,7 +16,20 @@ EXACT_LEFT=$0776
 
 sprite_exact_room:
     lda object_small
+    beq @icon
+    ; Live math text is also critical. Adjacent eight-line bins can look
+    ; full even though all of these eight-pixel glyphs fit on real scanlines.
+    lda sprite_attr
+    cmp #$33
+    beq @font_slot
+    cmp #$35
     jne @no
+@font_slot:
+    lda sprite_tile
+    cmp #234
+    jcc @no
+    bra @eligible
+@icon:
     lda sprite_attr
     cmp #$32
     jcc @no
@@ -27,6 +40,7 @@ sprite_exact_room:
     jcc @no
     cmp #112
     jcs @no
+@eligible:
     phx
     phy
     lda #32
@@ -100,6 +114,10 @@ sprite_exact_room:
     ; Include the candidate in the same whole-playfield hardware proof.
     lda sprite_y
     ldy #16
+    ldx object_small
+    beq :+
+    ldy #8
+:
     jsr sprite_exact_interval
     stz EXACT_OBJECTS
     stz EXACT_SLIVERS

@@ -1227,7 +1227,7 @@ sa1_fast_main:
     GFX OBJECTS_ADDR,$6000,8192
 .ifdef NEO_BUILD
     ; OBJ tiles 448..511: beyond the spill cache and the HUD tilemap.
-    GFX NEO_OBJECTS_ADDR,$7C00,2048
+    jsl neo_math_load_graphics
 .endif
     sep #$20
     .a8
@@ -1779,6 +1779,9 @@ start_game:
     rts
 @available:
 .endif
+.ifdef NEO_BUILD
+    jsl neo_math_randomize
+.endif
     stz music_active
     jsr reset_run_stats
     stz music_origin
@@ -1874,6 +1877,7 @@ start_game:
 .include "src/render.inc"
 .ifdef NEO_BUILD
 .include "src/neo.inc"
+.include "src/neo_math.inc"
 .endif
 .include "src/effects.inc"
 .include "src/hud.inc"
