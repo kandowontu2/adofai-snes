@@ -25,6 +25,12 @@ def main():
     frozen = identity(pack / 'adofai.sfc')
     suite = suite_digest()
     results = []
+    # Track-pixel checks do not cover the shared menu/background/font region.
+    # Reject a broken wide-atlas VRAM layout before running the song sweep.
+    if 'WIDE_SNAPSHOT_SUPPORT = 1' in (pack / 'addresses.inc').read_text():
+        subprocess.run([sys.executable, 'tools/verify_background_vram_mesen.py',
+                        '--pack', args.pack, '--levels', str(selected[0]),
+                        '--tag', 'catalog', '--boot-only'], cwd=root, check=True)
 
     def verify(level):
         index = levels.index(level) + 1

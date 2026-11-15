@@ -1216,8 +1216,23 @@ sa1_fast_main:
     .a16
 .endif
 .ifdef WIDE_SNAPSHOT_SUPPORT
-    GFX BACKGROUND_CHR_ADDR,$5400,BACKGROUND_CHR_BYTES
-    GFX BACKGROUND_MAP_ADDR,$5800,2048
+    ; BG2 shares the $5000 character base with BG3's font. Leave the
+    ; font ($5000..$53ff) and meter ($5400..$5487) intact, and adjust
+    ; BG2's tile indices for its character offset. Keep the map beyond
+    ; the complete background atlas, not inside it.
+    .assert BACKGROUND_CHR_BYTES <= $0E00, error, "Background exceeds reserved VRAM"
+    GFX BACKGROUND_CHR_ADDR,$5500,BACKGROUND_CHR_BYTES
+    ldx #0
+@background_map:
+    lda f:BACKGROUND_MAP_ADDR,x
+    clc
+    adc #80
+    sta f:$7FDE00,x
+    inx
+    inx
+    cpx #2048
+    bcc @background_map
+    GFX $7FDE00,$5C00,2048
 .else
     GFX BACKGROUND_CHR_ADDR,$4000,BACKGROUND_CHR_BYTES
     GFX BACKGROUND_MAP_ADDR,$4800,2048
@@ -1263,7 +1278,7 @@ sa1_fast_main:
     lda #$70
     sta $2107
 .ifdef WIDE_SNAPSHOT_SUPPORT
-    lda #$58
+    lda #$5C
 .else
     lda #$48
 .endif
