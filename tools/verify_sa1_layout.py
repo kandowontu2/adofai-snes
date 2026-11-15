@@ -83,6 +83,9 @@ def verify(base,source):
                 expected=bytes(2)
             if prefix=='chart' and (base/'zero-pauses.json').exists() and json.loads((base/'zero-pauses.json').read_text()).get(str(n)):
                 count=len(chart['notes']);assert not any(expected[-count*2:]);expected=expected[:-count*2]
+            if prefix=='visibility_index' and chart.get('mode1_snapshot') and 'SNAPSHOT_ONLY_COORDS = 1' in (base/'addresses.inc').read_text():
+                assert not chart.get('fallback_stream_packets') and not chart.get('snapshot_preview')
+                expected=bytes(2)
             assert 0x10000<=start and start+len(expected)<=(0x300000 if pack.get('standalone') else 0x400000)
             assert rom[start:start+len(expected)]==expected,(n,prefix,start)
             checked+=1

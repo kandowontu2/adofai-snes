@@ -137,6 +137,8 @@ def compile_engine(out, *, generate_pcm=True):
             text=text.replace('POLLWRAM: start=$001000,size=$0800','POLLWRAM: start=$000E00,size=$0A00')
         text=text.replace('ZP: start=$000000,size=$00FF','ZP: start=$000000,size=$0100')
         text=text.replace('STATE: start=$1800,size=$04A0','STATE: start=$1800,size=$0500')
+        # Reset clears through $1DFF; the hardware stack stays above $1E00.
+        text=text.replace('STATE: start=$1800,size=$0500','STATE: start=$1800,size=$0520')
         if 'NEO_BUILD' in addresses and 'NEOBANK:' not in text:
             text=text.replace(' PAY: start=$810000,size=$7F0000',
                 ' NEOBANK: start=$028000,size=$2000,type=ro,file=%O,fill=yes;\n PAY: start=$812000,size=$7EE000')

@@ -417,6 +417,11 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
             name=f'visibility_index{c["id"]}'
             assets[name]=coordinate_index(c,wrapped=bool(resident))
             (OUT/(name+'.bin')).write_bytes(assets[name])
+            if snapshot_only and c.get('mode1_snapshot'):
+                # Complete projected poses contain their hardware map. The
+                # sparse world-coordinate index is only an offline oracle;
+                # keep its file, but do not consume cartridge space for it.
+                assets[name]=bytes(2)
     # ExHiROM: C0-FF address the first 4 MiB; 40-7D address the upper region.
     # Reserve the reset/code/header bank at file $408000..40FFFF. The top two
     # banks can be reached through their 3E/3F upper-half mirrors.
@@ -525,7 +530,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if stream_charts:defs += ['SA1_STREAM_BUILD = 1','STREAM_INDEX_BYTES = 2',f'STREAM_DESCRIPTORS_ADDR = ${loc["stream_descriptors"]:06X}']
     if 'stream_fallback_descriptors' in loc:defs += [f'STREAM_FALLBACK_DESCRIPTORS_ADDR = ${loc["stream_fallback_descriptors"]:06X}']
     defs.append('HITS_IN_MUSIC = 1')
-    if snapshot_only:defs.append('SNAPSHOT_ONLY_MAPS = 1')
+    if snapshot_only:defs.extend(('SNAPSHOT_ONLY_MAPS = 1','SNAPSHOT_ONLY_COORDS = 1'))
     if any(c.get('neo_cosmos') for c in charts):defs+=['NEO_BUILD = 1',f'NEO_CODE_BYTES = ${neo_code_bytes:04X}']
     if any(c['id']>=75 for c in charts):defs+=['FEATURED_BUILD = 1']
     defs += [f'BACKGROUND_CHR_BYTES = {len(assets["background_chr"])}']
@@ -597,7 +602,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     config='''MEMORY {
  ZP: start=$0000,size=$0100,type=rw;
- STATE: start=$1800,size=$0500,type=rw;
+ STATE: start=$1800,size=$0520,type=rw;
  PAY0: start=$800000,size=$408000,type=ro,file=%O,fill=yes;
  ROM: start=$008000,size=$7FB0,type=ro,file=%O,fill=yes,fillval=$FF;
  HDR: start=$00FFB0,size=$30,type=ro,file=%O,fill=yes;
@@ -622,7 +627,7 @@ SEGMENTS {
  ZP: start=$0000,size=$0100,type=rw;
  FASTIRAM: start=$003100,size=$0680,type=rw;
  POLLWRAM: start=$001000,size=$0800,type=rw;
- STATE: start=$1800,size=$0500,type=rw;
+ STATE: start=$1800,size=$0520,type=rw;
  ROM: start=$008000,size=$7FB0,type=ro,file=%O,fill=yes,fillval=$FF;
  HDR: start=$00FFB0,size=$30,type=ro,file=%O,fill=yes;
  VEC: start=$00FFE0,size=$20,type=ro,file=%O,fill=yes;
@@ -688,6 +693,7 @@ def main():
     from neo_catalog import NEO
     from import_featured import FEATURED
     from import_firestix import FIRESTIX
+    from import_jokes import JOKES
     ap=argparse.ArgumentParser();ap.add_argument('--pack',choices=[*PACKS,'master'],default='main');ap.add_argument('--out',type=Path);ap.add_argument('--levels',type=int,nargs='+');ap.add_argument('--chart-cache-only',action='store_true')
     ap.add_argument('--preview-tiles',type=int,choices=range(4,65),default=16)
     ap.add_argument('--past-tiles',type=int,choices=range(0,5),default=1)
@@ -707,7 +713,7 @@ def main():
     ap.add_argument('--motion-step',type=int,choices=(1,2,4,8),default=None)
     ap.add_argument('--no-pcm',action='store_true',help='Generate the compressed master without full-size PCM tracks')
     args=ap.parse_args();msu=args.pack=='master'
-    pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=[m['id'] for m in WORLDS+TECH+COMMUNITY+NEO+FEATURED+FIRESTIX]) if msu else PACKS[args.pack]
+    pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=[m['id'] for m in WORLDS+TECH+COMMUNITY+NEO+FEATURED+FIRESTIX+JOKES]) if msu else PACKS[args.pack]
     if args.levels:pack=dict(pack,levels=args.levels)
     OUT=args.out or (ROOT/'build/campaign' if args.pack=='main' else ROOT/f'build/packs/{args.pack}')
     OUT.mkdir(parents=True,exist_ok=True)
@@ -719,6 +725,9 @@ def main():
     missing_firestix=[n for n in pack['levels'] if n in {m['id'] for m in FIRESTIX} and not (ROOT/f'assets/private/level{n}.json').exists()]
     if missing_firestix:
         subprocess.run([sys.executable,str(ROOT/'tools/import_firestix.py'),'--levels',*map(str,missing_firestix)],check=True)
+    missing_jokes=[n for n in pack['levels'] if n in {m['id'] for m in JOKES} and not (ROOT/f'assets/private/level{n}.json').exists()]
+    if missing_jokes:
+        subprocess.run([sys.executable,str(ROOT/'tools/import_jokes.py'),'--levels',*map(str,missing_jokes)],check=True)
     if not all((ROOT/f'assets/private/level{n}.json').exists() and 'checkpoints' in json.loads((ROOT/f'assets/private/level{n}.json').read_text()) for n in pack['levels']):
         importer='import_campaign.py' if args.pack=='main' else 'import_official.py'
         subprocess.run([sys.executable,str(ROOT/'tools'/importer)],check=True)
@@ -781,7 +790,7 @@ def main():
             c['mode7']=True
             c['compiled_reference_sets']=True
             c['motion_step']=motion_step
-            if n==49 or n in {m['id'] for m in FEATURED+FIRESTIX}:
+            if n==49 or n in {m['id'] for m in FEATURED+FIRESTIX+JOKES}:
                 c.update(projected_zoom_range=True,precise_viewport_cells=True,
                          pattern_pinned_limit=0,strict_pattern_quality=True,
                          share_palette_patterns=True,projected_pattern_overflow=True)

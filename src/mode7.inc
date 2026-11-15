@@ -160,6 +160,11 @@ mode7_invalidate:
     inx
     cpx #16384
     bcc @map
+.ifdef SNAPSHOT_ONLY_COORDS
+    lda f:STREAM_MODE1
+    cmp #3
+    beq @loaded
+.endif
     ; Checkpoint state includes all active cells, including cells outside
     ; the first viewport that become visible during camera motion. Their
     ; values may not change again, so rebuild them now instead of waiting

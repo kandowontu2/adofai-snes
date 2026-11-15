@@ -70,6 +70,8 @@ def compile_regions(data, chart):
                     cells=[[round((i%4+offset['x'])*24),round(-(i//4+offset['y'])*24)] for i in indices]))
         if data['id']==70:
             compile_laser(data,r,beat)
+        from decoration_hitboxes import compile_region
+        compile_region(data,chart,r)
         if data.get('featured_classic') and r.get('twirls'):
             # Autoplay traverses the reachable maze. Isolated decorative
             # edge cells must not become invented mandatory objectives.
@@ -79,7 +81,11 @@ def compile_regions(data, chart):
                 for p in ((x+24,y),(x,y-24),(x-24,y),(x,y+24)):
                     if p in cells and p not in seen:seen.add(p);queue.append(p)
             r['goal']=list(max(seen,key=lambda p:(p[0],p[1])))
-        r['demo_route']=demo_route(r,n)
+        if r.get('decoration_hitboxes'):
+            from decoration_hitboxes import demo_route as hazard_route
+            r['demo_route']=hazard_route(r,n)
+        else:
+            r['demo_route']=demo_route(r,n)
 
 
 def compile_laser(data, region, beat):

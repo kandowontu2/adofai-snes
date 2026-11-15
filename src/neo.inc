@@ -861,6 +861,16 @@ neo_impl_free_input:
     sta neo_free_time
     inc neo_free_hops
 @consumed:
+    ; Apply all timestamped hops before testing the current displayed pose.
+    ; A queued valid hop must not die at the pivot it has already left.
+    lda state
+    cmp #1
+    bne :+
+    lda tap_tail
+    cmp tap_head
+    bne :+
+    jsr neo_deco_collision
+:
     sec
     rts
 @ordinary:
@@ -1481,6 +1491,202 @@ neo_draw_free_twirls:
 
 ; Per-frame authored collision rectangle. Precomputed off-cartridge so the
 ; SA-1/CPU does no curve evaluation or scene graph traversal during play.
+; Native decoration hitboxes use a radius-.3 Unity circle for either planet.
+; The compiled boxes and projected artwork share the same per-frame transform.
+neo_deco_collision:
+    lda autoplay
+    jne @done ; Native scrDecoration also exempts autoplay from death.
+    lda neo_free_mode
+    cmp #1
+    jne @done
+    lda neo_free_record
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda f:neo_deco_ranges+2,x
+    sta neo_deco_count
+    jeq @done
+    lda f:neo_deco_ranges,x
+    sta neo_deco_cursor
+    lda chart_time
+    jsr neo_impl_free_orbit
+    jsl neo_call_sine_cosine
+@object:
+    ldx neo_deco_cursor
+    lda f:neo_deco_records,x
+    jsr neo_deco_track
+    lda [neo_deco_ptr],y
+    sta neo_deco_box
+    iny
+    iny
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+2
+    ldx neo_deco_cursor
+    lda f:neo_deco_records+2,x
+    jsr neo_deco_track
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+4
+    iny
+    iny
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+6
+    ldx neo_deco_cursor
+    lda f:neo_deco_records+4,x
+    jsr neo_deco_track
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+8
+    iny
+    iny
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+10
+    lda neo_deco_box+8
+    jeq @next
+    lda neo_deco_box+10
+    jeq @next
+    lda neo_free_x
+    sta neo_free_object_x
+    lda neo_free_y
+    sta neo_free_object_y
+    jsr neo_deco_point
+    bcs @failed
+    lda neo_free_x
+    clc
+    adc orbit_x
+    sta neo_free_object_x
+    lda neo_free_y
+    clc
+    adc orbit_y
+    sta neo_free_object_y
+    jsr neo_deco_point
+    bcs @failed
+@next:
+    lda neo_deco_cursor
+    clc
+    adc #6
+    sta neo_deco_cursor
+    dec neo_deco_count
+    jne @object
+@done:
+    rts
+@failed:
+    lda #1
+    sta fail_reason
+    jsl neo_call_fail
+    rts
+
+neo_deco_track:
+    tax
+    lda chart_time
+    cmp f:neo_deco_tracks+2,x
+    bcc :+
+    lda f:neo_deco_tracks+2,x
+:
+    sec
+    sbc f:neo_deco_tracks,x
+    bcs :+
+    lda #0
+:
+    asl a
+    asl a
+    tay
+    lda f:neo_deco_tracks+4,x
+    clc
+    adc #.loword(neo_deco_geometry)
+    sta neo_deco_ptr
+    lda f:neo_deco_tracks+6,x
+    adc #.bankbyte(neo_deco_geometry)
+    sep #$20
+    .a8
+    sta neo_deco_ptr+2
+    rep #$20
+    .a16
+    rts
+
+neo_deco_point:
+    lda neo_free_object_x
+    sec
+    sbc neo_deco_box
+    sta neo_deco_dx
+    jsr neo_deco_abs
+    sta neo_deco_u
+    lda neo_free_object_y
+    sec
+    sbc neo_deco_box+2
+    sta neo_deco_dy
+    jsr neo_deco_abs
+    sta neo_deco_v
+    lda neo_deco_box+8
+    clc
+    adc neo_deco_box+10
+    adc #6
+    cmp neo_deco_u
+    jcc @outside
+    cmp neo_deco_v
+    jcc @outside
+    lda neo_deco_dx
+    ldx neo_deco_box+4
+    jsl neo_deco_multiply
+    sta neo_deco_u
+    lda neo_deco_dy
+    ldx neo_deco_box+6
+    jsl neo_deco_multiply
+    clc
+    adc neo_deco_u
+    jsr neo_deco_abs
+    sec
+    sbc neo_deco_box+8
+    bpl :+
+    lda #0
+:
+    cmp #6
+    bcs @outside
+    sta neo_deco_u
+    lda neo_deco_dy
+    ldx neo_deco_box+4
+    jsl neo_deco_multiply
+    sta neo_deco_v
+    lda neo_deco_dx
+    ldx neo_deco_box+6
+    jsl neo_deco_multiply
+    eor #$FFFF
+    inc a
+    clc
+    adc neo_deco_v
+    jsr neo_deco_abs
+    sec
+    sbc neo_deco_box+10
+    bpl :+
+    lda #0
+:
+    cmp #6
+    bcs @outside
+    asl a
+    tax
+    lda f:neo_deco_squares,x
+    sta neo_deco_v
+    lda neo_deco_u
+    asl a
+    tax
+    lda f:neo_deco_squares,x
+    clc
+    adc neo_deco_v
+    cmp #26
+    bcs @outside
+    sec
+    rts
+@outside:
+    clc
+    rts
+neo_deco_abs:
+    bpl :+
+    eor #$FFFF
+    inc a
+:
+    rts
+neo_deco_squares: .word 0,1,4,9,16,25
+
 neo_laser_bounds:
     lda neo_free_mode
     cmp #1

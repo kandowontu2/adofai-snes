@@ -109,7 +109,7 @@ def import_chart(meta,folder,out):
     data=normalize_json(raw,dict(meta,text=meta['workshop']))
     settings=raw['settings'];actions=raw['actions']
     data.update(source=str(source),source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),source_repairs=repairs,
-        artist=meta['artist'],author=meta['author'],featured_classic=meta.get('set')!='firestix',featured_wave=meta.get('wave'),
+        artist=meta['artist'],author=meta['author'],featured_classic=meta.get('set') not in ('firestix','jokes'),featured_wave=meta.get('wave'),
         workshop=meta['workshop'],firestix=meta.get('set')=='firestix',
         track_settings=settings,track_color_import=1,camera_rotation_initial=settings.get('rotation',0),
         camera_actions=[a for a in actions if a['eventType'] in ('MoveCamera','RepeatEvents','SetConditionalEvents')],

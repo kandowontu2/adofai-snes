@@ -12,7 +12,7 @@ def main():
     args=parser.parse_args()
     game=Path(DEFAULT_GAME)
     entries=[x for x in json.loads((game/'FeaturedLevels/metadata.json').read_text(encoding='utf-8-sig'))['levels'] if x['type']==1]
-    for name in ('featured_catalog.json','firestix_catalog.json'):
+    for name in ('featured_catalog.json','firestix_catalog.json','joke_catalog.json'):
         entries.extend(dict(id=m['workshop'],song=m['title']) for m in
                        json.loads(Path(__file__).with_name(name).read_text()))
     os.environ['SteamAppId']='977950';os.environ['SteamGameId']='977950'

@@ -9,6 +9,7 @@ FEATURED=json.loads(Path(__file__).with_name('featured_catalog.json').read_text(
 FIRESTIX=json.loads(Path(__file__).with_name('firestix_catalog.json').read_text())
 CLASSIC_IDS={63,64,*[m['id'] for m in FEATURED]}
 FIRESTIX_IDS={m['id'] for m in FIRESTIX}
+JOKE_IDS={m['id'] for m in json.loads(Path(__file__).with_name('joke_catalog.json').read_text())}
 
 
 def groups(levels):
@@ -17,10 +18,10 @@ def groups(levels):
           ('EXTRA WORLDS',PACKS['extra']['levels']),
           ('CROWN ISLAND',PACKS['crown']['levels']),
           ('COLLABORATIONS',PACKS['collab']['levels']),
-          ('JOKE WORLDS',list(PACKS['jokes']['levels'])+sorted(FIRESTIX_IDS)),
+          ('JOKE WORLDS',list(PACKS['jokes']['levels'])+sorted(FIRESTIX_IDS|JOKE_IDS)),
           ('FEATURED TECH',range(40,62)),
           ('FEATURED CLASSIC',CLASSIC_IDS),
-          ('COMMUNITY',[n for n in range(62,1000) if n not in {m['id'] for m in NEO}|CLASSIC_IDS|FIRESTIX_IDS]),
+          ('COMMUNITY',[n for n in range(62,1000) if n not in {m['id'] for m in NEO}|CLASSIC_IDS|FIRESTIX_IDS|JOKE_IDS]),
           ('NEO COSMOS',[m['id'] for m in NEO])]
     result=[(name,[i for i,n in enumerate(levels) if n in members]) for name,members in sets]
     result=[row for row in result if row[1]]

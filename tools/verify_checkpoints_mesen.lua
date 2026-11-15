@@ -1,6 +1,7 @@
 -- Exercise every original checkpoint in Mesen without writing game RAM.
 local C=dofile(os.getenv('ADOFAI_TEST_CONFIG'))
 dofile(C.failfast_script)(C)
+if C.sparse then dofile(C.sparse.script)(C) end
 if C.dma_script then dofile(C.dma_script)(C) end
 if C.input_script then dofile(C.input_script)(C) end
 if C.copies then dofile(C.copies.script)(C) end

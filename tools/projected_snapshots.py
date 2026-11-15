@@ -20,6 +20,11 @@ def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,post
         extra_colors=palette_events(source,level,copy_world)
         events.extend(extra_colors)
         chart['track_palette_versions']=sorted(chart['track_palette_versions']+[[t,i,v] for t,k,i,v,p in extra_colors],key=lambda r:r[0])
+    if any(r.get('decoration_hitboxes') for r in chart.get('freeroam_regions',[])):
+        from decoration_hitboxes import palette_events
+        colors=palette_events(source,level)
+        events.extend(colors)
+        chart['track_palette_versions']=sorted(chart['track_palette_versions']+[[t,i,v] for t,k,i,v,p in colors],key=lambda r:r[0])
     from neo_fog import Fog
     fog=Fog(chart) if chart.get('mawaru_fog') else None
     peak=0;previous=None;snapshots=bytearray()
@@ -32,6 +37,9 @@ def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,post
         palette=[v for b in range(6) for v in ([0]+list(palettes[b])+[0]*(15-len(palettes[b])) if b<len(palettes) else [0]*16)]
         body=bytearray(bytes(palette)+struct.pack('<608H',*words))
         direct=bool(copy_world and copy_world['first']<=t<copy_world['last'])
+        # Dense poses benefit from routing CHR directly into the back atlas,
+        # avoiding per-glyph expansion/copying on SA-1. Pixels are identical.
+        if len(visible)>=128 and 1312+len(visible)*32+14<=LIMIT:direct=True
         if fog and fog.first<=t<fog.last and 1312+len(visible)*32+14<=LIMIT:direct=True
         for g in visible:
             raw=glyphs[g]

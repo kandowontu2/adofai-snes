@@ -1,6 +1,7 @@
 -- Real-controller replay in a second, independent emulator core.
 local C = dofile(os.getenv('ADOFAI_TEST_CONFIG'))
 dofile(C.failfast_script)(C)
+if C.sparse then dofile(C.sparse.script)(C) end
 if C.screen_script then dofile(C.screen_script)(C) end
 if C.palette_script then dofile(C.palette_script)(C) end
 if C.icons then dofile(C.icons.script)(C) end

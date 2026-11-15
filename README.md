@@ -4,9 +4,12 @@ A native SNES adaptation of A Dance of Fire and Ice, using the SA-1, Mode 7,
 and SPC700. The master also uses MSU-1 for chart data and optional PCM music.
 This is an unofficial project; it is not affiliated with 7th Beat Games.
 
-The current master catalog contains 93 charts. Its latest additions are the
+The current master catalog contains 94 charts. Its additions include the
 May 2023 Featured revision of endless.reality, Classic Wave 1 (Barrage,
-Final Phase and MAKE IT FUNKY NOW), and 15 Firestix Workshop charts. The
+Final Phase and MAKE IT FUNKY NOW), 15 Firestix Workshop charts, and
+[TQG's It Stop](https://steamcommunity.com/sharedfiles/filedetails/?id=3247303263)
+under Joke Worlds. The endless.reality maze includes its rotating death bar,
+moving mines and sweeping hazard. The
 Workshop 1-X and B-X variants are separate entries; five matching Joke Worlds
 are reused and the cursed MN-X chart is excluded. These additions target the
 master editions, not the older standalone cartridges.

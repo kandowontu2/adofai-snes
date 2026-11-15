@@ -730,6 +730,18 @@ rom_data_ptr: .res 3
 .endif
 
 .segment "BSS"
+; Decoration collision cursor is transient; preserve the existing stream pointers.
+.segment "ZEROPAGE"
+neo_deco_ptr: .res 3
+.segment "BSS"
+neo_deco_cursor: .res 2
+neo_deco_count: .res 2
+neo_deco_dx: .res 2
+neo_deco_dy: .res 2
+neo_deco_u: .res 2
+neo_deco_v: .res 2
+neo_deco_box: .res 12
+.segment "BSS"
 checkpoint_bytes: .res 2 ; loading-only length; leave direct page for ROM pointers
 speed_tenths: .res 2
 speed_pitch: .res 2

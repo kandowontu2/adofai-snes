@@ -115,7 +115,7 @@ def main():
         if chart.get('mode1_tracks'):scheduled+=',mode1_runtime=true'
         if args.graphics_dumps and chart.get('mode1_tracks'):scheduled+=',screen_script='+json.dumps((ROOT/'tools/verify_mode1_screen_mesen.lua').as_posix())
         if chart.get('mode1_tracks') and not args.checkpoints:
-            scheduled+=',profile_ranges={{4,24}'+(',{120,180},{390,408}' if global_id==71 else '')+'}'
+            scheduled+=',profile_ranges={{4,24}'+(',{120,180},{390,408}' if global_id==71 else '')+',{0,'+str(len(chart['notes'])-1)+'}}'
         if args.graphics_dumps:scheduled+=',graphics_dumps=true'
         if args.graphics_dumps and chart.get('neo_cosmos'):
             scheduled+=',midspin={script='+json.dumps((ROOT/'tools/verify_midspin_pose_mesen.lua').as_posix())+',entry='+str(labels['neo_far_prepare_hold'])+',addr={'+','.join(k+'='+str(labels[k]) for k in ('m7_visual_step','m7_logical_step','chart_time'))+'},flags={'+','.join(str(n['flags']) for n in chart['notes'])+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'}}'
@@ -186,6 +186,9 @@ def main():
             bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
             scheduled+=',holds={projected='+str(bool(chart.get('mode1_projected'))).lower()+',complete='+str(labels['neo_far_apply_ease']+3)+',free_complete='+str(labels['neo_free_orbit']+4+bank)+',free={'+','.join(free_rows)+'},script='+json.dumps((ROOT/'tools/verify_hold_orbit_mesen.lua').as_posix())+',addr={'+','.join(n+'='+str(labels[n]) for n in hnames)+'},notes={'+','.join(holdrows)+'}}'
         if args.capture_times:scheduled+=',capture_times={'+','.join('['+str(t)+']=true' for t in args.capture_times)+'}'
+        if chart.get('mode1_snapshot') and 'SNAPSHOT_ONLY_COORDS = 1' in (base/'addresses.inc').read_text():
+            address=json.loads((base/'placements.json').read_text())[f'visibility_index{global_id}']
+            scheduled+=',sparse={address='+str(address)+',script='+json.dumps((ROOT/'tools/verify_snapshot_coordinates_mesen.lua').as_posix())+'}'
         if args.capture_steps:scheduled+=',capture_steps={'+','.join(map(str,args.capture_steps))+'}'
         if chart.get('track_palette_versions'):
             scheduled+=',palette_script='+json.dumps((ROOT/'tools/verify_palette_mesen.lua').as_posix())+',palette={'+','.join('{'+','.join(map(str,e))+'}' for e in chart['track_palette_versions'])+'}'

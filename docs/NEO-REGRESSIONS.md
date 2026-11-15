@@ -118,3 +118,34 @@ and compressed playback. The sequence must navigate between sets without a
 reset. These campaign indices are one-based positions in `pack.json`.
 Checkpoint replays still need independent PPU verification: a completed run
 with a nonzero upload-overrun counter is a failed result.
+
+### Workshop maze hazards
+
+The May 2023 endless.reality maze uses decoration hitboxes: a rotating bar,
+moving mines, and a sweeping bar. It does not contain collectible coin objects.
+The standard maze route is compiled from the authored transforms. Samples are
+shared and trimmed at constant prefixes/tails without dropping any frames.
+Both planets are checked against rotated boxes with the native collision radius.
+Autoplay is exempt from death, as in the original game; manual replay must still
+complete the collision-free route.
+
+Run that manual route in both PCM and compressed editions. Drain queued hops
+before checking the current hazard pose: otherwise a valid, timestamped hop
+can be killed against its old pivot while the renderer is busy.
+
+After a hazard change, run a manual campaign replay and then:
+
+```powershell
+python tools/run_mesen_campaign.py --pack my-master-dev --levels 75 --prepare-only
+python tools/verify_decoration_hitboxes_mesen.py --pack build/packs/my-master-dev
+```
+
+This checks deliberate contact with the rotating bar, contact by the orbiting
+planet with a mine, and contact with the sweeping bar. Also capture maze frames
+4313, 4480, 4800, 5300, 5635 and 5670 with the campaign PPU verifier. The last
+two captures cover the authored fade-out during the return to the track.
+
+Snapshot-only masters omit unused sparse coordinate tables from ROM, retaining
+the canonical files for pixel verification. Test a native-rendered chart followed
+by a snapshot chart without resetting (for example 23, 94, 75 in the 94-chart
+master), as well as checkpoint reloads, whenever changing this path.

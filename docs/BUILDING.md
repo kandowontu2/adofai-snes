@@ -214,7 +214,8 @@ Two compiler checks that do not require historical ROM fixtures:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p test_camera_rotation.py
 ```
 
-Emulator runners need their own configured Mesen or Snes9x libretro paths.
+Release checks target MesenCE (the runners default to `C:\mesen2\Mesen.exe`).
+Historical Snes9x/libretro scripts are not the release acceptance tests.
 The entire historical test suite also needs old ROM fixtures that are not in
 Git. For graphics changes, test a full song, checkpoint retries and multiple
 speeds. Windows is the supported development workflow; other platforms may
@@ -223,13 +224,15 @@ need path and executable-name changes.
 ## Selected Workshop additions
 
 The selected charts are listed in `tools/featured_catalog.json` and
-`tools/firestix_catalog.json`. With Steam running under the account that
+`tools/firestix_catalog.json`, plus `tools/joke_catalog.json` for other Joke
+Worlds such as TQG's It Stop. With Steam running under the account that
 owns the game, download and import them with:
 
 ```powershell
 .\.venv\Scripts\python.exe tools/download_tech.py
 .\.venv\Scripts\python.exe tools/import_featured.py
 .\.venv\Scripts\python.exe tools/import_firestix.py
+.\.venv\Scripts\python.exe tools/import_jokes.py
 ```
 
 The Featured selection uses the May 2023 endless.reality revision plus

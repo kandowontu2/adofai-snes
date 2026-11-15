@@ -81,6 +81,8 @@ class Source:
         self.native_palette=None
         from neo_fog import Fog
         self.fog=Fog(c) if c.get('mawaru_fog') else None
+        from decoration_hitboxes import Overlay
+        self.hazards=Overlay(c)
 
     def advance(self,frame):
         assert frame>=self.frame,'Projection source must advance monotonically'
@@ -118,6 +120,9 @@ class Source:
         if self.fog:
             self.native_palette=self.palette.copy()
             image=self.fog.screen(frame,image,self.camera,self.rotation,self.palette)
+        if self.hazards.objects:
+            self.native_palette=self.palette.copy()
+            image=self.hazards.draw(image,frame,px,py,top,self.palette)
         # Alias equal hardware colors before palette packing. Numeric source
         # indices are not distinct colors, and retaining those aliases makes
         # a 4-bpp atlas churn as hidden source materials enter and leave.

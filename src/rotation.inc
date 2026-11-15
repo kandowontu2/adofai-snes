@@ -393,6 +393,10 @@ camera_cpu_multiply:
     lda mul_product
     rts
 
+neo_deco_multiply:
+    jsr camera_cpu_multiply
+    rtl
+
 ; Signed small world-space offsets, scaled independently of cache jobs.
 ; NMI never uses the SNES multiplier; SA-1 owns its separate multiplier.
 .segment "FASTNMI"
