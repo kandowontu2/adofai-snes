@@ -34,13 +34,16 @@ EXTRAS=[
 for i,(code,title,scene,text,audio) in enumerate(EXTRAS,13):
     WORLDS.append(dict(id=i,code=code,title=title,scene=scene,text=text,audio=audio))
 
+# Retain stable historical IDs for frozen builds; omit superseded releases.
+RETIRED_LEVEL_IDS={39}  # BJ-X; BJW-X (94) is the retained Workshop revision.
+
 PACKS={
  'main':dict(title='MAIN WORLDS 1-12',levels=list(range(1,13))),
  'bonus':dict(title='BONUS AND EXTRA WORLDS',levels=[13,14,15,16,18,19]),
  'extra':dict(title='EXTRA WORLDS',levels=[17,20,21,22,23]),
  'crown':dict(title='CROWN ISLAND',levels=[24,25,26]),
  'collab':dict(title='COLLABORATION WORLDS',levels=[27,28,29,30,31,32]),
- 'jokes':dict(title='OFFICIAL JOKE WORLDS',levels=list(range(33,40))),
+ 'jokes':dict(title='OFFICIAL JOKE WORLDS',levels=list(range(33,39))),
 }
 
 def load_game_json(text):

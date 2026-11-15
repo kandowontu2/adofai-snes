@@ -40,7 +40,7 @@ local function capture_ppu()
     for a=0,511 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesCgRam)) end
     for a=0,543 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesSpriteRam)) end
     if C.mode1_runtime and sw(0x3ef0c)~=0 then
-      bytes[#bytes+1]=string.char(sw(0x3ef0c))
+      bytes[#bytes+1]=string.char(C.wide_atlas and (sw(0x3ef80)==512 and 6 or 5) or C.indexed_color_support and sw(0x3efb8)==1 and 4 or sw(0x3ef0c))
       for a=0x29400,0x2945f do bytes[#bytes+1]=string.char(emu.read(a,S)) end
       for a=0x2a000,0x2a0bf do bytes[#bytes+1]=string.char(emu.read(a,S)) end
     end

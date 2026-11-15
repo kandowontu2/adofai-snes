@@ -46,7 +46,8 @@ def compile_chart(data):
     x=y=0.0;notes=[]
     from track_motion import stick_schedule
     sticking=stick_schedule(data,n)
-    checkpoint_events={c['floor']:c for c in data.get('checkpoints',[])}
+    from supplemental_checkpoints import events as checkpoint_events_for
+    checkpoint_events={c['floor']:c for c in checkpoint_events_for(data)}
     for i,f in enumerate(fs):
         if i:
             p=fs[i-1]
@@ -363,7 +364,10 @@ def title_text(chart):
 
 
 def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
-    neo_code_bytes=0x4000 if any(c['id']>=75 for c in charts) else 0x3000
+    if any(c.get('wide_snapshot_atlas') for c in charts):
+        raw=assets['background_map']
+        assets['background_map']=b''.join(struct.pack('<H',(w&0xFC00)|((w&1023)+64)) for (w,) in struct.iter_unpack('<H',raw))
+    neo_code_bytes=0x7000 if len(charts)>200 else 0x4000 if any(c['id']>=75 for c in charts) else 0x3000
     snapshot_only=sa1 and msu and not rom_data and any(c['id']>=75 for c in charts)
     if snapshot_only:
         for c in charts:
@@ -393,8 +397,11 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         assets['stream_descriptors']=bytes(32*len(charts))
         if any(c.get('fallback_stream_packets') for c in stream_charts):
             assets['stream_fallback_descriptors']=bytes(32*len(charts))
+    msu_charts=sa1 and msu and not rom_data and len(charts)>200
+    if msu_charts:
+        for c in charts:assets[f'chart{c["id"]}']=bytes(2)
     zero_pauses=[]
-    if sa1 and not rom_data and len(charts)>61:
+    if sa1 and not rom_data and 61<len(charts)<=200:
         for c in charts:
             name=f'chart{c["id"]}';size=len(c['notes'])*2
             absent=not any(assets[name][-size:]);zero_pauses.append(absent)
@@ -483,6 +490,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
             if name.startswith('resident_stream') and (aligned&0xFFFFF)+len(blob)>0x100000:
                 aligned=(aligned+0xFFFFF)&~0xFFFFF
             if name.startswith('patterns'):aligned=(aligned+15)&~15
+            if msu_charts and paged_index and (aligned&65535)+len(blob)>65536:aligned=(aligned+65535)&~65535
             packed_stream=any(c.get('mode1_tracks') and name==f'resident_stream{c["id"]}' for c in charts)
             if not (packed_stream or name.startswith(('music','timeline','visibility_index','track_map','patterns','romdata','stream_index'))) and (aligned&65535)+len(blob)>65536:
                 aligned=(aligned+65535)&~65535
@@ -536,6 +544,8 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     defs += [f'BACKGROUND_CHR_BYTES = {len(assets["background_chr"])}']
     defs += [f'SPC_DRIVER_ADDR = ${loc["spc_driver"]:06X}',f'SPC_DRIVER_BYTES = {len(assets["spc_driver"])}']
     defs += [f'LEVEL_COUNT = {len(charts)}']
+    if any(c.get('wide_snapshot_atlas') for c in charts):defs+=['WIDE_SNAPSHOT_SUPPORT = 1']
+    if msu_charts:defs+=['MSU_CHART_TABLES = 1','COMPRESSED_STREAM_INDEX = 1']
     if zero_pauses:defs+=['ZERO_PAUSE_TABLES = 1']
     if hit_banks:defs+=['HIT_SOUND_BANKS = 1',f'HIT_SOUND_DESCRIPTORS_ADDR = ${loc["hitdescriptors"]:06X}']
     if all(c.get('compiled_reference_sets') for c in charts):defs+=['COMPILED_REFERENCE_SETS = 1']
@@ -545,7 +555,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         defs+=['LARGE_CHART_BUILD = 1']
     defs += [f'MAX_NOTE_CAPACITY = {4352 if large else 3072 if msu else 2048}']
     defs += [f'MAP_OFFSET_SHIFT = {charts[0].get("map_offset_shift",0)}']
-    if msu:defs+=['MSU_BUILD = 1',f'MSU_DATA_VERSION = {20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get("adaptive_raster") for c in charts) else 18 if any(c.get("mode7_zoom_enabled") for c in charts) else 17 if any(c.get("camera_position_events",0) for c in charts) else 16 if any(c.get("native_layout_version",0)>=2 for c in charts) else 15 if any(c.get("track_separators_version") for c in charts) else 14 if any(c.get("opacity_curve_version") for c in charts) else 13 if any(c.get("camera_rotation_versions") for c in charts) else 12}']
+    if msu:defs+=['MSU_BUILD = 1',f'MSU_DATA_VERSION = {21 if msu_charts else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get("adaptive_raster") for c in charts) else 18 if any(c.get("mode7_zoom_enabled") for c in charts) else 17 if any(c.get("camera_position_events",0) for c in charts) else 16 if any(c.get("native_layout_version",0)>=2 for c in charts) else 15 if any(c.get("track_separators_version") for c in charts) else 14 if any(c.get("opacity_curve_version") for c in charts) else 13 if any(c.get("camera_rotation_versions") for c in charts) else 12}']
     if rom_data:defs+=['ROM_DATA_BUILD = 1']
     if sa1:defs+=['SA1_BUILD = 1','SA1_FASTROM_MIRROR = 1']
     if sa1 and any(c.get('fastrom_helpers_trial') for c in charts):defs+=['SA1_FASTROM_HELPERS = 1']
@@ -670,7 +680,7 @@ def common_tables(charts=None, adaptive_audio=False):
     for name,nums,word in tables:
         values.append(name+':')
         for i in range(0,len(nums),16):values.append((' .word ' if word else ' .byte ')+','.join(str(v) for v in nums[i:i+16]))
-    from official_catalog import WORLDS
+    from official_catalog import WORLDS, RETIRED_LEVEL_IDS
     charts=charts or WORLDS[:12]
     placements=json.loads((OUT/'placements.json').read_text()) if (OUT/'placements.json').exists() else {}
     banked_titles='level_titles' in placements
@@ -687,13 +697,15 @@ def common_tables(charts=None, adaptive_audio=False):
 def main():
     global OUT
     from official_catalog import PACKS
-    from official_catalog import WORLDS
+    from official_catalog import WORLDS, RETIRED_LEVEL_IDS
     from import_tech import TECH
     from import_community import COMMUNITY
     from neo_catalog import NEO
     from import_featured import FEATURED
     from import_firestix import FIRESTIX
     from import_jokes import JOKES
+    from import_yangsy import YANGSY
+    from import_main_ex import MAIN_EX
     ap=argparse.ArgumentParser();ap.add_argument('--pack',choices=[*PACKS,'master'],default='main');ap.add_argument('--out',type=Path);ap.add_argument('--levels',type=int,nargs='+');ap.add_argument('--chart-cache-only',action='store_true')
     ap.add_argument('--preview-tiles',type=int,choices=range(4,65),default=16)
     ap.add_argument('--past-tiles',type=int,choices=range(0,5),default=1)
@@ -713,7 +725,7 @@ def main():
     ap.add_argument('--motion-step',type=int,choices=(1,2,4,8),default=None)
     ap.add_argument('--no-pcm',action='store_true',help='Generate the compressed master without full-size PCM tracks')
     args=ap.parse_args();msu=args.pack=='master'
-    pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=[m['id'] for m in WORLDS+TECH+COMMUNITY+NEO+FEATURED+FIRESTIX+JOKES]) if msu else PACKS[args.pack]
+    pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=sorted(m['id'] for m in WORLDS+TECH+COMMUNITY+NEO+FEATURED+FIRESTIX+JOKES+YANGSY+MAIN_EX if m['id'] not in RETIRED_LEVEL_IDS)) if msu else PACKS[args.pack]
     if args.levels:pack=dict(pack,levels=args.levels)
     OUT=args.out or (ROOT/'build/campaign' if args.pack=='main' else ROOT/f'build/packs/{args.pack}')
     OUT.mkdir(parents=True,exist_ok=True)
@@ -728,6 +740,11 @@ def main():
     missing_jokes=[n for n in pack['levels'] if n in {m['id'] for m in JOKES} and not (ROOT/f'assets/private/level{n}.json').exists()]
     if missing_jokes:
         subprocess.run([sys.executable,str(ROOT/'tools/import_jokes.py'),'--levels',*map(str,missing_jokes)],check=True)
+    missing_main_ex=[n for n in pack['levels'] if n in {m['id'] for m in MAIN_EX} and not (ROOT/f'assets/private/level{n}.json').exists()]
+    if missing_main_ex:subprocess.run([sys.executable,str(ROOT/'tools/import_main_ex.py'),'--levels',*map(str,missing_main_ex)],check=True)
+    missing_yangsy=[n for n in pack['levels'] if n in {m['id'] for m in YANGSY} and not (ROOT/f'assets/private/level{n}.json').exists()]
+    if missing_yangsy:
+        subprocess.run([sys.executable,str(ROOT/'tools/import_yangsy.py'),'--levels',*map(str,missing_yangsy)],check=True)
     if not all((ROOT/f'assets/private/level{n}.json').exists() and 'checkpoints' in json.loads((ROOT/f'assets/private/level{n}.json').read_text()) for n in pack['levels']):
         importer='import_campaign.py' if args.pack=='main' else 'import_official.py'
         subprocess.run([sys.executable,str(ROOT/'tools'/importer)],check=True)
@@ -758,7 +775,7 @@ def main():
         material_capacity=args.material_capacity if args.material_capacity is not None else (3 if n==71 else 12 if n==58 else 48)
         adaptive_motion=args.adaptive_motion_raster
         shared_contours=args.shared_contours or n==71
-        fingerprint=hashlib.sha256((ROOT/'tools/neo_visuals.py').read_bytes()+(ROOT/'tools/neo_singsing.py').read_bytes()+(ROOT/'tools/neo_mawaru.py').read_bytes()+(ROOT/'tools/neo_warps.py').read_bytes()+(ROOT/'tools/neo_math.py').read_bytes()+(ROOT/'tools/neo_fog.py').read_bytes()+bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,adaptive_motion,reuse_motion_phase,args.viewport_inset,stable_color_quantization,optimal_pattern_cache,delta_pattern_cache,precise_pattern_view])+source.read_bytes()+inspect.getsource(compile_chart).encode()+inspect.getsource(compress_map).encode()+
+        fingerprint=hashlib.sha256((ROOT/'tools/neo_visuals.py').read_bytes()+(ROOT/'tools/neo_singsing.py').read_bytes()+(ROOT/'tools/neo_mawaru.py').read_bytes()+(ROOT/'tools/neo_warps.py').read_bytes()+(ROOT/'tools/neo_math.py').read_bytes()+(ROOT/'tools/neo_fog.py').read_bytes()+bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,adaptive_motion,reuse_motion_phase,args.viewport_inset,stable_color_quantization,optimal_pattern_cache,delta_pattern_cache,precise_pattern_view])+source.read_bytes()+inspect.getsource(compile_chart).encode()+(ROOT/'tools/supplemental_checkpoints.py').read_bytes()+inspect.getsource(compress_map).encode()+
             (ROOT/'tools/neo_freeroam.py').read_bytes()+(ROOT/'tools/neo_mechanics.py').read_bytes()+(ROOT/'tools/neo_audio.py').read_bytes()+(ROOT/'tools/track_visibility.py').read_bytes()+(ROOT/'tools/viewport_cells.py').read_bytes()+(ROOT/'tools/projected_spill.py').read_bytes()+(ROOT/'tools/track_geometry.py').read_bytes()+(ROOT/'assets/graphics/track-shapes.json').read_bytes()+(ROOT/'tools/track_motion.py').read_bytes()+(ROOT/'tools/track_events.py').read_bytes()+(ROOT/'tools/raster_phase.py').read_bytes()+(ROOT/'tools/track_mipmaps.py').read_bytes()+
             ((ROOT/'tools/track_readability.py').read_bytes()+(ROOT/'tools/track_patterns.py').read_bytes()+(ROOT/'tools/track_camera.py').read_bytes() if msu or n in (26,31) or n>=40 else b'')+
             ((ROOT/'tools/track_colors.py').read_bytes() if msu else b'')+bytes([msu,1,args.preview_tiles,args.past_tiles,args.fixed_tile_positions,material_capacity,shared_contours,motion_step])+ (b'compact' if args.compact_graphics else b'')).hexdigest()
@@ -790,10 +807,11 @@ def main():
             c['mode7']=True
             c['compiled_reference_sets']=True
             c['motion_step']=motion_step
-            if n==49 or n in {m['id'] for m in FEATURED+FIRESTIX+JOKES}:
+            if n==49 or n in {m['id'] for m in FEATURED+FIRESTIX+JOKES+YANGSY+MAIN_EX}:
                 c.update(projected_zoom_range=True,precise_viewport_cells=True,
                          pattern_pinned_limit=0,strict_pattern_quality=True,
                          share_palette_patterns=True,projected_pattern_overflow=True)
+            if n>=96:c['full_snapshot_source']=True
             if optimal_pattern_cache:c['optimal_pattern_cache']=True
             if delta_pattern_cache:c['delta_pattern_cache']=True
             if precise_pattern_view:c['precise_viewport_cells']=True

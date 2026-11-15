@@ -81,7 +81,7 @@ if pcProfile then
 end
 local function capture_ppu()
   local step=word(C.addr.step)
-  if C.graphics_dumps and (word(C.addr.commits)%30==0 or (C.capture_times and C.capture_times[word(C.addr.display_chart_time)])) and word(C.addr.display_state)==1 then
+  if C.graphics_dumps and (word(C.addr.commits)%(C.capture_period or 30)==0 or (C.capture_times and C.capture_times[word(C.addr.display_chart_time)])) and word(C.addr.display_state)==1 then
     local S=emu.memType.snesSaveRam
     local V=emu.memType.snesVideoRam
     if C.addr.oam_pos then
@@ -104,7 +104,7 @@ local function capture_ppu()
     for a=0,511 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesCgRam)) end
     for a=0,543 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesSpriteRam)) end
     if C.mode1_runtime and sw(0x3ef0c)~=0 then
-      bytes[#bytes+1]=string.char(sw(0x3ef0c))
+      bytes[#bytes+1]=string.char(C.wide_atlas and (sw(0x3ef80)==512 and 6 or 5) or C.indexed_color_support and sw(0x3efb8)==1 and 4 or sw(0x3ef0c))
       for a=0x29400,0x2945f do bytes[#bytes+1]=string.char(emu.read(a,S)) end
       for a=0x2a000,0x2a0bf do bytes[#bytes+1]=string.char(emu.read(a,S)) end
     end

@@ -7,6 +7,8 @@ from emulate import Emulator
 from input_helpers import press
 from official_catalog import PACKS
 
+@unittest.skipUnless(all((ROOT/('build/campaign' if name=='main' else f'build/packs/{name}')/'adofai.sfc').exists()
+                        for name in PACKS), 'Legacy cartridge menu fixtures are not built')
 class Menus(unittest.TestCase):
     def test_cursor_and_text_on_every_cartridge(self):
         for pack,meta in PACKS.items():

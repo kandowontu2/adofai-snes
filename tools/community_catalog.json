@@ -16,7 +16,9 @@
     "artist": "meganeko",
     "author": "Ma6icCu8e",
     "workshop": "2802386409",
-    "featured_classic": true
+    "featured_classic": true,
+    "wave": 3,
+    "featured_order": 7
   },
   {
     "id": 64,
@@ -25,7 +27,9 @@
     "artist": "meganeko",
     "author": "Ma6icCu8e",
     "workshop": "2802387483",
-    "featured_classic": true
+    "featured_classic": true,
+    "wave": 3,
+    "featured_order": 8
   },
   {
     "id": 65,

@@ -8,6 +8,7 @@ from import_campaign import DEFAULT_GAME,FLOOR_FIELDS,json_checkpoints
 ROOT=Path(__file__).resolve().parents[1]
 
 def normalize_json(d,meta):
+    from track_motion import enabled
     settings=d['settings'];angles=d.get('angleData');floors=[];entry=math.pi*1.5
     if angles is None:
         keys='RpJEToUqGQHWLxNZFVDYBCMA'
@@ -27,7 +28,7 @@ def normalize_json(d,meta):
                        speed=1.0,isCCW=0,extraBeats=0.0,holdLength=-1,numPlanets=2,auto=0))
     events=defaultdict(list)
     for a in d.get('actions',[]):
-        if a.get('active',True):events[a['floor']].append(a)
+        if enabled(a.get('active',True)):events[a['floor']].append(a)
     speed=1.0;ccw=False;auto=False;planets=2;margin=100;bpm=settings['bpm']
     for i,f in enumerate(floors):
         f['auto']=int(auto)
@@ -45,17 +46,27 @@ def normalize_json(d,meta):
             elif kind=='MultiPlanet':
                 planets={'TwoPlanets':2,'ThreePlanets':3}[a['planets']]
                 if i and floors[i-1]['midSpin']:floors[i-1]['numPlanets']=planets
-            elif kind=='AutoPlayTiles':auto=bool(a['enabled'])
+            elif kind=='AutoPlayTiles':auto=enabled(a['enabled'])
             elif kind=='ScaleMargin':margin=a['scale']
         f['isCCW']=int(ccw)
         f['numPlanets']=planets
         f['margin']=margin
-        # The official core uses the last speed event at each angle offset;
-        # zero-offset changes are the only active form in these main charts.
-        for a in changes:
-            assert a.get('angleOffset',0)==0,('Mid-floor speed change',meta['code'],i,a)
-            speed=a['beatsPerMinute']/bpm if a['speedType']=='Bpm' else speed*a['bpmMultiplier']
-        f['speed']=speed
+        # SetupLevelEvents integrates speed segments, then uses their
+        # duration-equivalent speed for this floor. The final speed carries
+        # into the next floor (it is not the duration-equivalent average).
+        offsets=sorted({a.get('angleOffset',0) for a in changes})
+        arc=((f['exitangle']-f['entryangle'])*(-1 if ccw else 1))%(2*math.pi)
+        degrees=360 if min(arc,2*math.pi-arc)<1e-5 else math.degrees(arc)
+        seconds=offsets[0]/180*60/(bpm*speed) if offsets else 0
+        partial=False
+        for j,offset in enumerate(offsets):
+            for a in changes:
+                if a.get('angleOffset',0)==offset:
+                    speed=a['beatsPerMinute']/bpm if a['speedType']=='Bpm' else speed*a['bpmMultiplier']
+            end=offsets[j+1] if j+1<len(offsets) else degrees
+            seconds+=(end-offset)/180*60/(bpm*speed)
+            partial|=0<offset<=degrees
+        f['speed']=60/seconds*(degrees/180)/bpm if partial else speed
     return dict(id=meta['id'],code=meta['code'],title=meta['title'],bpm=bpm,offset=settings['offset']/1000,
                 countdown=settings.get('countdownTicks',4),separate_countdown=settings.get('separateCountdownTime',True),
                 floors=floors,checkpoints=json_checkpoints(d),source=f'Official JSON TextAsset {meta["text"]}',

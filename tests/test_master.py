@@ -6,6 +6,7 @@ from emulate import Emulator
 from input_helpers import press,configure
 BASE=Path(os.environ.get('ADOFAI_TEST_MASTER',ROOT/'build/packs/master'))
 
+@unittest.skipUnless((BASE/'adofai.sfc').exists(), 'Historical 61-chart master fixture is not built')
 class Master(unittest.TestCase):
     def test_calibration_orbit_moves_without_taps_and_does_not_jump_on_input(self):
         em=Emulator(rom=BASE/'adofai.sfc')

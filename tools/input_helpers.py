@@ -2,13 +2,13 @@
 def select_level(em,level_id):
     """Choose a global song ID through set submenus (or a legacy flat list)."""
     import json
-    from menu_sets import groups
+    from menu_sets import groups_for_pack
     levels=json.loads((em.rom_path.parent/'pack.json').read_text())['levels']
     index=levels.index(level_id)
     if 'menu_depth' not in em.labels:
         while em.read('selected_level')!=index:press(em,5)
         return
-    sets=groups(levels)
+    sets=groups_for_pack(em.rom_path.parent)
     group=next(i for i,(_,indices) in enumerate(sets) if index in indices)
     if em.read('menu_depth') and em.read('menu_group')!=group:press(em,0)
     if not em.read('menu_depth'):
@@ -31,8 +31,8 @@ def wait(em,predicate,limit=300):
 def configure(em,speed=10,time_attack=False,fire=None,ice=None,calibration=None):
     if 'menu_depth' in em.labels and em.read('state')==0 and em.read('menu_depth'):
         import json
-        from menu_sets import groups
-        if len(groups(json.loads((em.rom_path.parent/'pack.json').read_text())['levels']))>1:press(em,0)
+        from menu_sets import groups_for_pack
+        if len(groups_for_pack(em.rom_path.parent))>1:press(em,0)
     press(em,0);wait(em,lambda:em.read('state')==7)
     for _ in range(6):
         if em.read('settings_row')==0:break

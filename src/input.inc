@@ -82,6 +82,15 @@ pop_tap:
     bcc @done
     stz tap_clock
 @done:
+.ifdef INPUT_EVENT_BUILD
+    lda pressed
+    and #TAP_MASK
+    beq :+
+    jsl filter_authored_input
+    bcc :+
+    jmp pop_tap
+:
+.endif
     rts
 
  ; Schedule percussion on the uncalibrated music clock, independently of
@@ -249,3 +258,61 @@ get_chart_time:
 @store:
     sta chart_time
     rts
+
+.ifdef INPUT_EVENT_BUILD
+.ifdef NEO_BUILD
+.segment "NEOCODE"
+.else
+.segment "CODE"
+.endif
+filter_authored_input:
+.ifdef NEO_BUILD
+    lda tap_release
+    bne @accept
+.endif
+    phx
+    phy
+    lda selected_level
+    asl a
+    tax
+    lda f:input_event_ends,x
+    tay
+    lda f:input_event_starts,x
+    tax
+    lda #0
+    sta scratch
+@scan:
+    stx scratch+2
+    cpy scratch+2
+    beq @filter
+    lda f:input_event_rows,x
+    cmp tap_clock
+    beq :+
+    bcs @filter
+:
+    lda f:input_event_rows+2,x
+    sta scratch
+    inx
+    inx
+    inx
+    inx
+    bra @scan
+@filter:
+    lda pressed
+    and scratch
+    beq @keep
+    lda pressed
+    and #($FFFF-TAP_MASK)
+    sta pressed
+    ply
+    plx
+    sec
+    rtl
+@keep:
+    ply
+    plx
+@accept:
+    clc
+    rtl
+.segment "CODE"
+.endif

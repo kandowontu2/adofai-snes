@@ -83,7 +83,11 @@ spill_palette:
     jsl spill_palette_far
     rts
 
+.ifdef NEO_BUILD
 .segment "NEOCODE"
+.else
+.segment "CODE"
+.endif
 spill_palette_far:
     rep #$20
     .a16

@@ -396,6 +396,8 @@ CLONE_PARAMS=$43EF88 ; four (cos,sin,shift-x,shift-y,arc-phase) Q8/Q4 transforms
 CLONE_INPUT_BYTES=$43EFB0
 CLONE_OUTPUT_BYTES=$43EFB2
 M1_PREFETCH_READY=$43EFB4
+M1_BUILD_FORMAT=$43EFB6 ; 0=4-bpp Mode 1, 1=8-bpp Mode 3
+M1_FRONT_FORMAT=$43EFB8
 CLONE_INPUT=$429620
 CLONE_OUTPUT=$429840
 CLONE_TEMP=$429A80
@@ -687,7 +689,6 @@ cal_beat: .res 2
 cal_last_beat: .res 2
 cal_error: .res 2
 cal_recommend: .res 2
-profile_phase: .res 2
 event_pos: .res 2
 view_x: .res 2
 view_y: .res 2
@@ -742,6 +743,7 @@ neo_deco_u: .res 2
 neo_deco_v: .res 2
 neo_deco_box: .res 12
 .segment "BSS"
+profile_phase: .res 2 ; diagnostics do not require direct-page addressing
 checkpoint_bytes: .res 2 ; loading-only length; leave direct page for ROM pointers
 speed_tenths: .res 2
 speed_pitch: .res 2
@@ -1213,8 +1215,13 @@ sa1_fast_main:
     rep #$20
     .a16
 .endif
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    GFX BACKGROUND_CHR_ADDR,$5400,BACKGROUND_CHR_BYTES
+    GFX BACKGROUND_MAP_ADDR,$5800,2048
+.else
     GFX BACKGROUND_CHR_ADDR,$4000,BACKGROUND_CHR_BYTES
     GFX BACKGROUND_MAP_ADDR,$4800,2048
+.endif
 .ifdef SA1_BUILD
     ; Static HUD glyphs are monochrome. Put their ink in color 3 so the
     ; meter can use colors 1/2 for fading without dimming ordinary text.
@@ -1255,11 +1262,19 @@ sa1_fast_main:
     sta $2105
     lda #$70
     sta $2107
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    lda #$58
+.else
     lda #$48
+.endif
     sta $2108
     lda #$78
     sta $2109
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    lda #$50
+.else
     lda #$40
+.endif
     sta $210B
     lda #5
     sta $210C
@@ -1704,6 +1719,9 @@ load_selected_level:
     rts
 
 load_chart_arrays:
+.ifdef MSU_CHART_TABLES
+    jsl msu_chart_seek
+.endif
     lda last_note
     inc a
     sta chart_count
@@ -1740,7 +1758,11 @@ load_chart_arrays:
     bra @advance
 @copy:
 .endif
+.ifdef MSU_CHART_TABLES
+    jsl msu_chart_array
+.else
     jsr upload_wram
+.endif
 @advance:
     lda transfer_ptr
     clc

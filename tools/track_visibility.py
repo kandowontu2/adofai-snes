@@ -537,7 +537,16 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
         from track_mipmaps import mipmap_history
         tiles,history=mipmap_history(chart,tiles,history)
     print(chart['code'],f'visibility grid {grid}: {len(tiles)} CHR tiles, {len(history)} cells',flush=True)
-    if chart.get('readability_window') and chart.get('allow_pattern_cache'):
+    if chart.get('full_snapshot_source'):
+        # Offline projection has no Mode 7 atlas or OBJ budget. Preserve the
+        # complete raster history and let the final 4-bpp pose compiler apply
+        # the actual cartridge limits; never degrade or hide source pixels.
+        chart['projection_cells']=[[x,y,rows] for (x,y),rows in history.items()]
+        chart.update(projection_source_only=True,pattern_initial=[0]*256,pattern_versions=[],
+                     pattern_count=len(tiles),pattern_pinned_count=0,pattern_max_uploads=0)
+        chart['_pattern_data']=b''.join(tiles)
+        tiles=[bytes(64)];history={}
+    elif chart.get('readability_window') and chart.get('allow_pattern_cache'):
         from track_patterns import cache_patterns
         if chart.get('share_palette_patterns'):
             from track_patterns import share_palette_patterns

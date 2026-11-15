@@ -59,6 +59,8 @@ sa1_init:
     sta f:M1_SNAPSHOT_BYTES
     sta f:M1_SNAPSHOT_DIRTY
     sta f:M1_SNAPSHOT_PENDING
+    sta f:M1_BUILD_FORMAT
+    sta f:M1_FRONT_FORMAT
     lda #$C001
     sta DMA_COMMANDS
     lda #$C010

@@ -347,6 +347,11 @@ nmi_fast:
 @visible:
 .endif
     stz frame_ready
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    ; Publish the atlas base with its map, before exposing the commit.
+    ; The HDMA setup below also selects the gameplay video mode.
+    jsl mode1_hdma_select
+.endif
     inc commits
 .ifdef MSU_BUILD
     lda #1
@@ -379,10 +384,7 @@ nmi_fast:
 @mode7_scene:
     ldx #.loword(hdma_mode7)
 .ifdef SA1_MODE1_BUILD
-    lda f:STREAM_MODE1
-    beq :+
-    ldx #.loword(hdma_mode1)
-:
+    jsl mode1_hdma_select
 .endif
     stx $4362
     ldx #M7_HDMA_DISPLAY

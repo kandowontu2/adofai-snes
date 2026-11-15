@@ -14,8 +14,8 @@ def main():
     levels=json.loads(((a.metadata or a.rom.parent)/'pack.json').read_text())['levels']
     index=levels.index(a.level);actions=({90:'x'} if a.manual_practice else {}) if a.manual else {90:'y'};f=100
     if 'menu_depth' in labels:
-        from menu_sets import groups
-        sets=groups(levels);group=next(i for i,(_,members) in enumerate(sets) if index in members)
+        from menu_sets import groups_for_pack
+        sets=groups_for_pack(a.metadata or a.rom.parent);group=next(i for i,(_,members) in enumerate(sets) if index in members)
         if len(sets)>1:
             for _ in range(group):actions[f]='down';f+=4
             actions[f]='start';f+=8

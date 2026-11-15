@@ -216,9 +216,9 @@ Two compiler checks that do not require historical ROM fixtures:
 
 Release checks target MesenCE (the runners default to `C:\mesen2\Mesen.exe`).
 Historical Snes9x/libretro scripts are not the release acceptance tests.
-The entire historical test suite also needs old ROM fixtures that are not in
-Git. For graphics changes, test a full song, checkpoint retries and multiple
-speeds. Windows is the supported development workflow; other platforms may
+Historical tests that need absent ROM fixtures explicitly skip; a skipped test
+is not release evidence. For graphics changes, test a full song, checkpoint
+retries and multiple speeds. Windows is the supported development workflow; other platforms may
 need path and executable-name changes.
 
 ## Selected Workshop additions
@@ -235,12 +235,47 @@ owns the game, download and import them with:
 .\.venv\Scripts\python.exe tools/import_jokes.py
 ```
 
-The Featured selection uses the May 2023 endless.reality revision plus
-Classic Wave 1. The Firestix list adds 15 charts, including separately named
+The Featured selection uses the May 2023 endless.reality revision and the
+installed catalog's Classic and Tech waves. The Firestix list adds 15 charts, including separately named
 1-X and B-X Workshop variants; Night Wander is excluded. Five duplicate
 Firestix maps remain represented by existing Joke Worlds. These imports
 write private local assets; they do not subscribe to or publish Workshop
 items. The full-release build limitations above still apply.
+
+## Yangsy cursed levels
+
+`tools/yangsy_catalog.json` selects Yangsy-authored charts only. With the
+shared Workshop downloads available, import them with:
+
+```powershell
+.\.venv\Scripts\python.exe tools/import_yangsy.py
+```
+
+These charts appear under **YANGSY CURSED LEVELS**. The source repository
+contains the importer and catalog, not the downloaded charts or music.
+
+## Main EX Levels (Team Vega)
+
+`tools/main_ex_catalog.json` lists the twelve Team Vega remakes, 1-EX through
+12-EX, in world order. They have their own **MAIN EX LEVELS** menu category.
+These are Workshop charts, separate from the Neo Cosmos EX stages.
+
+With Steam running under the account that owns ADOFAI:
+
+```powershell
+.\.venv\Scripts\python.exe tools/download_tech.py --ids 2756895275 2756409843 2756897185 2756222522 2756337547 2757077338 2885179160 2885178898 2885179669 2885178918 2885179019 2885178890
+.\.venv\Scripts\python.exe tools/import_main_ex.py
+```
+
+The command above downloads only these twelve Workshop items.
+The importer reads the downloaded Workshop folders and writes private local
+assets; chart and music downloads are not included in the source repository.
+
+The SNES port adds curated checkpoints to Main EX charts that have none,
+and to Mad Piano Party II. These additions are defined in
+`tools/supplemental_checkpoints.py`; they are not original chart events.
+Existing authored checkpoints are preserved. Changing the list requires
+rebuilding chart data, graphics, checkpoint snapshots, and PCM restart tracks.
 
 ## Neo Cosmos
 

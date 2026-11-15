@@ -153,6 +153,15 @@ def generate(out,chart,timeline,patterns):
                 rows=releases[index];at=bisect.bisect_right(rows,frame)-1
                 release=rows[at] if at>=0 else 0
                 events[i]=(frame,kind,index,value,struct.pack('<HH',deadline,release)+data)
+    # Repeated decorative tweens can extend far beyond the playable song.
+    # 0xffff is the stream terminator, not a representable event time. Omit
+    # only out-of-range tail events after the complete rendered postroll;
+    # never wrap them into the beginning of the chart.
+    if any(event[0] >= 65535 for event in events):
+        render_end = chart['notes'][-1]['frame'] + 120
+        if any(65535 <= event[0] <= render_end for event in events):
+            raise ValueError(('Animation exceeds 16-bit clock', chart['code'], render_end))
+        events = [event for event in events if event[0] < 65535]
     # Clear departing cells before inserting arriving cells. World coordinates
     # alias in the 128x128 hardware map after large camera translations.
     events.sort(key=lambda e:(e[0],-2 if e[1]==12 else -1 if e[1]==4 else e[1],bool(e[3]) if e[1]==0 else False,e[2],e[3]));blob=bytearray();positions=[]

@@ -39,7 +39,7 @@ mode7_prime_hdma:
     ldx #.loword(hdma_mode7)
     phx
     ldx selected_level
-    lda level_view_insets,x
+    lda f:level_view_insets,x
     and #255
     plx
     cmp #0
@@ -49,10 +49,7 @@ mode7_prime_hdma:
     ldx #.loword(hdma_mode7_inset)
 :
 .ifdef SA1_MODE1_BUILD
-    lda f:STREAM_MODE1
-    beq :+
-    ldx #.loword(hdma_mode1)
-:
+    jsl mode1_hdma_select
 .endif
     stx $4362
     ldx #M7_HDMA_DISPLAY

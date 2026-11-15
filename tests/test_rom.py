@@ -9,6 +9,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
 from emulate import Emulator
 
+@unittest.skipUnless((ROOT/'build/campaign/adofai.sfc').exists(), 'Legacy ExHiROM cartridge fixture is not built')
 class Cartridge(unittest.TestCase):
     def test_header_and_checksum(self):
         rom=(ROOT/'build/campaign/adofai.sfc').read_bytes()
@@ -27,6 +28,7 @@ class Cartridge(unittest.TestCase):
         self.assertEqual([v['step'] for v in n if v['flags']&2],[161])
         self.assertAlmostEqual(n[-1]['time']-n[-2]['time'],1.6,places=4)
 
+@unittest.skipUnless((ROOT/'build/campaign/adofai.sfc').exists(), 'Legacy ExHiROM cartridge fixture is not built')
 class Playing(unittest.TestCase):
     def setUp(self):
         self.em=Emulator(rom=ROOT/'build/campaign/adofai.sfc')

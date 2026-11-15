@@ -1,5 +1,6 @@
 """Native track pieces, including detached midspin and full-turn caps."""
 import math
+import collections
 import json
 from pathlib import Path
 import numpy as np
@@ -8,6 +9,10 @@ from PIL import Image,ImageDraw,ImageChops,ImageFilter
 
 STYLE=json.loads((Path(__file__).resolve().parents[1]/"assets/graphics/track-shapes.json").read_text())
 
+
+_RASTER_CACHE = collections.OrderedDict()
+_RASTER_CACHE_BYTES = 0
+_RASTER_CACHE_LIMIT = 32*1024*1024
 
 def recessed_join(size,coverage,center,angle,shared=False):
     direction=np.array((math.cos(angle),math.sin(angle)))
@@ -140,6 +145,29 @@ def piece(notes,i,line_width=None,rotation=0,scale=(1.,1.),hold_tail=None):
     bounds=path+cap if hold else path
     x0=min(q[0] for q in bounds)-pad;y0=min(q[1] for q in bounds)-pad
     x1=max(q[0] for q in bounds)+pad+1;y1=max(q[1] for q in bounds)+pad+1
+    # Repeated floors often share the same raster at different integer
+    # world positions. Reuse that exact image instead of resampling it once
+    # per floor per frame. Bound memory independently of authored scale.
+    global _RASTER_CACHE_BYTES
+    key=None
+    if all(float(v).is_integer() for v in p):
+        key=(tuple((x-int(p[0]),y-int(p[1])) for x,y in path),
+             tuple((x-int(p[0]),y-int(p[1])) for x,y in cap) if hold else (),
+             pad,line_width,tuple(scale),hold,polygon,kind!='normal' and bool(i))
+        if scale!=(1.,1.) and all(abs(v)>=1e-6 for v in scale):
+            # Preserve the original float rounding at this world position.
+            # Near a texel boundary, algebraically equivalent translations
+            # need not produce identical Pillow affine samples.
+            sx,sy=scale
+            left,right=sorted(p[0]+(v-p[0])*sx for v in (x0,x1))
+            top,bottom=sorted(p[1]+(v-p[1])*sy for v in (y0,y1))
+            left,top=math.floor(left),math.floor(top)
+            key+=(left-int(p[0]),top-int(p[1]),math.ceil(right)-left,math.ceil(bottom)-top,
+                  (left-p[0])/sx+p[0]-x0,(top-p[1])/sy+p[1]-y0)
+        if key in _RASTER_CACHE:
+            ox,oy,cached=_RASTER_CACHE.pop(key)
+            _RASTER_CACHE[key]=(ox,oy,cached)
+            return int(p[0])+ox,int(p[1])+oy,cached.copy()
     image=Image.new('L',(x1-x0,y1-y0));draw=ImageDraw.Draw(image)
     points=[(x-x0,y-y0) for x,y in path]
     if hold:
@@ -156,4 +184,11 @@ def piece(notes,i,line_width=None,rotation=0,scale=(1.,1.),hold_tail=None):
         size=(max(1,math.ceil(right)-left),max(1,math.ceil(bottom)-top))
         image=image.transform(size,Image.Transform.AFFINE,(1/sx,0,(left-p[0])/sx+p[0]-x0,0,1/sy,(top-p[1])/sy+p[1]-y0),Image.Resampling.NEAREST)
         x0,y0=left,top
+    if key is not None and image.width*image.height <= _RASTER_CACHE_LIMIT:
+        size=image.width*image.height
+        while _RASTER_CACHE and (_RASTER_CACHE_BYTES+size>_RASTER_CACHE_LIMIT or len(_RASTER_CACHE)>=2048):
+            _,(_,_,old)=_RASTER_CACHE.popitem(last=False)
+            _RASTER_CACHE_BYTES-=old.width*old.height
+        _RASTER_CACHE[key]=(x0-int(p[0]),y0-int(p[1]),image.copy())
+        _RASTER_CACHE_BYTES+=size
     return x0,y0,image

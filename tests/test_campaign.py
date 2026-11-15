@@ -1,17 +1,19 @@
 """Expansion regressions against cartridge output and real pad input."""
-import json,sys,unittest,ctypes as C
+import json,sys,unittest,ctypes as C,tempfile
+from unittest.mock import patch
 from pathlib import Path
 import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
 from emulate import Emulator
 from campaign_assets import connected_track,compile_chart,OUT
-from official_catalog import WORLDS,PACKS,load_game_json
+from official_catalog import WORLDS,PACKS,RETIRED_LEVEL_IDS,load_game_json
 
 class Campaign(unittest.TestCase):
     def test_catalog_coverage(self):
         self.assertEqual(len(WORLDS),39)
-        self.assertEqual(sorted(n for p in PACKS.values() for n in p['levels']),list(range(1,40)))
+        self.assertEqual(sorted(n for p in PACKS.values() for n in p['levels']),
+                         [n for n in range(1,40) if n not in RETIRED_LEVEL_IDS])
         self.assertEqual(load_game_json('{"text":"comma, } inside a string",}'),{'text':'comma, } inside a string'})
     def test_pause_and_automatic_midspin_timing(self):
         import math
@@ -25,6 +27,8 @@ class Campaign(unittest.TestCase):
         c,_=compile_chart(data)
         self.assertEqual([n['time'] for n in c['notes']],[0,2,2,2.5])
         self.assertEqual(c['hits'],2)
+    @unittest.skipUnless(all((OUT/f'level{n}.json').exists() for n in range(1,13)),
+                         'Legacy campaign chart fixtures are not built')
     def test_complete_charts_and_events(self):
         counts=[167,145,160,172,165,359,196,318,319,283,433,326]
         ends=[75.230,60.938,58.058,115.765,59.924,125.129,82.875,87.900,97.286,83.333,121.865,90.808]
@@ -42,17 +46,20 @@ class Campaign(unittest.TestCase):
         # Three centers form a straight strip: one seam halfway between each,
         # no extra node boxes or outlines cutting through either rectangle.
         c={'id':'test','notes':[{'x':128+i*24,'y':144} for i in range(3)]}
-        connected_track(c)
         from PIL import Image
-        a=np.array(Image.open(OUT/'leveltest-track.png'))
+        with tempfile.TemporaryDirectory() as temporary:
+            folder=Path(temporary)
+            with patch('campaign_assets.OUT',folder):connected_track(c)
+            with Image.open(folder/'leveltest-track.png') as image:a=np.array(image)
         self.assertEqual(np.where(a[144,116:189]==2)[0].tolist(),[24,48])
         self.assertEqual(np.where(a[144,116:189]==3)[0].tolist(),[0,72])
         self.assertTrue(np.all(a[138,117:188]>0))
         self.assertTrue(np.all(a[136,116:189]==0))
-        (OUT/'leveltest-track.png').unlink()
 
 class PadFixture(unittest.TestCase):
     def setUp(self):
+        if not (OUT/'adofai.sfc').exists():
+            self.skipTest('Legacy campaign ROM fixture is not built; current releases use Mesen checks')
         self.em=Emulator(rom=OUT/'adofai.sfc')
         for _ in range(120):self.em.run()
     def tearDown(self):self.em.close()

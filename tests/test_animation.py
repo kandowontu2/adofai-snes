@@ -6,6 +6,20 @@ from animation_assets import generate,coordinate_index
 from campaign_assets import compress_map
 
 class Animation(unittest.TestCase):
+    def test_repeated_palette_tail_cannot_wrap_into_song(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder)
+            chart=dict(id=200,code='TEST',notes=[dict(frame=7000,x=0,y=0)],
+                       visibility_cells=0,checkpoints=[],
+                       track_palette_versions=[[0,3,123],[65535,3,456],[65590,3,789]])
+            generate(out,chart,b'',b'')
+            data=(out/'animation200.bin').read_bytes()
+            self.assertEqual(list(struct.iter_unpack('<HBHH',data)),
+                             [(0,7,3,123),(65535,255,0,0)])
+            chart['notes'][0]['frame']=65500
+            with self.assertRaisesRegex(ValueError,'16-bit clock'):
+                generate(out,chart,b'',b'')
+
     def test_compiled_reference_sets_follow_cell_lifetimes(self):
         with tempfile.TemporaryDirectory() as folder:
             out=Path(folder)

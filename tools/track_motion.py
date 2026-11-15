@@ -45,12 +45,24 @@ def stick_schedule(data,count):
 def ease_name(value):
     names=['Unset','Linear','InSine','OutSine','InOutSine','InQuad','OutQuad','InOutQuad','InCubic','OutCubic','InOutCubic',
            'InQuart','OutQuart','InOutQuart','InQuint','OutQuint','InOutQuint','InExpo','OutExpo','InOutExpo','InCirc','OutCirc',
-           'InOutCirc','InElastic','OutElastic','InOutElastic','InBack','OutBack','InOutBack','InBounce','OutBounce','InOutBounce']
+           'InOutCirc','InElastic','OutElastic','InOutElastic','InBack','OutBack','InOutBack','InBounce','OutBounce','InOutBounce',
+           'Flash','InFlash','OutFlash','InOutFlash']
     return names[value] if isinstance(value,int) and 0<=value<len(names) else str(value)
 
 def easing(name,t):
     name=ease_name(name)
     if name=='Linear':return t
+    if name.endswith('Flash'):
+        # DOVirtual.EasedValue uses DOTween's default amplitude 1.70158
+        # and period 0; each flash reverses a normalized quadratic segment.
+        amplitude=1.70158
+        step=math.ceil(t*amplitude)
+        local=t*amplitude-(step-1)
+        if step%2==0:local=1-local
+        if name=='InFlash':return local*local
+        if name=='OutFlash':return local*(2-local)
+        if name=='InOutFlash':return 2*local*local if local<.5 else 1-2*(1-local)**2
+        return local
     mode='InOut' if name.startswith('InOut') else 'Out' if name.startswith('Out') else 'In'
     kind=name[len(mode):]
     if kind=='Elastic' and mode=='InOut':
@@ -262,8 +274,8 @@ def scale_schedule(data,chart):
     for e in data.get('native_track_effects',[]):
         if e['type']!='ffxMoveFloorPlus' or not e.get('scaleUsed',False):continue
         scale=e.get('targetScaleV2',{'x':e.get('targetScale',1),'y':e.get('targetScale',1)})
-        target=tuple(scale[k] for k in ('x','y'))
-        if not all(math.isfinite(v) for v in target):continue
+        target=tuple(scale[k] if scale[k] is not None and math.isfinite(scale[k]) else None for k in ('x','y'))
+        if all(v is None for v in target):continue
         at=native_event_time(data,chart,e);duration=native_duration(data,chart,e)
         for j in range(min(e['start'],e['end']),max(e['start'],e['end'])+1,1+e.get('gapLength',0)):
             if 0<=j<len(chart['notes']):commands[j].append((at,duration,target,ease_name(e.get('ease','Linear'))))
@@ -289,17 +301,25 @@ def scale_schedule(data,chart):
             if mode=='Beat':at+=k*repeat.get('interval',1)*60/data['bpm']/chart['notes'][floor]['speed']
             start=tile(a.get('startTile',[0,'ThisTile']),origin);end=tile(a.get('endTile',[0,'ThisTile']),origin)
             for j in range(min(start,end),max(start,end)+1,1+a.get('gapLength',0)):
-                commands[j].append((max(0,at),max(0,a.get('duration',0)*beat),tuple(v/100 for v in target),a.get('ease','Linear')))
+                commands[j].append((max(0,at),max(0,a.get('duration',0)*beat),tuple(v/100 if v is not None else None for v in target),a.get('ease','Linear')))
     out=collections.defaultdict(dict)
     for i,events in commands.items():
-        current=(1.,1.);last=current;events.sort(key=lambda e:e[0])
-        for k,(at,duration,target,ease) in enumerate(events):
-            stop=events[k+1][0] if k+1<len(events) else math.inf
-            frames=list(range(round(at*FPS),round((at+duration)*FPS),chart.get('motion_step',8)))+[round((at+duration)*FPS)]
-            for frame in frames:
-                if frame/FPS>stop+1/FPS:break
-                t=1 if not duration or frame==round((at+duration)*FPS) else max(0,min(1,(frame/FPS-at)/duration))
-                value=tuple(round(a+(b-a)*easing(ease,t),5) for a,b in zip(current,target))
-                if value!=last:out[frame][i]=value;last=value
-            current=target
+        events.sort(key=lambda e:e[0]);samples=collections.defaultdict(dict)
+        for axis in range(2):
+            track=[(at,duration,target[axis],ease) for at,duration,target,ease in events if target[axis] is not None]
+            current=1.
+            for k,(at,duration,target,ease) in enumerate(track):
+                stop=round(track[k+1][0]*FPS)-1 if k+1<len(track) else math.inf
+                end=round((at+duration)*FPS)
+                frames=list(range(round(at*FPS),end,chart.get('motion_step',8)))+[end]
+                for frame in frames:
+                    if frame>stop:break
+                    t=1 if not duration or frame==end else max(0,min(1,(frame/FPS-at)/duration))
+                    samples[frame][axis]=round(current+(target-current)*easing(ease,t),5)
+                current=target
+        current=[1.,1.];last=tuple(current)
+        for frame,values in sorted(samples.items()):
+            for axis,value in values.items():current[axis]=value
+            value=tuple(current)
+            if value!=last:out[frame][i]=value;last=value
     return dict(sorted(out.items()))

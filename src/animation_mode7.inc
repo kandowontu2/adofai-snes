@@ -1470,7 +1470,7 @@ bitmap_prefetch_reset:
     sta f:M7_BITMAP_TAIL
     jsr spill_reset
     ldx selected_level
-    lda level_bitmap_prefetch,x
+    lda f:level_bitmap_prefetch,x
     and #255
     sta f:M7_BITMAP_ENABLED
 .ifdef ROM_FUTURE_COUNT

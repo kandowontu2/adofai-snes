@@ -5,6 +5,9 @@ return function(C)
  local function word(a,m)return emu.read(a,m)+256*emu.read(a+1,m)end
  local samples=0
  local saved={}
+ local frame=0
+ local previous=nil
+ local max_gap=0
  emu.addMemoryCallback(function()
   local mode=word(0x3ef0c,S)
   if mode==0 or word(C.addr.display_state,W)~=1 then return end
@@ -14,7 +17,7 @@ return function(C)
   if mode>=2 then x=0;y=0 end
   local checks={
    {'ppu.layers[0].hscroll',x},{'ppu.layers[0].vscroll',y},
-   {'ppu.layers[0].tilemapAddress',0x7000},{'ppu.layers[0].chrAddress',0},
+   {'ppu.layers[0].tilemapAddress',0x7000},{'ppu.layers[0].chrAddress',C.wide_atlas and word(0x3ef80,S)==512 and 0x2000 or 0},
    {'ppu.layers[0].doubleWidth',true},{'ppu.layers[0].doubleHeight',false},
    {'ppu.layers[0].largeTiles',false}}
   for _,c in ipairs(checks)do
@@ -25,15 +28,22 @@ return function(C)
    end
   end
   samples=samples+1
-  if samples==1 or samples%100==0 then local f=io.open(C.out..'/screen-registers.txt','w');f:write('PASS samples='..samples);f:close() end
+  if previous then max_gap=math.max(max_gap,frame-previous) end
+  previous=frame
+  if samples==1 or samples%100==0 then local f=io.open(C.out..'/screen-registers.txt','w');f:write('PASS samples='..samples..' max_frame_gap='..max_gap);f:close() end
  end,emu.callbackType.write,C.addr.commits,C.addr.commits,emu.cpuType.snes)
  emu.addEventCallback(function()
+  frame=frame+1
   if word(0x3ef0c,S)==0 or word(C.addr.display_state,W)~=1 then return end
   local time=word(C.addr.display_chart_time,W)
   for _,at in ipairs(C.screen_captures or {})do
-   if not saved[at] and time>=at and time<=at+2 then
+   -- Capture the first presented frame after each requested time. A narrow
+   -- two-tick window silently lost coverage precisely when presentation
+   -- stalled. Record lateness separately rather than hiding those sections.
+   if not saved[at] and time>=at then
     saved[at]=true
     local f=io.open(C.out..'/screen-'..at..'.png','wb');f:write(emu.takeScreenshot());f:close()
+    local log=io.open(C.out..'/screen-capture-times.csv','a');log:write(at..','..time..','..(time-at)..'\n');log:close()
    end
   end
  end,emu.eventType.endFrame)

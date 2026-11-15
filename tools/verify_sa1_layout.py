@@ -7,6 +7,10 @@ ROOT=Path(__file__).resolve().parents[1]
 def verify(base,source):
     rom=(base/'adofai.sfc').read_bytes();pack=json.loads((base/'pack.json').read_text())
     loc=json.loads((base/'placements.json').read_text())
+    build_flags=(base/'addresses.inc').read_text()
+    msu_charts='MSU_CHART_TABLES = 1' in build_flags
+    compressed_times='COMPRESSED_STREAM_INDEX = 1' in build_flags
+    msu_descriptors=(base/'msu_descriptors.bin').read_bytes() if msu_charts else b''
     labels={name:int(value,16) for value,name in re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)',(base/'adofai.lbl').read_text())}
     assert len(rom)==0x800000
     assert rom[0x7fd5:0x7fd8]==bytes([0x23,0x35,0x0d]) and rom[0x7fd8] in (7,8),rom[0x7fd5:0x7fd9]
@@ -76,6 +80,16 @@ def verify(base,source):
             checked+=1
         for prefix in ('chart','track_chr','track_map','visibility_index'):
             expected=(base/f'{prefix}{n}.bin').read_bytes();start=offset(loc[f'{prefix}{n}'])
+            if prefix=='chart' and msu_charts:
+                assert len(expected)==14*len(chart['notes'])
+                descriptor=msu_descriptors[pack['levels'].index(n)*24:][:24]
+                chart_offset=struct.unpack_from('<I',descriptor,20)[0]
+                assert chart_offset>=32
+                with (base/'adofai.msu').open('rb') as data:
+                    data.seek(chart_offset)
+                    assert data.read(len(expected))==expected,(n,'MSU chart arrays',chart_offset)
+                checked+=1
+                expected=bytes(2)
             if prefix=='track_map' and chart.get('mode1_snapshot') and 'SNAPSHOT_ONLY_MAPS = 1' in (base/'addresses.inc').read_text():
                 assert not chart.get('fallback_stream_packets') and not chart.get('snapshot_preview')
                 desc=(base/'descriptors.bin').read_bytes()[pack['levels'].index(n)*32:][:32]
@@ -88,6 +102,16 @@ def verify(base,source):
                 expected=bytes(2)
             assert 0x10000<=start and start+len(expected)<=(0x300000 if pack.get('standalone') else 0x400000)
             assert rom[start:start+len(expected)]==expected,(n,prefix,start)
+            checked+=1
+        if compressed_times and chart.get('sa1_stream_format'):
+            from sa1_stream import rom_index,unpack_time_index
+            original=(base/f'stream_index{n}.bin').read_bytes()
+            encoded=rom_index(original,compressed=True)
+            start=offset(loc[f'stream_index{n}'])
+            actual=rom[start:start+len(encoded)]
+            assert actual==encoded,(n,'Compressed timestamp bytes')
+            assert unpack_time_index(actual,len(original)//8)==rom_index(original)
+            assert start%2==0,(n,'Unaligned timestamp word')
             checked+=1
         if not pack.get('standalone'):continue
         from animation_bulk import batch

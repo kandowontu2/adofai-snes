@@ -410,7 +410,7 @@ mode7_prepare_view:
     sta M7_HDMA_STAGE+6
     stz M7_HDMA_STAGE+8
     ldx selected_level
-    lda level_view_insets,x
+    lda f:level_view_insets,x
     and #255
     beq :+
     lda #40
@@ -1604,6 +1604,7 @@ mode7_bit_masks: .byte 1,2,4,8,16,32,64,128
 hdma_mode7: .byte 32,9,127,7,17,7,48,9,0
 hdma_mode7_inset: .byte 40,9,127,7,1,7,56,9,0
 hdma_mode1: .byte 127,9,97,9,0
+hdma_mode3: .byte 32,9,127,3,25,3,40,9,0
 .segment "CODE"
 
 .ifdef SA1_BUILD

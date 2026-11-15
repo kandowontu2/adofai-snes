@@ -7,6 +7,7 @@ ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'tools'))
 from emulate import Emulator
 from input_helpers import press,wait,configure
 
+@unittest.skipUnless((ROOT/'build/campaign/adofai.sfc').exists(), 'Legacy campaign ROM fixture is not built')
 class Options(unittest.TestCase):
     def setUp(self):
         self.em=Emulator(rom=ROOT/'build/campaign/adofai.sfc')

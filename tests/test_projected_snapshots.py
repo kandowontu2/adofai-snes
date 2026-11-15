@@ -30,8 +30,11 @@ class SnapshotTests(unittest.TestCase):
                         if k!=42:continue
                         pointer=struct.unpack_from('<I',data,offset+a+7)[0];pointers.add(pointer);pose_refs.append(pointer)
                         pt,pk,count,length=HEADER.unpack_from(data,pointer)
-                        self.assertEqual(pk,41);self.assertEqual(length+14,v)
-                        pal,words,raw=snapshot_pose(data[pointer+7:pointer+7+length],count)
+                        self.assertEqual(pk,46);self.assertEqual(length+14,v)
+                        from snapshot_codec import decode_split
+                        decoded=decode_split(data[pointer+7:pointer+7+length],count)
+                        pal,words=decoded[:96],decoded[96:1312]
+                        raw=[decoded[i:i+32] for i in range(1312,len(decoded),32)]
                         self.assertEqual(raw,[glyphs[{0:1,65:2,100:3}[pt]]])
                         self.assertEqual(struct.unpack_from('<H',words,607*2)[0]&1023,1)
                     if j:catchup=True;self.assertEqual(len(pose_refs),1)
@@ -45,6 +48,41 @@ class SnapshotTests(unittest.TestCase):
                 self.assertEqual(seeds[atlas+32:atlas+64],glyphs[glyph])
                 self.assertEqual(seeds[atlas:atlas+32],bytes(32))
                 self.assertEqual(seeds[atlas+32768:atlas+32772],struct.pack('<HH',2,17))
+
+    def test_indexed_color_pose_keeps_eight_planes_and_checkpoint_format(self):
+        import numpy as np
+        from projected_tracks import encode_indexed_screen,share_flipped_glyphs
+        from snapshot_codec import decode_split
+        with tempfile.TemporaryDirectory() as tmp:
+            source=Path(tmp)/'source';source.mkdir();out=Path(tmp)/'out'
+            chart=dict(code='TEST',notes=[dict(frame=127)],pattern_initial=[0]*256,track_palette_versions=[])
+            (source/'level1.json').write_text(json.dumps(chart))
+            (source/'animation1.bin').write_bytes(HEADER.pack(65535,255,0,0))
+            image=np.zeros((184,256),dtype=np.uint8)
+            image[32:40,:8]=np.arange(32,96,dtype=np.uint8).reshape(8,8)
+            glyphs=[bytes(32)];lookup={glyphs[0]:0}
+            frame=encode_indexed_screen(image,glyphs,lookup)
+            glyphs,frames=share_flipped_glyphs(glyphs,[frame]*128)
+            write(source,out,1,glyphs,frames,postroll=0)
+            data=(out/'stream_data1.bin').read_bytes();index=(out/'stream_index1.bin').read_bytes()
+            _,_,choice=struct.unpack_from('<HHI',index)
+            _,size,offset=struct.unpack_from('<HHI',data,choice)
+            record=next(r for r in records(data[offset:offset+size]) if r[3]==42)
+            pointer=struct.unpack_from('<I',data,offset+record[0]+7)[0]
+            _,kind,count,length=HEADER.unpack_from(data,pointer)
+            self.assertEqual((kind,count),(47,3))
+            body=decode_split(data[pointer+7:pointer+7+length],count)
+            self.assertEqual(body[:96],bytes(range(32,128)))
+            word=struct.unpack_from('<H',body,96)[0]
+            atlas=bytes(32)+body[1312:]
+            raw=atlas[(word&1023)*64:(word&1023)*64+64]
+            for y in range(8):
+                for x in range(8):
+                    xx=7-x if word&0x4000 else x;yy=7-y if word&0x8000 else y
+                    actual=sum(((raw[(b//2)*16+yy*2+b%2]>>(7-xx))&1)<<b for b in range(8))
+                    self.assertEqual(actual,int(image[32+y,x]))
+            seeds=(out/'mode1_seeds1.bin').read_bytes();at=struct.unpack_from('<I',seeds,4)[0]
+            self.assertEqual(struct.unpack_from('<H',seeds,at+2)[0],0x4000|96)
 
     def test_truncated_or_invalid_pose_is_rejected(self):
         for raw in (bytes(1311),bytes(1312)+bytes([3])+bytes(32),bytes(1312)+bytes([0])+bytes(31)):
@@ -65,8 +103,11 @@ class SnapshotTests(unittest.TestCase):
             ref=next((a,b,t,k,i,v) for a,b,t,k,i,v in records(data[offset:offset+size]) if k==42)
             pointer=struct.unpack_from('<I',data,offset+ref[0]+7)[0]
             _,kind,count,length=HEADER.unpack_from(data,pointer)
-            self.assertEqual((kind,count,length),(44,241,1312+241*32))
-            self.assertEqual(data[pointer+7+1312:pointer+7+length],b''.join(glyphs[1:]))
+            self.assertEqual((kind,count),(46,241))
+            from snapshot_codec import decode_split
+            decoded=decode_split(data[pointer+7:pointer+7+length],count)
+            self.assertEqual(len(decoded),1312+241*32)
+            self.assertEqual(decoded[1312:],b''.join(glyphs[1:]))
             seeds=(out/'mode1_seeds1.bin').read_bytes();at=struct.unpack_from('<I',seeds,4)[0]
             self.assertEqual(struct.unpack_from('<H',seeds,at+2)[0],0x8000|241*32)
             atlas=at+4+42+96+4096

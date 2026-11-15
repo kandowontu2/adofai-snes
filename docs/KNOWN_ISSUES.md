@@ -1,5 +1,11 @@
 # Rendering performance and verification
 
+The measurements below describe the November 9 build, not the expanded
+248-chart release. Current per-build replay and pixel reports ship in
+`verification.json`; passing those checks does not establish locked 60 FPS.
+
+## Historical November 9 measurements
+
 The November 9 update removes the long presentation stalls in Feral [Hard],
 Celica (Remastered Ver.), and Heaven's Gateway. All 65 master charts pass the
 full-song graphics and presentation-progress checks, with no VBlank overruns.

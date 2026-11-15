@@ -28,6 +28,8 @@ mode1_initialize:
 .endif
 mode1_clear_buffers:
     lda #0
+    sta f:M1_BUILD_FORMAT
+    sta f:M1_FRONT_FORMAT
     sta f:M1_READY
     sta f:M1_RUN_COUNT
     ldx #0
@@ -189,6 +191,17 @@ mode1_restore_seed:
     stz $2116
     stz $4352
     lda #32768
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    pha
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    tax
+    pla
+    cpx #640
+    bne :+
+    lda #40960
+:
+.endif
     sta $4355
     start_dma 32
     lda #$7000
@@ -447,7 +460,20 @@ mode1_restore_raw_atlas:
     clc
     adc #4096
     sta stream_destination
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    pha
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    tax
+    pla
+    cpx #640
+    bne :+
+    cmp #40960
+    bra :++
+:
+.endif
     cmp #32768
+:
     bcc @chunk
     rtl
 mode1_commit_map:
@@ -629,11 +655,54 @@ mode1_commit_patterns:
     sta f:M1_PREFETCH_READY
     lda f:M1_BUILD_BANK
     sta f:M1_FRONT_BANK
+    lda f:M1_BUILD_FORMAT
+    sta f:M1_FRONT_FORMAT
 :
     rts
 .segment "CODE"
 .endif
 
 .ifdef SA1_MODE1_BUILD
+.segment "CODE"
+.endif
+
+.ifdef SA1_MODE1_BUILD
+.ifdef NEO_BUILD
+.segment "NEOCODE"
+.else
+.segment "CODE"
+.endif
+mode1_hdma_select:
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    pha
+    sep #$20
+    .a8
+    lda #$50
+    sta $210B
+    rep #$20
+    .a16
+    lda f:M1_FRONT_FORMAT
+    cmp #2
+    bne :+
+    lda f:M1_FRONT_BANK
+    beq :+
+    sep #$20
+    .a8
+    lda #$52
+    sta $210B
+    rep #$20
+    .a16
+:
+    pla
+.endif
+    lda f:STREAM_MODE1
+    beq @done
+    ldx #.loword(hdma_mode1)
+    lda f:M1_FRONT_FORMAT
+    cmp #1
+    bne @done
+    ldx #.loword(hdma_mode3)
+@done:
+    rtl
 .segment "CODE"
 .endif

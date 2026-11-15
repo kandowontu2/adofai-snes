@@ -8,13 +8,14 @@ from official_catalog import PACKS
 from verification_data import identity
 
 def suite_digest():
-    paths=sorted((ROOT/'tools').glob('verify*mesen.lua'))+[ROOT/'tools/mesen_failfast.lua',ROOT/'tools/run_mesen_campaign.py',ROOT/'tools/run_mesen_sequence.py']
+    paths=sorted((ROOT/'tools').glob('verify*mesen.lua'))+[ROOT/'tools/mesen_failfast.lua',ROOT/'tools/run_mesen_campaign.py',ROOT/'tools/run_mesen_sequence.py',ROOT/'tools/menu_sets.py']
     return hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in paths)).hexdigest()
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--mesen',type=Path,default=Path(r'C:\mesen2\Mesen.exe'))
     ap.add_argument('--prepare-only',action='store_true');ap.add_argument('--levels',type=int,nargs='+');ap.add_argument('--pack',default='main');ap.add_argument('--all',action='store_true');ap.add_argument('--checkpoints',action='store_true')
     ap.add_argument('--speed',type=float,default=1.0);ap.add_argument('--time-attack',action='store_true');ap.add_argument('--resume',action='store_true')
-    ap.add_argument('--trace-frame',type=int);ap.add_argument('--graphics-dumps',action='store_true');ap.add_argument('--capture-steps',type=int,nargs='+');ap.add_argument('--capture-times',type=int,nargs='+',help='Also verify PPU output at these presented chart-clock frames');ap.add_argument('--autoplay',action='store_true');args=ap.parse_args()
+    ap.add_argument('--trace-frame',type=int);ap.add_argument('--graphics-dumps',action='store_true');ap.add_argument('--sampled-graphics',action='store_true',help='Sample hardware pixels every 240 commits; full DMA-byte checks remain a separate stress test');ap.add_argument('--capture-steps',type=int,nargs='+');ap.add_argument('--capture-times',type=int,nargs='+',help='Also verify PPU output at these presented chart-clock frames');ap.add_argument('--autoplay',action='store_true');args=ap.parse_args()
+    if args.sampled_graphics:args.graphics_dumps=True
     speed=round(args.speed*10);assert 5<=speed<=40 and abs(speed-args.speed*10)<1e-6
     assert not(args.checkpoints and args.time_attack)
     for pack in PACKS if args.all else [args.pack]:
@@ -37,7 +38,7 @@ def main():
         report=out/'result.txt';manifest=out/'manifest.json'
         if args.resume and report.exists() and manifest.exists():
             previous=json.loads(manifest.read_text())
-            if previous.get('suite_digest')==loaded_suite and previous.get('graphics_dumps')==args.graphics_dumps and previous.get('suite_version',0)>=2 and previous.get('passed') is True and previous['sha256']==digest and previous.get('msu_sha256')==loaded_identity['msu_sha256'] and report.read_text().endswith('PASS\n'):
+            if previous.get('suite_digest')==loaded_suite and previous.get('graphics_dumps')==args.graphics_dumps and previous.get('sampled_graphics',False)==args.sampled_graphics and previous.get('suite_version',0)>=2 and previous.get('passed') is True and previous['sha256']==digest and previous.get('msu_sha256')==loaded_identity['msu_sha256'] and report.read_text().endswith('PASS\n'):
                 print(chart['code']+': PASS (current ROM already verified)',flush=True)
                 continue
         # A resumed, verified replay owns its captures. Delete them only
@@ -45,7 +46,7 @@ def main():
         if args.graphics_dumps:
             for pattern in ('ppu-*.bin','screen-*.png','step-*.png'):
                 for capture in out.glob(pattern):capture.unlink()
-            for name in ('hold-orbits.txt','hold-planets.txt','screen-registers.txt','mode1-icon-jobs.txt','ppu-verification.json'):
+            for name in ('hold-orbits.txt','hold-planets.txt','screen-registers.txt','screen-capture-times.csv','mode1-icon-jobs.txt','ppu-verification.json'):
                 (out/name).unlink(missing_ok=True)
         names=('state','step','elapsed','combo','perfects','misses','selected_level','speed_tenths','time_attack','judgment_counts','score_lo','score_hi','finish_cs','nmi_audio_ticks','audio_ticks','speed_offset','joy')
         if 'pattern_vblank_overruns' in labels:names+=('pattern_vblank_overruns',)
@@ -68,8 +69,8 @@ def main():
             for _ in range(abs(speed-10)):seq[f]='right' if speed>10 else 'left';f+=4
             seq[f]='start';f+=8
             if 'menu_depth' in labels:
-                from menu_sets import groups
-                sets=groups(levels)
+                from menu_sets import groups_for_pack
+                sets=groups_for_pack(base)
                 group=next(i for i,(_,indices) in enumerate(sets) if level-1 in indices)
                 if len(sets)>1:
                     for _ in range(group):seq[f]='down';f+=4
@@ -116,7 +117,7 @@ def main():
         if args.graphics_dumps and chart.get('mode1_tracks'):scheduled+=',screen_script='+json.dumps((ROOT/'tools/verify_mode1_screen_mesen.lua').as_posix())
         if chart.get('mode1_tracks') and not args.checkpoints:
             scheduled+=',profile_ranges={{4,24}'+(',{120,180},{390,408}' if global_id==71 else '')+',{0,'+str(len(chart['notes'])-1)+'}}'
-        if args.graphics_dumps:scheduled+=',graphics_dumps=true'
+        if args.graphics_dumps:scheduled+=',graphics_dumps=true,capture_period='+str(240 if args.sampled_graphics else 30)
         if args.graphics_dumps and chart.get('neo_cosmos'):
             scheduled+=',midspin={script='+json.dumps((ROOT/'tools/verify_midspin_pose_mesen.lua').as_posix())+',entry='+str(labels['neo_far_prepare_hold'])+',addr={'+','.join(k+'='+str(labels[k]) for k in ('m7_visual_step','m7_logical_step','chart_time'))+'},flags={'+','.join(str(n['flags']) for n in chart['notes'])+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'}}'
         if args.graphics_dumps and chart.get('neo_math_questions'):
@@ -124,7 +125,7 @@ def main():
             mfields=('neo_math_group','neo_math_label','neo_math_choices','sprite_x','sprite_y','oam_pos')
             pairs=','.join('['+json.dumps(k)+']={'+','.join('{'+','.join(json.dumps(str(v)) for v in (q+'=',a,b))+'}' for q,a,b in variants)+'}' for k,variants in POOLS.items())
             scheduled+=',math={script='+json.dumps((ROOT/'tools/verify_math_mesen.lua').as_posix())+',code='+json.dumps(chart['code'])+',font='+json.dumps((ROOT/'assets/graphics/mode7/math-font.chr').as_posix())+',chars='+json.dumps(FONT_CHARS)+',before='+str(labels['neo_math_before_label'])+',after='+str(labels['neo_math_after_label'])+',addr={'+','.join(k+'='+str(labels[k]) for k in mfields)+'},pools={'+pairs+'}}'
-        if args.graphics_dumps:
+        if args.graphics_dumps and not args.sampled_graphics:
             bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
             scheduled+=',dma_script='+json.dumps((ROOT/'tools/verify_dma_window_mesen.lua').as_posix())+',dma_complete='+str(labels['mode7_cache_commit']+bank)
             if chart.get('mode1_tracks')==3:
@@ -192,6 +193,8 @@ def main():
         if args.capture_steps:scheduled+=',capture_steps={'+','.join(map(str,args.capture_steps))+'}'
         if chart.get('track_palette_versions'):
             scheduled+=',palette_script='+json.dumps((ROOT/'tools/verify_palette_mesen.lua').as_posix())+',palette={'+','.join('{'+','.join(map(str,e))+'}' for e in chart['track_palette_versions'])+'}'
+        actions+=',wide_atlas='+str(bool(chart.get('wide_snapshot_atlas'))).lower()
+        actions+=',indexed_color_support='+('true' if chart.get('indexed_color_frames') else 'false')
         config='return {addr={'+','.join(k+'='+str(labels[k]) for k in names)+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'},out='+json.dumps(out.as_posix())+',level='+str(level)+',steps='+str(chart['steps'])+',hits='+str(chart['hits'])+',speed='+str(speed)+',attack='+str(int(args.time_attack))+',finish_centis='+str(round(chart['notes'][-1]['time']*100*1536/pitch) if 'time' in chart['notes'][-1] else round(chart['notes'][-1]['frame']/60.0988118623*100*1536/pitch))+',frames='+str(round(chart['duration']*60.099*1536/pitch)+600+(len(chart['checkpoints'])*900 if args.checkpoints else 0))+cpconfig+actions+'}\n'
         config=config.rstrip()[:-1]+scheduled+'}\n'
         path=out/'config.lua';path.write_text(config)
@@ -211,7 +214,7 @@ def main():
         assert suite_digest()==loaded_suite,'Verification code changed during the replay'
         samples=re.search(r'palette_samples=(\d+)',text)
         overruns=re.search(r'vblank_overruns=(\d+)',text)
-        (out/'manifest.json').write_text(json.dumps(dict(code=chart['code'],sha256=digest,**loaded_identity,suite_version=2,suite_digest=loaded_suite,graphics_dumps=args.graphics_dumps,passed=False,summary=text.splitlines()[0],speed=speed/10,time_attack=args.time_attack,track_palette_samples=int(samples[1]) if samples else 0,vblank_overruns=int(overruns[1]) if overruns else None),indent=2))
+        (out/'manifest.json').write_text(json.dumps(dict(code=chart['code'],sha256=digest,**loaded_identity,suite_version=2,suite_digest=loaded_suite,graphics_dumps=args.graphics_dumps,sampled_graphics=args.sampled_graphics,passed=False,summary=text.splitlines()[0],speed=speed/10,time_attack=args.time_attack,track_palette_samples=int(samples[1]) if samples else 0,vblank_overruns=int(overruns[1]) if overruns else None),indent=2))
         assert result.returncode==0 and text.endswith('PASS\n'),text[-1000:]
         if overruns:assert int(overruns[1])==0,'Hardware upload crossed VBlank'
         if args.graphics_dumps and chart.get('mode1_tracks') and speed<=10:

@@ -59,7 +59,7 @@ early_pad_ready:
 snapshot_seed_header:
     lda f:STREAM_MODE1
     cmp #3
-    bne @done
+    jne @done
     sep #$20
     .a8
     data_read8
@@ -75,7 +75,28 @@ snapshot_seed_header:
     sta f:M1_BUILD_BANK
     sta f:CLONE_COUNT
     sta f:M1_PREFETCH_READY
+    sta f:M1_BUILD_FORMAT
+    sta f:M1_FRONT_FORMAT
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    bne :+
+    lda #2
+    sta f:M1_BUILD_FORMAT
+    sta f:M1_FRONT_FORMAT
+    bra @done
+:
+.endif
     lda f:M1_SNAPSHOT_BYTES
+    bit #$4000
+    beq :+
+    lda #1
+    sta f:M1_BUILD_FORMAT
+    sta f:M1_FRONT_FORMAT
+:
+    lda f:M1_SNAPSHOT_BYTES
+    and #$BFFF
+    sta f:M1_SNAPSHOT_BYTES
     bpl @done
     and #$7FFF
     sta f:M1_SNAPSHOT_BYTES

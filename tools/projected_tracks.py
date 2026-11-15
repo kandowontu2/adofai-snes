@@ -3,7 +3,7 @@
 This compiler retains every source frame and uses the same fixed-point
 sampler as the Mode 7 PPU verifier. Planets and input remain live objects.
 """
-import argparse,bisect,collections,json,struct,pickle
+import argparse,bisect,collections,json,struct,pickle,tempfile
 from pathlib import Path
 import numpy as np
 from mode1_tracks import encode_tile,decode_tile,pack_palettes,schedule
@@ -25,17 +25,22 @@ def exact_palettes(wanted):
         constraint(((v,1) for v in choices),1,1)
         for bank,y in enumerate(choices):
             for color in group:constraint(((y,1),(bank*width+ids[color],-1)),-np.inf,0)
+        # Name interchangeable banks by their first assigned tile group.
+        # Without this, dense crossings waste the solver budget exploring
+        # hundreds of permutations of the same six-palette assignment.
+        for bank in range(1,6):
+            constraint([(choices[bank],1)]+[(6*width+j*6+bank-1,-1) for j in range(i)],-np.inf,0)
     lower=np.zeros(variables);upper=np.ones(variables)
     lower[6*width]=1  # The six banks are interchangeable.
     matrix=coo_matrix((values,(rows,cols)),shape=(len(lo),variables)).tocsc()
     answer=milp(np.zeros(variables),integrality=np.ones(variables),bounds=Bounds(lower,upper),
-                constraints=LinearConstraint(matrix,lo,hi),options={'time_limit':30})
+                constraints=LinearConstraint(matrix,lo,hi),options={'time_limit':120})
     if answer.x is None:raise ValueError(('Exact six-palette packing failed',answer.message))
     banks=[[c for c in colors if answer.x[b*width+ids[c]]>.5] for b in range(6)]
     assert all(len(b)<=15 for b in banks) and all(any(s<=set(b) for b in banks) for s in wanted)
     return banks
 
-def anchored_palettes(wanted,anchors):
+def anchored_palettes(wanted,anchors,exact=True):
     """Keep common fill/edge pairs in the same CHR bitplanes across banks."""
     import random
     maximal=[s for s in wanted if not any(s<q for q in wanted)]
@@ -52,19 +57,25 @@ def anchored_palettes(wanted,anchors):
     # an exact six-bank packing exists. Try the general unanchored packer
     # before treating that heuristic failure as a hardware capacity limit.
     try:return pack_palettes(wanted)
-    except ValueError:return exact_palettes(wanted)
+    except ValueError:
+        if exact:return exact_palettes(wanted)
+        raise
 
 
 class Source:
     def __init__(self,folder,level,copy_world=None):
         folder=Path(folder);self.chart=json.loads((folder/f'level{level}.json').read_text());c=self.chart
         self.patterns=np.frombuffer((folder/f'patterns{level}.bin').read_bytes(),dtype=np.uint8).reshape(-1,8,8)
-        self.world=np.zeros((c['map_height'],c['map_width']),dtype=np.uint16)
+        self.world=np.zeros((c['map_height'],c['map_width']),dtype=np.uint32 if c.get('full_snapshot_source') else np.uint16)
         self.tags=np.array(c['pattern_initial'],dtype=np.uint32);self.events=collections.defaultdict(list)
         timeline=(folder/f'timeline{level}.bin').read_bytes()
         for xy,off in zip(c['cell_coordinates'],c['visibility_offsets']):
             n=struct.unpack_from('<H',timeline,off)[0]
             for f,v in struct.iter_unpack('<HH',timeline[off+2:off+2+n*4]):self.events[f].append((xy,v))
+        if c.get('full_snapshot_source'):
+            self.tags=np.arange(len(self.patterns),dtype=np.uint32)
+            for x,y,rows in c['projection_cells']:
+                for frame,pattern in rows:self.events[frame].append(((x,y),pattern&0xfffff))
         self.tag_events=collections.defaultdict(list)
         for i,rows in enumerate(c['pattern_versions']):
             for f,v in rows:self.tag_events[f].append((i,v))
@@ -83,6 +94,11 @@ class Source:
         self.fog=Fog(c) if c.get('mawaru_fog') else None
         from decoration_hitboxes import Overlay
         self.hazards=Overlay(c)
+        self.decorations=None
+        if c.get('decoration_tracks_preview') or c.get('decoration_tracks'):
+            from decoration_tracks import DecorationTracks
+            root=Path(__file__).resolve().parents[1]
+            self.decorations=DecorationTracks(json.loads((root/f'assets/private/level{level}.json').read_text()),c)
 
     def advance(self,frame):
         assert frame>=self.frame,'Projection source must advance monotonically'
@@ -123,6 +139,10 @@ class Source:
         if self.hazards.objects:
             self.native_palette=self.palette.copy()
             image=self.hazards.draw(image,frame,px,py,top,self.palette)
+        if self.decorations:
+            self.native_palette=self.palette.copy()
+            image=self.decorations.draw(image,frame,px,py,top,self.palette,
+                (self.camera[0]+128,self.camera[1]+c.get('viewport_center_y',104)))
         # Alias equal hardware colors before palette packing. Numeric source
         # indices are not distinct colors, and retaining those aliases makes
         # a 4-bpp atlas churn as hidden source materials enter and leave.
@@ -133,7 +153,7 @@ class Source:
         return normalized
 
 
-def encode_screen(image,palettes,glyphs,lookup,encodings,anchors=()):
+def encode_screen(image,palettes,glyphs,lookup,encodings,anchors=(),exact=True):
     """Encode every sampled color exactly; never quantize or omit a tile."""
     blocks=image[32:184].reshape(19,8,32,8).transpose(0,2,1,3).reshape(608,64)
     unique,inverse=np.unique(np.ascontiguousarray(blocks).view('V64').ravel(),return_inverse=True)
@@ -144,7 +164,7 @@ def encode_screen(image,palettes,glyphs,lookup,encodings,anchors=()):
         choices=[(len(colors-set(p)),i) for i,p in enumerate(palettes) if len(set(p)|colors)<=15]
         if choices:palettes[min(choices)[1]].extend(sorted(colors-set(palettes[min(choices)[1]])))
         elif len(palettes)<6:palettes.append(sorted(colors))
-        else:palettes[:]=anchored_palettes(wanted,anchors) if anchors else pack_palettes(wanted);break
+        else:palettes[:]=anchored_palettes(wanted,anchors,exact=exact) if anchors else pack_palettes(wanted);break
     refs={};encoded={}
     for i,raw in surfaces.items():
         colors=frozenset(raw)-{0}
@@ -161,18 +181,50 @@ def encode_screen(image,palettes,glyphs,lookup,encodings,anchors=()):
     return refs,tuple(tuple(p) for p in palettes)
 
 
-def compile_section(folder,level,start,end,copy_world=None):
+def encode_indexed_screen(image,glyphs,lookup):
+    """Exact Mode 3 fallback: preserve source indices in eight bitplanes."""
+    blocks=image[32:184].reshape(19,8,32,8).transpose(0,2,1,3).reshape(608,64)
+    unique,inverse=np.unique(np.ascontiguousarray(blocks).view('V64').ravel(),return_inverse=True)
+    surfaces={i:bytes(p) for i,p in enumerate(unique) if any(bytes(p))}
+    if len(surfaces)>255:raise ValueError(('Indexed snapshot atlas capacity',len(surfaces)))
+    encoded={}
+    for i,raw in surfaces.items():
+        glyph=bytearray(64)
+        for y in range(8):
+            for x in range(8):
+                for plane in range(8):
+                    glyph[(plane//2)*16+y*2+plane%2]|=((raw[y*8+x]>>plane)&1)<<(7-x)
+        glyph=bytes(glyph)
+        if glyph not in lookup:lookup[glyph]=len(glyphs);glyphs.append(glyph)
+        encoded[i]=lookup[glyph]
+    return {i:(encoded[n],64) for i,n in enumerate(inverse) if n in encoded},()
+
+
+def compile_section(folder,level,start,end,copy_world=None,extra_colors=None):
     source=Source(folder,level,copy_world);palettes=[];glyphs=[bytes(32)];lookup={glyphs[0]:0};encodings={};frames=[]
+    from lz4.block import compress as compress_frame, decompress as decompress_frame
+    # Rendering authored geometry twice is unnecessary. Keep an exact,
+    # losslessly compressed spool between palette planning and encoding.
+    # Large charts spill to a temporary file; no permanent build cache grows.
+    with tempfile.SpooledTemporaryFile(max_size=64*1024*1024) as rendered:
+        return _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,lookup,encodings,frames,rendered,compress_frame,decompress_frame)
+
+
+def _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,lookup,encodings,frames,rendered,compress_frame,decompress_frame):
     # Stable bank/color assignments avoid recreating every visible glyph
     # merely because a new source color enters the viewport.
-    wanted=set();frequencies=collections.Counter()
+    wanted=set();frequencies=collections.Counter();crowded=False
     for frame in range(start,end+1):
         image=source.screen(frame)
+        packed=compress_frame(image.tobytes()+source.palette.astype('<u2').tobytes())
+        rendered.write(struct.pack('<I',len(packed)));rendered.write(packed)
         blocks=image[32:184].reshape(19,8,32,8).transpose(0,2,1,3).reshape(608,64)
         unique,counts=np.unique(np.ascontiguousarray(blocks).view('V64').ravel(),return_counts=True)
         for raw,count in zip(unique,counts):
             colors=frozenset(bytes(raw))-{0}
-            if colors:wanted.add(colors)
+            if colors and not crowded:
+                wanted.add(colors)
+                if len(wanted)>128:crowded=True
             if len(colors)==2:frequencies[colors]+=int(count)
     anchors=[]
     for pair,count in frequencies.most_common(6):
@@ -180,14 +232,37 @@ def compile_section(folder,level,start,end,copy_world=None):
         # odd indices for contour. Equal-RGB aliases remain exact colors.
         anchors.append(tuple(sorted(pair,key=lambda i:(i%2,i))))
     try:
-        if len(set().union(*wanted))>90:raise ValueError('Use frame-local banks')
+        if crowded or len(set().union(*wanted))>90:raise ValueError('Use frame-local banks')
         palettes=anchored_palettes(wanted,anchors)
     except ValueError:palettes=[list(p) for p in anchors]
-    source=Source(folder,level,copy_world)
+    rendered.seek(0)
+    runtime_palette=np.zeros(256,dtype=np.uint16)
+    previous_image=None;previous_frame=None
     for frame in range(start,end+1):
-        image=source.screen(frame)
-        try:frames.append(encode_screen(image,palettes,glyphs,lookup,encodings,anchors))
-        except ValueError as error:raise ValueError(('Projected frame palette capacity',level,frame,len(set(image.ravel())-{0}),error.args)) from error
+        length=struct.unpack('<I',rendered.read(4))[0]
+        raw=decompress_frame(rendered.read(length))
+        image=np.frombuffer(raw[:184*256],dtype=np.uint8).reshape(184,256)
+        palette=np.frombuffer(raw[184*256:],dtype='<u2')
+        if extra_colors is not None:
+            for i,v in source.color_events.get(frame,[]):runtime_palette[i]=v
+            for index in np.flatnonzero(runtime_palette[32:128]!=palette[32:128])+32:
+                extra_colors.append((frame,7,int(index)-32,int(palette[index]),b''))
+                runtime_palette[index]=palette[index]
+        if previous_image is not None and np.array_equal(image,previous_image):
+            frames.append(previous_frame)
+            continue
+        # Bound the optional lookup cache on long, colorful charts. Its
+        # eviction never changes glyphs, pixels, or the complete frame list.
+        if len(encodings)>250000:encodings.clear()
+        try:
+            try:
+                previous_frame=encode_screen(image,palettes,glyphs,lookup,encodings,anchors,exact=False)
+            except ValueError:
+                try:previous_frame=encode_indexed_screen(image,glyphs,lookup)
+                except ValueError:
+                    previous_frame=encode_screen(image,palettes,glyphs,lookup,encodings,anchors,exact=True)
+            frames.append(previous_frame);previous_image=image
+        except ValueError as error:raise ValueError(('Projected frame palette capacity',source.chart.get('id',source.chart.get('code')),frame,len(set(image.ravel())-{0}),error.args)) from error
     return glyphs,frames
 
 
@@ -214,10 +289,10 @@ def snapshot_pose(payload,count):
     return palette,tilemap,glyphs
 
 
-def raw_seeds(index,data,*,snapshot=False,clone_state=False):
+def raw_seeds(index,data,*,snapshot=False,clone_state=False,wide=False):
     from animation_bulk import HEADER,records
     entries=list(struct.iter_unpack('<HHI',index))[:-1];count=entries[-1][0]//64+2
-    result=bytearray(count*4);palette=bytes(96);tilemap=bytearray(4096);atlas=bytearray(32768);symbols=b'';cursor=0;glyph_bytes=0
+    result=bytearray(count*4);palette=bytes(96);tilemap=bytearray(4096);atlas=bytearray(40960 if wide else 32768);symbols=b'';cursor=0;glyph_bytes=0;indexed=False
     clones=bytes(42)
     for seed in range(count):
         while cursor<len(entries) and entries[cursor][0]<seed*64:
@@ -230,19 +305,25 @@ def raw_seeds(index,data,*,snapshot=False,clone_state=False):
                     palette=packet[at+2:at+98]
                 elif k==37:
                     for slot,glyph in inline_pixels(packet[at:b],i):atlas[slot*32:slot*32+32]=glyph
-                elif k in (41,42,44):
+                elif k in (41,42,44,45,46,47):
                     if k==42:
                         pointer=struct.unpack_from('<I',packet,at)[0]
                         pose=data[pointer:pointer+v];pt,pk,i,pv=HEADER.unpack_from(pose)
-                        assert pk in (41,44) and pv+14==v and pose[-7:]==HEADER.pack(65535,255,0,0)
+                        assert pk in (41,44,45,46,47) and pv+14==v and pose[-7:]==HEADER.pack(65535,255,0,0)
                         body=pose[7:-7]
                     else:body=packet[at:b];pk=k
-                    if pk==44:
+                    if pk==45:
+                        from snapshot_codec import decode
+                        body=decode(body,i)
+                    elif pk in (46,47):
+                        from snapshot_codec import decode_split
+                        body=decode_split(body,i)
+                    if pk in (44,45,46,47):
                         assert len(body)==1312+i*32
                         palette,words=body[:96],body[96:1312]
                         glyphs=[body[a:a+32] for a in range(1312,len(body),32)]
                     else:palette,words,glyphs=snapshot_pose(body,i)
-                    tilemap[256:1472]=words;glyph_bytes=i*32
+                    tilemap[256:1472]=words;glyph_bytes=i*32;indexed=pk==47
                     atlas[32:32+glyph_bytes]=b''.join(glyphs)
                 elif k==28:symbols=packet[at:b]
                 elif k==43:clones=struct.pack('<H',i)+packet[at:b]+bytes(40-v)
@@ -252,7 +333,7 @@ def raw_seeds(index,data,*,snapshot=False,clone_state=False):
                         tilemap[dest:dest+length]=packet[at:at+length];at+=length
             cursor+=1
         struct.pack_into('<I',result,seed*4,len(result))
-        result+=struct.pack('<H',cursor)+(struct.pack('<H',glyph_bytes|(0x8000 if clone_state else 0)) if snapshot else b'')+(clones if clone_state else b'')+palette+tilemap+atlas+struct.pack('<H',len(symbols))+symbols
+        result+=struct.pack('<H',cursor)+(struct.pack('<H',glyph_bytes|(0x8000 if clone_state else 0)|(0x4000 if indexed else 0)) if snapshot else b'')+(clones if clone_state else b'')+palette+tilemap+atlas+struct.pack('<H',len(symbols))+symbols
     return bytes(result)
 
 
@@ -352,7 +433,7 @@ def share_flipped_glyphs(glyphs,frames):
     reverse=bytes(int(f'{i:08b}'[::-1],2) for i in range(256))
     unique=[bytes(32)];lookup={unique[0]:0};aliases=[]
     for glyph in glyphs:
-        vertical=b''.join(glyph[base+y:base+y+2] for base in (0,16) for y in range(14,-1,-2))
+        vertical=b''.join(glyph[base+y:base+y+2] for base in range(0,len(glyph),16) for y in range(14,-1,-2))
         variants=(glyph,glyph.translate(reverse),vertical,vertical.translate(reverse))
         best=min(range(4),key=lambda i:variants[i]);canonical=variants[best]
         if canonical not in lookup:lookup[canonical]=len(unique);unique.append(canonical)

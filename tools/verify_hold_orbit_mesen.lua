@@ -105,4 +105,18 @@ return function(C)
       local f=io.open(C.out..'/hold-orbits.txt','w');f:write('PASS samples='..samples..'\n');f:close()
     end
   end,emu.callbackType.exec,H.complete,H.complete,emu.cpuType.snes)
+  -- Flush exact totals when gameplay ends; periodic reports round down.
+  local published_samples,published_planets=-1,-1
+  emu.addEventCallback(function()
+    if value('state')==1 then return end
+    if samples>0 and samples~=published_samples then
+      local f=io.open(C.out..'/hold-orbits.txt','w');f:write('PASS samples='..samples..'\n');f:close()
+      published_samples=samples
+    end
+    if planet_samples>0 and planet_samples~=published_planets then
+      local f=io.open(C.out..'/hold-planets.txt','w');f:write('PASS samples='..planet_samples..'\n');f:close()
+      published_planets=planet_samples
+    end
+  end,emu.eventType.endFrame)
+
 end

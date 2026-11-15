@@ -15,6 +15,21 @@ from menu_sets import groups
 
 
 class FeaturedImportTests(unittest.TestCase):
+    def test_hold_release_enters_displaced_freeroam_at_landing_tile(self):
+        from import_official import normalize_json
+        from import_featured import neo_fields
+        actions=[dict(floor=1,eventType='Hold',duration=3,distanceMultiplier=100),
+                 dict(floor=2,eventType='PositionTrack',positionOffset=[-1,25],
+                      relativeTo=[0,'ThisTile'],justThisTile=False,editorOnly=False),
+                 dict(floor=2,eventType='FreeRoam',duration=16,size=[5,4],positionOffset=[-2,0])]
+        raw=dict(settings=dict(bpm=120,offset=0),angleData=[0]*5,actions=actions)
+        data=normalize_json(raw,dict(id=1,code='TEST',title='TEST',text='test',neo_cosmos=True))
+        data['track_actions']=actions
+        neo_fields(raw,data)
+        chart,_=compile_chart(data)
+        self.assertEqual(chart['freeroam_regions'][0]['entry'],[0,0])
+        self.assertIn((0,0),chart['freeroam_regions'][0]['cells'])
+
     def test_small_tempo_changes_have_no_gameplay_speed_icon(self):
         from import_official import normalize_json
         raw=dict(settings=dict(bpm=100,offset=0),angleData=[0]*6,actions=[
@@ -73,6 +88,22 @@ class FeaturedImportTests(unittest.TestCase):
         self.assertEqual(FEATURED[0]['workshop'],'2970486324')
         menu=groups([1,62,63,64,65,66,75,76,77,78])
         self.assertEqual(sorted(i for _,indices in menu for i in indices),list(range(10)))
+
+    def test_offline_source_retains_full_pattern_ids_and_every_update(self):
+        from projected_tracks import Source
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder)
+            (out/'patterns97.bin').write_bytes(bytes(65536*64)+bytes([32])*64)
+            (out/'timeline97.bin').write_bytes(b'')
+            chart=dict(full_snapshot_source=True,map_width=1,map_height=1,
+                       pattern_initial=[0],cell_coordinates=[],visibility_offsets=[],pattern_versions=[],
+                       projection_cells=[[0,0,[[0,65536],[1,0],[2,65536]]]],
+                       track_palette_versions=[[0,0,31]],camera_follow_versions=[[0,0,-32]])
+            (out/'level97.json').write_text(json.dumps(chart))
+            source=Source(out,97)
+            self.assertTrue(source.screen(0).any())
+            self.assertFalse(source.screen(1).any())
+            self.assertTrue(source.screen(2).any())
 
     def test_endless_moving_platform_entry_and_native_grid(self):
         path=ROOT/'assets/private/level75.json'

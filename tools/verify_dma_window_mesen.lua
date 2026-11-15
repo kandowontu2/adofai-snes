@@ -14,10 +14,16 @@ return function(C)
    local S,V=emu.memType.snesSaveRam,emu.memType.snesVideoRam
    front=emu.read(0x3ef80,S)+256*emu.read(0x3ef81,S)
    assert(front==0 or front==512,'Invalid front atlas bank')
-   -- Check the real map's references, not only the producer's bank flag.
+   -- Check the real map's references in bytes for either pixel depth.
+   local tilesPerBank=C.indexed_color_support and emu.read(0x3efb8,S)==1 and 256 or 512
    for i=0,607 do
     local a=0xe100+i*2;local entry=emu.read(a,V)+256*emu.read(a+1,V);local glyph=entry%1024
-    assert(glyph==0 or (glyph>=512 and 512 or 0)==front,'Prefetch front bank differs from hardware map')
+    if C.wide_atlas then
+     local addr=(front==512 and 16384 or 0)+glyph*32
+     assert(glyph==0 or (addr>=(front==512 and 20480 or 0) and addr<(front==512 and 40960 or 20480)),'Wide front map points outside its atlas')
+    else
+     assert(glyph==0 or (glyph>=tilesPerBank and 512 or 0)==front,'Prefetch front bank differs from hardware map')
+    end
    end
   end,emu.callbackType.exec,C.dma_prefetch_begin,C.dma_prefetch_begin,emu.cpuType.snes)
  end
@@ -41,8 +47,9 @@ return function(C)
   if prefetch then
    assert(v==32,'Atlas prefetch touched a different DMA channel')
    local source=emu.read(0x4352,M)+256*emu.read(0x4353,M)
-   local bank=source>=16384 and 512 or 0
-   assert(bank~=front and source+size<=(bank==512 and 32768 or 16384),'Prefetch overwrote the visible atlas')
+   local stride=C.wide_atlas and 20480 or 16384
+   local bank=source>=stride and 512 or 0
+   assert(bank~=front and source+size<=(bank==512 and stride*2 or stride),'Prefetch overwrote the visible atlas')
    assert(vramAddress*2==source,'Prefetch destination differs from its back atlas')
   end
   local p=emu.getState()

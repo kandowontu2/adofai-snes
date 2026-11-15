@@ -13,14 +13,14 @@ def verify(base,route):
     if route in ('after-pcm','after-brr'):
         # Traverse the real set menus. Prefer a snapshot chart to exercise
         # calibration after the extended graphics window has been enabled.
-        from menu_sets import groups
+        from menu_sets import groups_for_pack
         levels=json.loads((base/'pack.json').read_text())['levels']
         index=levels.index(75) if 75 in levels else 0
         actions={};at=90
         if route=='after-brr':
             for _ in range(10):actions[at]='r';at+=4
         if 'menu_depth' in labels:
-            sets=groups(levels);group=next(i for i,(_,members) in enumerate(sets) if index in members)
+            sets=groups_for_pack(base);group=next(i for i,(_,members) in enumerate(sets) if index in members)
             if len(sets)>1:
                 for _ in range(group):actions[at]='down';at+=4
                 actions[at]='start';at+=8

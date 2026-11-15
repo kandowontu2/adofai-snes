@@ -19,6 +19,7 @@ def main():
             else:shutil.copyfile(p,out/p.name)
     pack=json.loads((out/'pack.json').read_text());charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
     assert all(not c.get('projection_source_only') or (c.get('mode1_snapshot') and not c.get('snapshot_preview')) for c in charts), 'Offline projection sources must be compiled to full snapshots before building a ROM'
+    assert not any(c.get('decoration_tracks_preview') for c in charts), 'Decoration previews still require live-planet transforms and full effect coverage'
     if args.stream_levels:
         assert set(args.stream_levels)<=set(pack['levels']), 'Stream chart is absent from this pack'
         assert any(c.get('native_stream_format') for c in charts), 'Streaming requires the resident native master decoder'
@@ -42,12 +43,12 @@ def main():
             for prefix in ('resident_raw','resident_future'):blobs[f'{prefix}{n}']=(out/f'{prefix}{n}.bin').read_bytes()
         if c.get('sa1_stream_format'):
             from sa1_stream import rom_index
-            blobs[f'stream_index{n}']=rom_index((out/f'stream_index{n}.bin').read_bytes())
+            blobs[f'stream_index{n}']=rom_index((out/f'stream_index{n}.bin').read_bytes(), compressed=len(charts)>200)
             blobs[f'resident_stream{n}']=(out/f'resident_stream{n}.bin').read_bytes()
             if c.get('fallback_stream_packets'):
                 for prefix in ('stream_index_fallback','resident_stream_fallback'):
                     data=(out/f'{prefix}{n}.bin').read_bytes()
-                    blobs[f'{prefix}{n}']=rom_index(data) if prefix.startswith('stream_index') else data
+                    blobs[f'{prefix}{n}']=rom_index(data, compressed=len(charts)>200) if prefix.startswith('stream_index') else data
         if c.get('native_stream_format'):blobs[f'resident_animation{n}']=(out/f'resident_animation{n}.bin').read_bytes()
         blobs[f'music{n}']=blobs[f'timeline{n}']=bytes(2)
         blobs[f'checkpoints{n}']=bytes(max(2,14*len(c['checkpoints'])))
@@ -57,7 +58,7 @@ def main():
     assets.pack_payload(blobs,charts,msu=True,sa1=True);assets.common_tables(charts)
     if any(c.get('camera_rotation_versions') for c in charts):
         with (out/'adofai.msu').open('r+b') as f:
-            f.seek(12);f.write(bytes([20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13,0]))
+            f.seek(12);f.write(bytes([21 if len(charts)>200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13,0]))
     compile_engine(out,generate_pcm=not args.no_pcm)
 
 def compile_engine(out, *, generate_pcm=True):
@@ -99,9 +100,20 @@ def compile_engine(out, *, generate_pcm=True):
         from neo_runtime_assets import tables as neo_tables
         current+=neo_tables(out,menu_levels)
         current+='\n.segment "NEOCODE"\nlevel_early_dma: .byte '+','.join(str(int(json.loads((out/f'level{n}.json').read_text()).get('early_vblank_trial',False))) for n in menu_levels)+'\n.segment "RODATA"\n'
+    from input_event_assets import tables as input_event_tables
+    inputs=input_event_tables(out,menu_levels)
+    current+=inputs
+    addresses=re.sub(r'^INPUT_EVENT_BUILD = .*\n?','',addresses,flags=re.M)
+    if inputs:addresses+='\nINPUT_EVENT_BUILD = 1\n'
+    (out/'addresses.inc').write_text(addresses)
     write_menu_count(out,menu_levels)
     assert re.search(r'^orb_colors:.*$',current,re.M), 'Missing planet color table'
     table_path.write_text(re.sub(r'^orb_colors:.*$',lambda _:colors,current,flags=re.M))
+    if len(menu_levels)>200:
+        current=table_path.read_text()
+        rows=re.findall(r'^level_(?:view_insets|bitmap_prefetch):.*$',current,re.M)
+        current=re.sub(r'^level_(?:view_insets|bitmap_prefetch):.*\n','',current,flags=re.M)
+        table_path.write_text(current+'\n.segment "NEOCODE"\n'+'\n'.join(rows)+'\n.segment "RODATA"\n')
     from hit_timing import patch_pack as patch_hit_timing
     patch_hit_timing(out)
     from animation_references import patch_pack as patch_references
@@ -155,6 +167,10 @@ def compile_engine(out, *, generate_pcm=True):
             for size in ('2000','3000'):
                 text=text.replace(f'size=${size},type=ro,file=%O,fill=yes;\n PAY: start=$81{size},size=$7E{0x10000-int(size,16):04X}',
                                   'size=$4000,type=ro,file=%O,fill=yes;\n PAY: start=$814000,size=$7EC000')
+        if 'NEO_CODE_BYTES = $7000' in addresses:
+            for size in ('2000','3000','4000','6000'):
+                text=text.replace(f'size=${size},type=ro,file=%O,fill=yes;\n PAY: start=$81{size},size=$7E{0x10000-int(size,16):04X}',
+                                  'size=$7000,type=ro,file=%O,fill=yes;\n PAY: start=$817000,size=$7E9000')
         config.write_text(text)
     if not (out/'sa1_worker.bin').exists():(out/'sa1_worker.bin').write_bytes(bytes(32768))
     subprocess.run([sys.executable,str(ROOT/'build_campaign.py'),'--pack','master','--out',str(out),'--skip-assets'],cwd=ROOT,check=True)

@@ -99,7 +99,7 @@ worker_animation_start:
     lda #7
     jsr worker_native_advance
     lda native_kind
-    cmp #45
+    cmp #48
     jcs @bad_kind
     asl a
     tax
@@ -116,6 +116,15 @@ worker_animation_start:
     .word @mode1snapshot_reference
     .word @camera_copies
     .word @mode1snapshot
+    .word @mode1snapshot_lz4
+    .word @mode1snapshot_lz4_split
+    .word @mode1snapshot_lz4_split
+@mode1snapshot_lz4_split:
+    jsr worker_snapshot_lz4_split
+    jmp @record
+@mode1snapshot_lz4:
+    jsr worker_snapshot_lz4
+    jmp @record
 @camera_copies:
     lda native_index
     cmp #5
@@ -148,6 +157,8 @@ worker_animation_start:
     jsr worker_native_advance
     jmp @record
 @mode1snapshot:
+    lda #0
+    sta f:M1_BUILD_FORMAT
     jsr worker_snapshot_packet
     jmp @record
 @mode1priority:
@@ -166,6 +177,9 @@ worker_animation_start:
     .word @bad_kind,@bad_kind,@direct_spill,@direct_patterns,@bulk_patterns,@spill_delta,@map_rows,@bad_kind
     .word @bad_kind,@bad_kind
     .word @bad_kind,@bad_kind
+    .word @bad_kind
+    .word @bad_kind
+    .word @bad_kind
     .word @bad_kind
     .word @bad_kind
     .word @bad_kind

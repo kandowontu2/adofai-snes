@@ -3,7 +3,7 @@ import argparse,ctypes as C,json
 from pathlib import Path
 from emulate import Emulator
 from input_helpers import press,select_level,configure,wait
-from menu_sets import groups
+from menu_sets import groups_for_pack
 from verification_data import identity
 
 
@@ -14,7 +14,7 @@ def verify(rom):
         for _ in range(120):em.run()
         assert em.read('speed_tenths')==10
         em.capture(rom.parent/'verification/ui-menu.png')
-        sets=groups(levels)
+        sets=groups_for_pack(rom.parent)
         for n in levels:
             select_level(em,n)
             assert em.read('selected_level')==levels.index(n)

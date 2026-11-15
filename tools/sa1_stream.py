@@ -3,7 +3,7 @@ import collections,json,struct
 from pathlib import Path
 from animation_bulk import HEADER,records
 LIMIT=14336
-SUPPORTED={0,1,2,3,4,6,7,8,9,10,11,12,13,14,15,17,18,19,22,23,25,27,28,29,30,31,32,33,34,35,36,37,39,41,42,43,44}
+SUPPORTED={0,1,2,3,4,6,7,8,9,10,11,12,13,14,15,17,18,19,22,23,25,27,28,29,30,31,32,33,34,35,36,37,39,41,42,43,44,45,46,47}
 
 def bulk_map_rows(data,chart):
     if not chart.get('stream_bulk_rows_trial'):return data
@@ -82,14 +82,49 @@ def direct_spill_packet(data,chart):
     # this transport header; all ordinary record offsets remain coherent.
     return HEADER.pack(t,32,start+7,size)+data
 
-def rom_index(data):
+def rom_index(data, *, compressed=False):
     """Only times vary: each MSU choice/seed record is exactly 544 bytes."""
     out=bytearray()
     for i,(time,size,offset) in enumerate(struct.iter_unpack('<HHI',data)):
         assert offset==i*544, 'Nonuniform packet directory'
         out+=struct.pack('<H',time)
     assert len(out)<=65536
+    return pack_time_index(bytes(out)) if compressed else bytes(out)
+
+
+def pack_time_index(data):
+    """Independent 64-entry blocks; lossless delta runs or raw words."""
+    values=list(struct.unpack('<'+'H'*(len(data)//2),data))
+    blocks=[]
+    for start in range(0,len(values),64):
+        v=values[start:start+64];v+=v[-1:]*(64-len(v))
+        runs=[]
+        for a,b in zip(v,v[1:]):
+            delta=(b-a)&65535
+            if runs and runs[-1][1]==delta:runs[-1]=(runs[-1][0]+1,delta)
+            else:runs.append((1,delta))
+        rle=struct.pack('<HH',len(runs),v[0])+b''.join(struct.pack('<BH',n,d) for n,d in runs)
+        raw=bytes(2)+struct.pack('<64H',*v)
+        blocks.append(rle if len(rle)<len(raw) else raw)
+    out=bytearray(2*len(blocks))
+    for i,block in enumerate(blocks):
+        assert len(out)<65536
+        struct.pack_into('<H',out,i*2,len(out));out+=block
+    assert len(out)<=65536
     return bytes(out)
+
+
+def unpack_time_index(data,count):
+    out=[]
+    for i in range((count+63)//64):
+        at=struct.unpack_from('<H',data,2*i)[0]
+        runs=struct.unpack_from('<H',data,at)[0];at+=2
+        if not runs:out.extend(struct.unpack_from('<64H',data,at));continue
+        v=struct.unpack_from('<H',data,at)[0];at+=2;out.append(v)
+        for _ in range(runs):
+            n,d=struct.unpack_from('<BH',data,at);at+=3
+            for j in range(n):v=(v+d)&65535;out.append(v)
+    return struct.pack('<'+'H'*count,*out[:count])
 
 
 def compact_tags(data):
@@ -222,7 +257,8 @@ def mode1_merge_frames(source,chart,end):
     if chart.get('mode1_snapshot'):
         events=unpack_events(source,chart);last={}
         for j,(_,k,i,v,p) in enumerate(events):last[(k,i) if k in (1,2,3,7) else (k,)]=j
-        kept=[e for j,e in enumerate(events) if j in set(last.values())]
+        retained=set(last.values())
+        kept=[e for j,e in enumerate(events) if j in retained]
         assert state(events)==state(kept),'Snapshot catch-up changed native state'
         return b''.join(HEADER.pack(end,k,i,v)+p for _,k,i,v,p in kept)+HEADER.pack(65535,255,0,0)
     regular=bytearray();glyphs={};words={};palette=None

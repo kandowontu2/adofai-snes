@@ -53,7 +53,7 @@ def verify(base,level,folder):
     for path in sorted(folder.glob('ppu-*.bin'),key=lambda p:struct.unpack_from('<H',p.read_bytes())[0]):
         blob=path.read_bytes();mode=7;selectors=None;native_palette=None
         if len(blob)==16+256+65536+512+544+289:
-            mode=blob[-289];assert mode in (1,2,3)
+            mode=blob[-289];assert mode in (1,2,3,4,5,6)
             selectors=blob[-288:-192];native_palette=struct.unpack("<96H",blob[-192:]);blob=blob[:-289]
         if len(blob)==16+256+65536+512+544+1:
             mode=blob[-1];blob=blob[:-1];assert mode in (1,7)
@@ -80,7 +80,7 @@ def verify(base,level,folder):
                 checked_pixels+=64
         expected_rotation=next(((c,s) for f,c,s in reversed(chart.get('camera_sampling_versions',chart.get('camera_rotation_versions',[]))) if f<=time),(256,0))
         assert (c,s)==expected_rotation,(path,'rotation',time,(c,s),expected_rotation)
-        if mode in (2,3):
+        if mode in (2,3,4,5,6):
             # Screen-space Mode 1: compare actual VRAM/CGRAM against an
             # independent reconstruction of the original world-space chart.
             expected=projected_source.screen(time)
@@ -93,9 +93,11 @@ def verify(base,level,folder):
                     entry=struct.unpack_from('<H',vram,0xE000+addr*2)[0]
                     x=(7-sx%8) if entry&0x4000 else sx%8
                     y=(7-py%8) if entry&0x8000 else py%8
-                    raw=vram[(entry&1023)*32:(entry&1023)*32+32]
-                    p=sum(((raw[y*2+(plane&1)+(16 if plane>=2 else 0)]>>(7-x))&1)<<plane for plane in range(4))
-                    index=((entry>>10)&7)*16+p if p else 0
+                    stride=64 if mode==4 else 32
+                    atlas_base=16384 if mode==6 else 0
+                    raw=vram[atlas_base+(entry&1023)*stride:atlas_base+(entry&1023)*stride+stride]
+                    p=sum(((raw[y*2+(plane&1)+(plane//2)*16]>>(7-x))&1)<<plane for plane in range(8 if mode==4 else 4))
+                    index=p if mode==4 else ((entry>>10)&7)*16+p if p else 0
                     wanted_index=int(expected[py,sx])
                     want=int(projected_source.palette[wanted_index])
                     assert (p==0 if wanted_index==0 else p!=0 and palette[index]==want),(path,'projected pixel',step,time,sx,sy,palette[index],want,entry)

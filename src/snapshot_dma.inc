@@ -86,6 +86,8 @@ snapshot_force_complete:
     bne @done
     lda f:M1_BUILD_BANK
     sta f:M1_FRONT_BANK
+    lda f:M1_BUILD_FORMAT
+    sta f:M1_FRONT_FORMAT
     lda #0
     sta f:M1_SNAPSHOT_DIRTY
     sta f:M1_PREFETCH_READY

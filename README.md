@@ -4,15 +4,20 @@ A native SNES adaptation of A Dance of Fire and Ice, using the SA-1, Mode 7,
 and SPC700. The master also uses MSU-1 for chart data and optional PCM music.
 This is an unofficial project; it is not affiliated with 7th Beat Games.
 
-The current master catalog contains 94 charts. Its additions include the
-May 2023 Featured revision of endless.reality, Classic Wave 1 (Barrage,
-Final Phase and MAKE IT FUNKY NOW), 15 Firestix Workshop charts, and
-[TQG's It Stop](https://steamcommunity.com/sharedfiles/filedetails/?id=3247303263)
-under Joke Worlds. The endless.reality maze includes its rotating death bar,
-moving mines and sweeping hazard. The
-Workshop 1-X and B-X variants are separate entries; five matching Joke Worlds
-are reused and the cursed MN-X chart is excluded. These additions target the
-master editions, not the older standalone cartridges.
+The expanded master catalog contains 248 charts, including the remaining
+Classic and Tech Featured waves, 68 Yangsy-authored cursed charts, and the
+Team Vega 1-EX through 12-EX remakes. **MAIN EX LEVELS** and **YANGSY CURSED
+LEVELS** have separate menu categories. Main EX charts without authored
+checkpoints, plus Mad Piano Party II, receive curated restart points.
+Existing authored checkpoints are preserved. Mad Piano Party II's two new
+checkpoints are also included in its standalone cartridge.
+
+The May 2023 revision of endless.reality includes its rotating death bar,
+moving mines and sweeping maze hazard. Firestix Workshop variants remain
+separate where their layouts differ. BJ-X is retired; BJW-X remains. The
+Firestix cursed MN-X chart is excluded. These additions target the master
+editions; the older self-contained standalone cartridges retain their
+existing renderer and documented limitations.
 
 ## Contributing graphics
 
@@ -41,14 +46,15 @@ build guide before attempting a full catalog build.
 ## Playback formats
 
 - **Full PCM master:** ROM plus matching MSU data and PCM music files.
-- **Hybrid master:** selected PCM files; other songs use compressed audio.
+- **Hybrid master:** PCM for normal song starts at 1.0x; compressed audio for
+  checkpoints and other speeds.
 - **Compressed master:** ROM plus MSU data, without PCM music files.
 - **Standalone cartridges:** self-contained 8-MiB ROMs in smaller song groups.
 
 Keep master files together and extract archives before playing. Revisions may
 change the MSU dataset: replace both `adofai.sfc` and `adofai.msu` when instructed.
 Start a fresh session instead of loading save states from an older build.
-The current master `.msu` is about 1 GiB even without PCM files: it contains
+The expanded master `.msu` is about 3.77 GiB even without PCM files: it contains
 the compiled graphics as well as compressed audio. Removing PCM does not
 remove that graphics data.
 
@@ -94,19 +100,20 @@ tracks retain authored timing with the original sample-specific advances.
 Playback speed changes affect
 the complete mix, including percussion pitch. Input judgments remain separate.
 
-Current builds require dataset 25: replace both the ROM and `.msu` data file.
-PCM tracks from the dataset-24 audio release are unchanged and can be kept.
+The expanded master requires dataset 31: replace both the ROM and `.msu` data
+file. Existing normal-song PCM samples are unchanged; the release also supplies
+the new songs and checkpoint tracks.
 `tools/audit_music_hits.py` screens every source song,
 `tools/verify_sample_mixes.py` checks every hit's placement, and
 `tools/verify_music_locked_hits.py` compares whole-run emulator audio with the
 mixed reference through the later 1-X sections.
 
 Camera zoom and rotation support is chart-specific. R additionally imports
-MoveTrack tile rotations. Gradual individual-tile scaling is not implemented.
-Dense motion can use half-resolution track textures to reduce transfer cost;
-planet sprites retain their own artwork. Extreme scenes can still stutter.
-The current AR-X release measures about 54.2 delivered fps near 13% in
-MesenCE, compared with 45.7 in the previous release; it is not locked at 60 fps.
+MoveTrack tile rotations. The expanded catalog uses losslessly compressed
+full-resolution snapshots, with wider glyph atlases and indexed-color frames
+where needed. This does not reproduce every Unity shader or decoration.
+Extreme scenes can still stutter; passing the playback and pixel checks is not
+a claim of locked 60 fps.
 
 ## Verification
 

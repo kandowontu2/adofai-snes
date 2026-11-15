@@ -21,12 +21,13 @@ def pack_palettes(colors):
 
 
 def encode_tile(pixels,palette):
-    lookup={0:0,**{color:i+1 for i,color in enumerate(palette)}}
-    out=bytearray(32)
+    lookup=bytearray(256)
+    for i,color in enumerate(palette):lookup[color]=i+1
+    indexed=bytes(pixels).translate(bytes(lookup));out=bytearray(32)
     for y in range(8):
-        for x in range(8):
-            color=lookup[pixels[y*8+x]]
-            for plane in range(4):out[(plane//2)*16+y*2+plane%2]|=((color>>plane)&1)<<(7-x)
+        row=int.from_bytes(indexed[y*8:y*8+8],'little')
+        for plane in range(4):
+            out[(plane//2)*16+y*2+plane%2]=((((row>>plane)&0x0101010101010101)*0x8040201008040201)>>56)&255
     return bytes(out)
 
 

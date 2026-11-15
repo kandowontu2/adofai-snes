@@ -644,6 +644,9 @@ stream_seed_inline_far:
 .segment "FASTWRAM"
 stream_entry_compact:
     pha
+.ifdef COMPRESSED_STREAM_INDEX
+    jsl stream_cached_time
+.else
     asl a
     clc
     adc f:STREAM_TABLE
@@ -652,6 +655,7 @@ stream_entry_compact:
     adc #0
     sta transfer_ptr+2
     jsl stream_index_word
+.endif
     sta stream_choices
     pla
     sta stream_choices+6
@@ -724,5 +728,200 @@ stream_index_word:
 @direct:
     lda [transfer_ptr]
     rtl
+.segment "CODE"
+.endif
+
+.ifdef MSU_CHART_TABLES
+.segment "NEOCODE"
+; Immutable chart arrays are fetched only while loading a song. Gameplay
+; continues to use the same WRAM/BW-RAM arrays and has no extra MSU reads.
+msu_chart_seek:
+    lda #0
+    sta f:$400182
+    lda selected_level
+    asl a
+    asl a
+    asl a
+    sta scratch
+    asl a
+    clc
+    adc scratch
+    tax
+    lda f:msu_descriptors+20,x
+    sta $2000
+    lda f:msu_descriptors+22,x
+    sta $2002
+    sep #$20
+    .a8
+@wait:
+    lda $2000
+    bmi @wait
+    rep #$20
+    .a16
+    rtl
+msu_chart_array:
+    phx
+    phy
+    lda transfer_wbank
+    cmp #$40
+    beq @cartridge
+    lda #$2001
+    sta $4302
+    lda transfer_len
+    sta $4305
+    lda transfer_dest
+    sta $2181
+    sep #$20
+    .a8
+    lda transfer_wbank
+    sta $2183
+    stz $4304
+    lda #8
+    sta $4300
+    lda #$80
+    sta $4301
+    lda #1
+    sta $420B
+    bra @done
+@cartridge:
+    ldy #0
+    sep #$20
+    .a8
+@byte:
+    lda $2001
+    sta [transfer_dest],y
+    iny
+    cpy transfer_len
+    bcc @byte
+@done:
+    rep #$20
+    .a16
+    ply
+    plx
+    rtl
+.segment "CODE"
+.endif
+
+.ifdef COMPRESSED_STREAM_INDEX
+.segment "NEOCODE"
+; One exact block cache, invalidated by table pointer and block number.
+; $400100..400194 is outside the meter and chart arrays.
+stream_cached_time:
+    phx
+    phy
+    pha
+    and #$FFC0
+    cmp f:$400184
+    bne @load
+    lda f:STREAM_TABLE
+    cmp f:$400180
+    bne @load
+    lda f:STREAM_TABLE+2
+    cmp f:$400182
+    jeq @cached
+@load:
+    lda 1,s
+    and #$FFC0
+    sta f:$400184
+    .repeat 5
+    lsr a
+    .endrepeat
+    clc
+    adc f:STREAM_TABLE
+    sta transfer_ptr
+    lda f:STREAM_TABLE+2
+    adc #0
+    sta transfer_ptr+2
+    jsr stream_packed_word
+    clc
+    adc f:STREAM_TABLE
+    sta transfer_ptr
+    lda f:STREAM_TABLE+2
+    adc #0
+    sta transfer_ptr+2
+    jsr stream_packed_word
+    beq @raw
+    sta f:$40018C
+    jsr stream_packed_word
+    sta f:$400192
+    sta f:$400100
+    ldx #2
+@run:
+    jsr stream_packed_byte
+    sta f:$40018E
+    jsr stream_packed_word
+    sta f:$400190
+@expand:
+    lda f:$400192
+    clc
+    adc f:$400190
+    sta f:$400192
+    sta f:$400100,x
+    inx
+    inx
+    lda f:$40018E
+    dec a
+    sta f:$40018E
+    bne @expand
+    lda f:$40018C
+    dec a
+    sta f:$40018C
+    bne @run
+    bra @publish
+@raw:
+    ldx #0
+@copy:
+    jsr stream_packed_word
+    sta f:$400100,x
+    inx
+    inx
+    cpx #128
+    bcc @copy
+@publish:
+    lda f:STREAM_TABLE
+    sta f:$400180
+    lda f:STREAM_TABLE+2
+    sta f:$400182
+@cached:
+    pla
+    and #63
+    asl a
+    tax
+    lda f:$400100,x
+    ply
+    plx
+    rtl
+; Preserve the physical source bank across the temporary F0 mapping.
+stream_packed_word:
+    lda transfer_ptr+2
+    pha
+    jsl stream_index_word
+    tay
+    pla
+    sta transfer_ptr+2
+    tya
+    pha
+    lda #2
+    bra stream_packed_advance
+stream_packed_byte:
+    lda transfer_ptr+2
+    pha
+    jsl stream_index_word
+    tay
+    pla
+    sta transfer_ptr+2
+    tya
+    and #255
+    pha
+    lda #1
+stream_packed_advance:
+    clc
+    adc transfer_ptr
+    sta transfer_ptr
+    bcc :+
+    inc transfer_ptr+2
+:
+    pla
+    rts
 .segment "CODE"
 .endif

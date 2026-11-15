@@ -302,7 +302,10 @@ def mode7_zoom_schedule(chart):
     boundaries={f for a,b in forced for f in (a,b)}
     for frame in sorted(set(rotations)|set(zooms)|boundaries):
         c,s=rotations.get(frame,(c,s));z=zooms.get(frame,z)
-        minimum,maximum=(0,2048) if chart.get('projected_zoom_range') else (128,640)
+        # scrCamera passes signed zoom directly to orthographicSize. Negative
+        # authored zoom mirrors both axes; only exactly zero disables it.
+        # Full snapshots and the signed inverse matrix support that transform.
+        minimum,maximum=(-32767,32767) if chart.get('projected_zoom_range') else (128,640)
         if not minimum<=z<=maximum:
             raise ValueError(f"{chart.get('code')}: zoom {z/256:g} exceeds {minimum/256:g}-{maximum/256:g} range")
         if chart.get('adaptive_raster'):

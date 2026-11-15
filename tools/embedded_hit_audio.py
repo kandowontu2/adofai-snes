@@ -123,7 +123,7 @@ def patch_pack(out, *, generate_pcm=True):
     import campaign_assets as assets
     previous_out = assets.OUT
     assets.OUT = out
-    data_version=30 if any(n>=66 for n in levels) else 26
+    data_version=31 if len(levels)>200 and not pack.get("standalone") else 30 if any(n>=66 for n in levels) else 26
     try:
         descriptors = (out/'msu_descriptors.bin').read_bytes()
         placements = json.loads((out/'placements.json').read_text())

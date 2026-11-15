@@ -1,6 +1,132 @@
-; Full independent screen poses. All CHR pixels form one contiguous run;
-; no hash, lease, dirty-map scan, speculative upload or cache eviction.
+; Independent LZ4 poses. Split blocks decode CHR directly to the inactive
+; atlas, avoiding an extra full-image BW-RAM copy on every rendered frame.
+worker_snapshot_lz4:
+    lda #0
+    sta f:M1_BUILD_FORMAT
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    bne :+
+    lda #2
+    sta f:M1_BUILD_FORMAT
+:
+.endif
+    jsr worker_snapshot_load_hot
+    lda #$4242
+    sta f:lz4_literals+1
+    sta f:lz4_match_copy+1
+    lda transfer_ptr
+    clc
+    adc native_value
+    sta map_left
+    pha
+    ldx transfer_ptr
+    ldy #$2000
+    jsr worker_lz4_block
+    lda native_index
+    beq @header
+    .repeat 5
+    asl a
+    .endrepeat
+    dec a
+    pha
+    jsr worker_snapshot_atlas_destination
+    ldx #$2520
+    pla
+    phb
+    mvn #$42,#$43
+    plb
+@header:
+    jsr worker_snapshot_decoded_header
+    pla
+    sta transfer_ptr
+    rts
+
+worker_snapshot_lz4_split:
+    lda #0
+    sta f:M1_BUILD_FORMAT
+    lda native_kind
+    cmp #47
+    bne :+
+    lda #1
+    sta f:M1_BUILD_FORMAT
+:
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    bne :+
+    lda #2
+    sta f:M1_BUILD_FORMAT
+:
+.endif
+    jsr worker_snapshot_load_hot
+    lda #$4242
+    sta f:lz4_literals+1
+    sta f:lz4_match_copy+1
+    lda transfer_ptr
+    clc
+    adc native_value
+    pha
+    ldx transfer_ptr
+    lda f:$420000,x
+    clc
+    adc transfer_ptr
+    adc #2
+    sta map_left
+    inx
+    inx
+    ldy #$2000
+    jsr worker_lz4_block
+    lda 1,s
+    sta map_left
+    lda #$4243
+    sta f:lz4_literals+1
+    lda #$4343
+    sta f:lz4_match_copy+1
+    jsr worker_snapshot_atlas_destination
+    jsr worker_lz4_block
+    jsr worker_snapshot_decoded_header
+    pla
+    sta transfer_ptr
+    rts
+
+worker_snapshot_atlas_destination:
+    lda f:M1_FRONT_BANK
+    eor #$0200
+    .repeat 5
+    asl a
+    .endrepeat
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    beq :++
+    pha
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    bne :+
+    pla
+    clc
+    adc #$1000
+    bra :++
+:
+    pla
+:
+.endif
+    clc
+    adc #32
+    tay
+    rts
+
+worker_snapshot_decoded_header:
+    lda #$2000
+    sta transfer_ptr
+    lda #44
+    sta native_kind
+    jmp worker_snapshot_packet
+
 worker_snapshot_packet:
+    jsr worker_snapshot_load_hot
+    jmp worker_snapshot_decode
+
+worker_snapshot_load_hot:
     lda M7_CACHE_CODE_VALID
     cmp #5
     beq @ready
@@ -15,8 +141,83 @@ worker_snapshot_packet:
     lda #5
     sta M7_CACHE_CODE_VALID
 @ready:
-    jmp worker_snapshot_decode
+    rts
 .segment "HOTSNAPSHOT"
+worker_lz4_block:
+    lda f:$420000,x
+    and #255
+    sta scratch
+    inx
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    cmp #15
+    bne lz4_literal
+    sta scratch2
+lz4_literal_extra:
+    lda f:$420000,x
+    and #255
+    inx
+    pha
+    clc
+    adc scratch2
+    sta scratch2
+    pla
+    cmp #255
+    beq lz4_literal_extra
+    lda scratch2
+lz4_literal:
+    cmp #0
+    beq lz4_match
+    dec a
+    phb
+lz4_literals:
+    mvn #$42,#$42
+    plb
+lz4_match:
+    cpx map_left
+    bcs lz4_decoded
+    lda f:$420000,x
+    sta map_dest
+    inx
+    inx
+    lda scratch
+    and #15
+    cmp #15
+    bne lz4_match_length
+    sta scratch2
+lz4_match_extra:
+    lda f:$420000,x
+    and #255
+    inx
+    pha
+    clc
+    adc scratch2
+    sta scratch2
+    pla
+    cmp #255
+    beq lz4_match_extra
+    lda scratch2
+lz4_match_length:
+    clc
+    adc #3                 ; LZ4 minimum match 4, MVN count is length-1.
+    sta scratch2
+    phx
+    tya
+    sec
+    sbc map_dest
+    tax
+    lda scratch2
+    phb
+lz4_match_copy:
+    mvn #$42,#$42           ; Forward copy deliberately supports overlap.
+    plb
+    plx
+    jmp worker_lz4_block
+lz4_decoded:
+    rts
+
 worker_snapshot_decode:
     lda #0
     sta f:M1_PREFETCH_READY
@@ -51,6 +252,20 @@ worker_snapshot_decode:
     .repeat 5
     asl a
     .endrepeat
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    beq :++
+    pha
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    bne :+
+    pla
+    clc
+    adc #$1000
+    bra :++
+:
+    pla
+:
+.endif
     clc
     adc #32
     sta map_dest
@@ -121,6 +336,20 @@ worker_snapshot_decode:
     .repeat 5
     asl a
     .endrepeat
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    beq :++
+    pha
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    bne :+
+    pla
+    clc
+    adc #$1000
+    bra :++
+:
+    pla
+:
+.endif
     clc
     adc #32
     sta f:M1_PATTERN_RUNS
@@ -176,11 +405,35 @@ worker_snapshot_prepare:
 worker_snapshot_map:
     lda f:M1_BUILD_BANK
     beq @bank_ready
+    lda #$0200
+    sta scratch
+    lda f:M1_BUILD_FORMAT
+    beq :+
+    lda #$0100
+    sta scratch
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    lda f:M1_BUILD_FORMAT
+    cmp #2
+    bne :+
+    lda #$0080
+    sta scratch
+.endif
+:
     ldy #0
 @bank:
     lda [transfer_ptr],y
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    bne :+
+    lda scratch
+    cmp #128
+    bne :++
+    lda #0
+:
+.else
     beq :+
-    ora #$0200
+.endif
+    clc
+    adc scratch
     sta [transfer_ptr],y
 :
     iny
