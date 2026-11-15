@@ -118,12 +118,13 @@ def import_chart(meta,folder,out):
     data=normalize_json(raw,dict(meta,text=meta['workshop'],neo_cosmos=bool(has_neo)))
     settings=raw['settings'];actions=raw['actions']
     data.update(source=str(source),source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),source_repairs=repairs,
-        artist=meta['artist'],author=meta['author'],featured_classic=meta.get('set') not in ('firestix','jokes','featured_tech','yangsy','main_ex'),featured_wave=meta.get('wave'),
+        artist=meta['artist'],author=meta['author'],featured_classic=meta.get('set') not in ('firestix','jokes','featured_tech','yangsy','main_ex','community'),featured_wave=meta.get('wave'),
         workshop=meta['workshop'],firestix=meta.get('set')=='firestix',
         track_settings=settings,track_color_import=1,camera_rotation_initial=settings.get('rotation',0),
         camera_actions=[a for a in actions if a['eventType'] in ('MoveCamera','RepeatEvents','SetConditionalEvents')],
         track_actions=[a for a in actions if a['eventType'] in ('AnimateTrack','MoveTrack','PositionTrack','RepeatEvents','Hide','ColorTrack','RecolorTrack','ChangeTrack','SetConditionalEvents')],
-        featured_actions=actions,featured_decorations=raw.get('decorations',[]))
+        featured_actions=actions,featured_decorations=raw.get('decorations',[])+[
+            a for a in actions if a.get('eventType') in ('AddDecoration','AddText','AddObject')])
     data['separate_countdown']=enabled(data['separate_countdown'])
     hides={a['floor']:enabled(a['hideTileIcon']) for a in actions if a['eventType']=='Hide' and 'hideTileIcon' in a and enabled(a.get('active',True))}
     hidden=False;data['hidden_icons']=[]

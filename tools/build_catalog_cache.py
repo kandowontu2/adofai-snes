@@ -34,7 +34,7 @@ def main():
             commands = [
                 [sys.executable, 'tools/campaign_assets.py', '--pack', 'master', '--levels', str(level),
                  '--out', str(args.out), '--chart-cache-only', '--no-pcm', '--camera-rotation',
-                 '--camera-zoom', '--camera-position', '--motion-step', '1'],
+                 '--camera-zoom', '--camera-position', '--motion-step', '1', '--full-snapshot-source'],
                 [sys.executable, 'tools/projected_snapshots.py', '--source', str(args.out),
                  '--out', str(args.out), '--levels', str(level)],
             ]

@@ -5,7 +5,7 @@ import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
 from UnityPy.files.ObjectReader import get_typetree_node
 from import_campaign import DEFAULT_GAME,SCENES
-from official_catalog import WORLDS,load_game_json
+from official_catalog import WORLDS,load_game_json,source_chart_json
 
 ROOT=Path(__file__).resolve().parents[1]
 SOUNDS=['Hat','Kick','Shaker','Sizzle','Chuck','ShakerLoud','None','Hammer','KickChroma',
@@ -41,7 +41,7 @@ def main():
         data=json.loads((ROOT/f'assets/private/level{n}.json').read_text());raw=None
         if n<=39:
             meta=WORLDS[n-1]
-            if meta.get('text'):raw=json.loads((ROOT/f'build/catalog/text-{meta["text"]}.json').read_text(encoding='utf8'))
+            if meta.get('text'):raw=source_chart_json(meta,data)
             elif n in SCENES or meta.get('scene') is not None:rows[str(n)]=native(SCENES.get(n,meta.get('scene')))
             else:
                 # The two JSON-authored main worlds identify their source asset.

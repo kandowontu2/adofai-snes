@@ -5,7 +5,20 @@ from animation_bulk import HEADER,records
 from animation_catchup import unpack_events
 from sa1_stream import indexed_packets,rom_index,LIMIT
 from projected_tracks import raw_seeds
-from snapshot_codec import encode_split as encode
+from snapshot_codec import encode_ordered_split as encode
+
+def pose_body(refs,palettes,glyphs):
+    visible=sorted({g for g,b in refs.values()}-{0})
+    indexed=any(bank&64 for _,bank in refs.values())
+    slots={g:i+1 for i,g in enumerate(visible)};words=[0]*608
+    for i,(g,bank) in refs.items():
+        if g:words[i]=slots[g]|(((bank&48) if indexed else bank+2)<<10)
+    palette=[v for b in range(6) for v in ([0]+list(palettes[b])+[0]*(15-len(palettes[b])) if b<len(palettes) else [0]*16)]
+    if indexed:palette=list(range(32,128))
+    body=bytes(palette)+struct.pack('<608H',*words)
+    if indexed:body+=bytes(32)
+    body+=b''.join(glyphs[g] for g in visible)
+    return body,indexed,len(visible)
 
 def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,postroll=120,extra_colors=(),actor_events=()):
     source=Path(source);output=Path(output);output.mkdir(parents=True,exist_ok=True)
@@ -36,7 +49,7 @@ def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,post
     fog=Fog(chart) if chart.get('mawaru_fog') else None
     wide=any(len({g for g,b in refs.values()}-{0})>511 for refs,palettes in frames)
     if wide:assert not any(b&64 for refs,palettes in frames for g,b in refs.values()),'Wide atlas cannot mix 8-bpp frames'
-    peak=0;previous=None;snapshots=bytearray();indexed_frames=[]
+    peak=0;previous=None;snapshots=bytearray();indexed_frames=[];local_source=None
     for t,(refs,palettes) in enumerate(frames):
         visible=sorted({g for g,b in refs.values()}-{0});peak=max(peak,len(visible))
         assert len(visible)<(640 if wide else 512),('Snapshot atlas capacity',level,t,len(visible))
@@ -54,8 +67,32 @@ def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,post
         for g in visible:
             body+=glyphs[g]
         if (indexed,body)!=previous:
-            packed=encode(bytes(body))
+            packed=encode(bytes(body),indexed=indexed)
             chunks=1+len(visible)*2 if indexed else len(visible)
+            # Global palette assignments can make a dense frame's exact
+            # CHR unnecessarily expensive. Repack that same source image
+            # locally before declaring a hardware buffer overflow.
+            if len(packed)+14>LIMIT and not indexed:
+                from projected_tracks import Source,encode_screen,share_flipped_glyphs
+                if local_source is None:local_source=Source(source,level,copy_world)
+                pixels=local_source.screen(t)
+                import numpy as np
+                from mode1_tracks import decode_tile
+                expected=np.zeros((152,256),dtype=np.uint8)
+                for cell,(glyph,bank) in refs.items():
+                    tile=np.frombuffer(decode_tile(glyphs[glyph],palettes[bank&15]),dtype=np.uint8).reshape(8,8)
+                    if bank&16:tile=tile[:,::-1]
+                    if bank&32:tile=tile[::-1,:]
+                    y,x=divmod(cell,32);expected[y*8:y*8+8,x*8:x*8+8]=tile
+                assert np.array_equal(expected,pixels[32:184]),('Local palette retry changed source pixels',level,t)
+                local_glyphs=[bytes(32)]
+                local_frame=encode_screen(pixels,[],local_glyphs,{bytes(32):0},{})
+                local_glyphs,local_frames=share_flipped_glyphs(local_glyphs,[local_frame])
+                local_body,local_indexed,count=pose_body(*local_frames[0],local_glyphs)
+                assert not local_indexed
+                if count<(640 if wide else 512):
+                    candidate=encode(local_body)
+                    if len(candidate)<len(packed):packed=candidate;chunks=count
             packet=HEADER.pack(t,47 if indexed else 46,chunks,len(packed))+packed+HEADER.pack(65535,255,0,0)
             assert len(packet)<=LIMIT,('Snapshot exceeds the immutable packet buffer',level,t,len(packet))
             events.append((t,42,0,len(packet),struct.pack('<I',len(snapshots))))
@@ -111,9 +148,18 @@ def compile(source,output,level):
     chart=json.loads((Path(source)/f'level{level}.json').read_text())
     from projected_copies import capture_world
     world=capture_world(source,level)
-    glyphs,frames=compile_section(source,level,0,chart['notes'][-1]['frame']+120,world)
+    colors=[] if chart.get('maze_decoration_tracks') or chart.get('decoration_tracks') else None
+    glyphs,frames=compile_section(source,level,0,chart['notes'][-1]['frame']+120,world,extra_colors=colors)
     glyphs,frames=share_flipped_glyphs(glyphs,frames)
-    write(source,output,level,glyphs,frames,copy_world=world)
+    try:write(source,output,level,glyphs,frames,copy_world=world,extra_colors=colors or ())
+    except Exception:
+        # A failed encoder must not require repeating expensive geometry
+        # rendering just to diagnose its packet. Retained only on failure.
+        import pickle
+        with (Path(output)/f'failed-projection{level}.pickle').open('wb') as f:
+            pickle.dump((glyphs,frames,world,colors),f,protocol=5)
+        raise
+    (Path(output)/f'failed-projection{level}.pickle').unlink(missing_ok=True)
 
 
 if __name__=='__main__':

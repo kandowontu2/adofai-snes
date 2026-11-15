@@ -3,7 +3,7 @@ import argparse,hashlib,json,math,subprocess,sys
 from pathlib import Path
 from collections import defaultdict
 import UnityPy
-from official_catalog import WORLDS,load_game_json
+from official_catalog import WORLDS,load_game_json,resolve_official_text
 from import_campaign import DEFAULT_GAME,FLOOR_FIELDS,json_checkpoints
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -80,14 +80,15 @@ def main():
     marker=ROOT/'build/catalog/source.json'
     if not marker.exists() or json.loads(marker.read_text())!=source or 'checkpoints' not in json.loads((ROOT/'build/catalog/scene-12.json').read_text()):
         subprocess.run([sys.executable,str(ROOT/'tools/audit_catalog.py'),'--game',str(args.game)],check=True)
+    worlds=[dict(m,text=resolve_official_text(m)) if m.get('text') else m for m in WORLDS]
     resources=UnityPy.load(str(data/'resources.assets'));texts={};audio={}
-    needed={m['text'] for m in WORLDS[12:] if m['text']}
+    needed={m['text'] for m in worlds[12:] if m['text']}
     for o in resources.objects:
         if o.type.name=='TextAsset' and o.path_id in needed:
             texts[o.path_id]=load_game_json(o.read().m_Script)
         if o.type.name=='AudioClip':
             clip=o.read();audio[clip.m_Name]=clip
-    for meta in WORLDS[12:]:
+    for meta in worlds[12:]:
         n=meta['id'];scene=meta['scene']
         if scene:
             d=json.loads((ROOT/f'build/catalog/scene-{scene}.json').read_text());cond=d['conductors'][0]

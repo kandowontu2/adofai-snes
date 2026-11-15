@@ -7,6 +7,18 @@ from track_motion import easing,ease_name
 from make_assets import FPS
 
 class Camera(unittest.TestCase):
+    def test_legacy_disabled_min_vfx_keeps_camera_events(self):
+        data,chart=self.fixture()
+        data['camera_actions']=[dict(floor=1,eventType='MoveCamera',
+            zoom=200,duration=0,minVfxOnly='Disabled',active='Enabled'),
+            dict(floor=2,eventType='MoveCamera',zoom=400,duration=0,
+                 minVfxOnly='Enabled'),
+            dict(floor=3,eventType='MoveCamera',zoom=800,duration=0,
+                 active='Disabled')]
+        camera_schedule(data,chart)
+        self.assertEqual(chart['camera_zoom_events'],1)
+        self.assertEqual(self.at(chart['camera_zoom_versions'],round(4*FPS)),(512,128))
+
     def test_projected_zero_zoom_disables_projection_and_recovers(self):
         from track_camera import mode7_zoom_schedule
         c=dict(code='TEST',projected_zoom_range=True,camera_zoom_versions=[

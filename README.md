@@ -4,20 +4,28 @@ A native SNES adaptation of A Dance of Fire and Ice, using the SA-1, Mode 7,
 and SPC700. The master also uses MSU-1 for chart data and optional PCM music.
 This is an unofficial project; it is not affiliated with 7th Beat Games.
 
-The expanded master catalog contains 248 charts, including the remaining
-Classic and Tech Featured waves, 68 Yangsy-authored cursed charts, and the
+The selected master catalog contains 202 charts, including the remaining
+Classic and Tech Featured waves, 20 Yangsy-authored cursed charts, and the
 Team Vega 1-EX through 12-EX remakes. **MAIN EX LEVELS** and **YANGSY CURSED
 LEVELS** have separate menu categories. Main EX charts without authored
 checkpoints, plus Mad Piano Party II, receive curated restart points.
 Existing authored checkpoints are preserved. Mad Piano Party II's two new
 checkpoints are also included in its standalone cartridge.
 
-The May 2023 revision of endless.reality includes its rotating death bar,
-moving mines and sweeping maze hazard. Firestix Workshop variants remain
+The Featured menu uses the May 2023 revision of endless.reality, with its
+mines and sweeping maze hazard. The original 2022 revision, including its
+rotating red bar, is separate under Community. Community also includes
+Keqi's CHAOS CONTROL by AZALI. Firestix Workshop variants remain
 separate where their layouts differ. BJ-X is retired; BJW-X remains. The
 Firestix cursed MN-X chart is excluded. These additions target the master
 editions; the older self-contained standalone cartridges retain their
 existing renderer and documented limitations.
+
+Options includes a global **VFX ON/OFF** setting. CHAOS CONTROL uses it to
+toggle simplified, dimmed scenery behind the full-detail track. Turn it off
+to reduce graphics load. Gameplay cues remain visible, and T3-X/EX gameplay
+effects are unaffected. Watch, Practice and Normal selections persist when
+leaving a song.
 
 ## Contributing graphics
 
@@ -54,7 +62,7 @@ build guide before attempting a full catalog build.
 Keep master files together and extract archives before playing. Revisions may
 change the MSU dataset: replace both `adofai.sfc` and `adofai.msu` when instructed.
 Start a fresh session instead of loading save states from an older build.
-The expanded master `.msu` is about 3.77 GiB even without PCM files: it contains
+The refreshed master `.msu` is about 3.39 GiB even without PCM files: it contains
 the compiled graphics as well as compressed audio. Removing PCM does not
 remove that graphics data.
 
@@ -100,9 +108,9 @@ tracks retain authored timing with the original sample-specific advances.
 Playback speed changes affect
 the complete mix, including percussion pitch. Input judgments remain separate.
 
-The expanded master requires dataset 31: replace both the ROM and `.msu` data
-file. Existing normal-song PCM samples are unchanged; the release also supplies
-the new songs and checkpoint tracks.
+The refreshed master requires dataset 32: replace both the ROM and `.msu` data
+file. The release also supplies new songs, checkpoint tracks, and any music
+mixes changed by the stock-chart refresh.
 `tools/audit_music_hits.py` screens every source song,
 `tools/verify_sample_mixes.py` checks every hit's placement, and
 `tools/verify_music_locked_hits.py` compares whole-run emulator audio with the

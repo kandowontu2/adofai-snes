@@ -1,4 +1,4 @@
-.ifdef ROM_NATIVE_ADDR
+.if .defined(ROM_NATIVE_ADDR) .or .defined(SA1_STREAM_BUILD)
 ; The stream is byte-identical in length to the canonical MSU stream.
 ; C0/D0 temporarily form a contiguous two-MiB reader. D0 is restored
 ; before completion; F0 audio and the low-bank executable remain mapped.
@@ -33,8 +33,10 @@ worker_animation_start:
     sta f:NATIVE_PALETTE_DIRTY
     sta f:NATIVE_ALPHA_DIRTY
     sta f:NATIVE_ALPHA_END
+    sta f:NATIVE_COORD_END
     dec a
     sta f:NATIVE_ALPHA_BEGIN
+    sta f:NATIVE_COORD_BEGIN
 .ifdef SA1_STREAM_BUILD
     lda f:STREAM_DECODING
     beq :+
@@ -45,6 +47,7 @@ worker_animation_start:
     jmp @record
 :
 .endif
+.ifdef ROM_NATIVE_ADDR
     lda f:NATIVE_OFFSET
     clc
     adc #.loword(ROM_NATIVE_ADDR)
@@ -76,6 +79,7 @@ worker_animation_start:
     sta map_base_ptr+2
     rep #$20
     .a16
+.endif
 @record:
     lda [transfer_ptr]
     cmp #$FFFF
@@ -486,6 +490,9 @@ worker_animation_start:
     tax
     lda native_value
     sta f:SYMBOL_X,x
+    txa
+    ldx #2
+    jsr worker_native_coordinates_changed
     jmp @record
 @bulk_x:
     lda #.loword(SYMBOL_X)
@@ -497,6 +504,12 @@ worker_animation_start:
     sta native_coord
     lda native_index
     asl a
+    pha
+    lda native_value
+    asl a
+    tax
+    pla
+    jsr worker_native_coordinates_changed
     clc
     adc native_coord
     tay
@@ -556,6 +569,9 @@ worker_animation_start:
     tax
     lda native_value
     sta f:SYMBOL_Y,x
+    txa
+    ldx #2
+    jsr worker_native_coordinates_changed
     jmp @record
 @zoom:
     lda native_index
@@ -743,6 +759,7 @@ worker_animation_start:
     rts
 :
 .endif
+.ifdef ROM_NATIVE_ADDR
     lda NATIVE_SOURCE_PAGE
     dec a
     .repeat 4
@@ -765,6 +782,7 @@ worker_animation_start:
     lda NATIVE_SOURCE_PAGE
     jsr worker_select_rom_bank
     rts
+.endif
 
 ; A=payload length. Paired C0/D0 mappings also cover indexed reads across
 ; the end of the current MiB; only record boundaries move the window.
@@ -1008,5 +1026,22 @@ worker_native_cell:
     .a16
 @done:
     ply
+    rts
+; A=first coordinate byte, X=byte count. Keep worker poses separate until
+; the CPU receives this completed packet; later prefetch cannot move actors.
+worker_native_coordinates_changed:
+    pha
+    cmp f:NATIVE_COORD_BEGIN
+    bcs :+
+    sta f:NATIVE_COORD_BEGIN
+:
+    txa
+    clc
+    adc 1,s
+    cmp f:NATIVE_COORD_END
+    bcc :+
+    sta f:NATIVE_COORD_END
+:
+    pla
     rts
 .endif

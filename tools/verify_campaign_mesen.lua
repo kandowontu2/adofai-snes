@@ -1,6 +1,7 @@
 -- Real-controller replay in a second, independent emulator core.
 local C = dofile(os.getenv('ADOFAI_TEST_CONFIG'))
 dofile(C.failfast_script)(C)
+if C.coordinates then dofile(C.coordinates.script)(C) end
 if C.sparse then dofile(C.sparse.script)(C) end
 if C.screen_script then dofile(C.screen_script)(C) end
 if C.palette_script then dofile(C.palette_script)(C) end
@@ -15,6 +16,13 @@ if C.input_script then dofile(C.input_script)(C) end
 if C.holds then dofile(C.holds.script)(C) end
 local W=emu.memType.snesWorkRam
 local function word(address) return emu.read(address,W)+emu.read(address+1,W)*256 end
+if C.vfx then
+ emu.addEventCallback(function()
+  if word(C.addr.state)==1 then
+   assert(word(C.vfx.address)==C.vfx.expected,'VFX option did not retain the requested setting')
+  end
+ end,emu.eventType.startFrame)
+end
 local frame=0
 local presentation={}
 local stalls=C.profile_ranges and io.open(C.out..'/manual-stalls.csv','w') or nil

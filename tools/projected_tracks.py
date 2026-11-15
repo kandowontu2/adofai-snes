@@ -3,7 +3,7 @@
 This compiler retains every source frame and uses the same fixed-point
 sampler as the Mode 7 PPU verifier. Planets and input remain live objects.
 """
-import argparse,bisect,collections,json,struct,pickle,tempfile
+import argparse,bisect,collections,json,struct,pickle,tempfile,os,shutil
 from pathlib import Path
 import numpy as np
 from mode1_tracks import encode_tile,decode_tile,pack_palettes,schedule
@@ -95,10 +95,14 @@ class Source:
         from decoration_hitboxes import Overlay
         self.hazards=Overlay(c)
         self.decorations=None
-        if c.get('decoration_tracks_preview') or c.get('decoration_tracks'):
+        if c.get('decoration_tracks_preview') or c.get('decoration_tracks') or c.get('maze_decoration_tracks'):
             from decoration_tracks import DecorationTracks
             root=Path(__file__).resolve().parents[1]
-            self.decorations=DecorationTracks(json.loads((root/f'assets/private/level{level}.json').read_text()),c)
+            data=json.loads((root/f'assets/private/level{level}.json').read_text())
+            if c.get('maze_decoration_tracks'):
+                from decoration_hitboxes import visual_maze_decorations
+                data=visual_maze_decorations(data)
+            self.decorations=DecorationTracks(data,c)
 
     def advance(self,frame):
         assert frame>=self.frame,'Projection source must advance monotonically'
@@ -200,6 +204,18 @@ def encode_indexed_screen(image,glyphs,lookup):
     return {i:(encoded[n],64) for i,n in enumerate(inverse) if n in encoded},()
 
 
+def render_spool_chunk(job):
+    folder,level,start,end,path=job
+    from lz4.block import compress
+    source=Source(folder,level)
+    with open(path,'wb') as spool:
+        for frame in range(start,end+1):
+            image=source.screen(frame)
+            packed=compress(image.tobytes()+source.palette.astype('<u2').tobytes())
+            spool.write(struct.pack('<I',len(packed)));spool.write(packed)
+    return path
+
+
 def compile_section(folder,level,start,end,copy_world=None,extra_colors=None):
     source=Source(folder,level,copy_world);palettes=[];glyphs=[bytes(32)];lookup={glyphs[0]:0};encodings={};frames=[]
     from lz4.block import compress as compress_frame, decompress as decompress_frame
@@ -207,17 +223,34 @@ def compile_section(folder,level,start,end,copy_world=None,extra_colors=None):
     # losslessly compressed spool between palette planning and encoding.
     # Large charts spill to a temporary file; no permanent build cache grows.
     with tempfile.SpooledTemporaryFile(max_size=64*1024*1024) as rendered:
+        workers=max(1,int(os.environ.get('ADOFAI_RENDER_WORKERS','1')))
+        if workers>1 and copy_world is None:
+            from concurrent.futures import ProcessPoolExecutor
+            with tempfile.TemporaryDirectory(prefix='adofai-render-') as tmp:
+                count=end-start+1;size=(count+workers-1)//workers
+                jobs=[(str(folder),level,first,min(end,first+size-1),str(Path(tmp)/f'{first}.bin'))
+                      for first in range(start,end+1,size)]
+                with ProcessPoolExecutor(max_workers=min(workers,len(jobs))) as pool:
+                    for path in pool.map(render_spool_chunk,jobs):
+                        with open(path,'rb') as part:shutil.copyfileobj(part,rendered)
+                rendered.seek(0)
+                return _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,lookup,encodings,frames,rendered,compress_frame,decompress_frame,pre_rendered=True)
         return _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,lookup,encodings,frames,rendered,compress_frame,decompress_frame)
 
 
-def _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,lookup,encodings,frames,rendered,compress_frame,decompress_frame):
+def _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,lookup,encodings,frames,rendered,compress_frame,decompress_frame,pre_rendered=False):
     # Stable bank/color assignments avoid recreating every visible glyph
     # merely because a new source color enters the viewport.
     wanted=set();frequencies=collections.Counter();crowded=False
     for frame in range(start,end+1):
-        image=source.screen(frame)
-        packed=compress_frame(image.tobytes()+source.palette.astype('<u2').tobytes())
-        rendered.write(struct.pack('<I',len(packed)));rendered.write(packed)
+        if pre_rendered:
+            length=struct.unpack('<I',rendered.read(4))[0]
+            raw=decompress_frame(rendered.read(length))
+            image=np.frombuffer(raw[:184*256],dtype=np.uint8).reshape(184,256)
+        else:
+            image=source.screen(frame)
+            packed=compress_frame(image.tobytes()+source.palette.astype('<u2').tobytes())
+            rendered.write(struct.pack('<I',len(packed)));rendered.write(packed)
         blocks=image[32:184].reshape(19,8,32,8).transpose(0,2,1,3).reshape(608,64)
         unique,counts=np.unique(np.ascontiguousarray(blocks).view('V64').ravel(),return_counts=True)
         for raw,count in zip(unique,counts):

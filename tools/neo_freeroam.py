@@ -72,7 +72,7 @@ def compile_regions(data, chart):
             compile_laser(data,r,beat)
         from decoration_hitboxes import compile_region
         compile_region(data,chart,r)
-        if data.get('featured_classic') and r.get('twirls'):
+        if (data.get('featured_classic') and r.get('twirls')) or r.get('decoration_hitboxes'):
             # Autoplay traverses the reachable maze. Isolated decorative
             # edge cells must not become invented mandatory objectives.
             cells=set(r['cells']);seen={tuple(r['entry'])};queue=deque(seen)

@@ -9,7 +9,7 @@ def main():
     ap.add_argument('--source',type=Path,default=ROOT/'build/packs/master')
     ap.add_argument('--no-pcm',action='store_true',help='Build ROM/data without regenerating unchanged PCM music')
     ap.add_argument('--stream-levels',nargs='+',type=int,default=[],
-                    help='Compile canonical per-frame charts into SA-1 animation packets (requires a resident native master)')
+                    help='Compile canonical per-frame charts into SA-1 animation packets')
     args=ap.parse_args()
     out=args.out.resolve();source=args.source.resolve();out.mkdir(parents=True,exist_ok=True)
     if not (out/'pack.json').exists():
@@ -22,9 +22,11 @@ def main():
     assert not any(c.get('decoration_tracks_preview') for c in charts), 'Decoration previews still require live-planet transforms and full effect coverage'
     if args.stream_levels:
         assert set(args.stream_levels)<=set(pack['levels']), 'Stream chart is absent from this pack'
-        assert any(c.get('native_stream_format') for c in charts), 'Streaming requires the resident native master decoder'
         from sa1_stream import prepare
         for n in args.stream_levels:prepare(out,n)
+    from compact_snapshot_seeds import patch_pack as compact_seeds
+    saved=compact_seeds(out)
+    if args.stream_levels or saved:
         charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
         from msu_assets import generate
         generate(out,charts,{c['id']:(out/f"level{c['id']}.brr").read_bytes() for c in charts},generate_pcm=not args.no_pcm)
@@ -43,12 +45,14 @@ def main():
             for prefix in ('resident_raw','resident_future'):blobs[f'{prefix}{n}']=(out/f'{prefix}{n}.bin').read_bytes()
         if c.get('sa1_stream_format'):
             from sa1_stream import rom_index
-            blobs[f'stream_index{n}']=rom_index((out/f'stream_index{n}.bin').read_bytes(), compressed=len(charts)>200)
+            blobs[f'stream_index{n}']=rom_index((out/f'stream_index{n}.bin').read_bytes(), compressed=len(charts)>=200)
             blobs[f'resident_stream{n}']=(out/f'resident_stream{n}.bin').read_bytes()
+            if c.get('vfx_off'):
+                blobs[f'stream_index_vfx_off{n}']=rom_index((out/f'stream_index_vfx_off{n}.bin').read_bytes(),compressed=len(charts)>=200)
             if c.get('fallback_stream_packets'):
                 for prefix in ('stream_index_fallback','resident_stream_fallback'):
                     data=(out/f'{prefix}{n}.bin').read_bytes()
-                    blobs[f'{prefix}{n}']=rom_index(data, compressed=len(charts)>200) if prefix.startswith('stream_index') else data
+                    blobs[f'{prefix}{n}']=rom_index(data, compressed=len(charts)>=200) if prefix.startswith('stream_index') else data
         if c.get('native_stream_format'):blobs[f'resident_animation{n}']=(out/f'resident_animation{n}.bin').read_bytes()
         blobs[f'music{n}']=blobs[f'timeline{n}']=bytes(2)
         blobs[f'checkpoints{n}']=bytes(max(2,14*len(c['checkpoints'])))
@@ -58,7 +62,10 @@ def main():
     assets.pack_payload(blobs,charts,msu=True,sa1=True);assets.common_tables(charts)
     if any(c.get('camera_rotation_versions') for c in charts):
         with (out/'adofai.msu').open('r+b') as f:
-            f.seek(12);f.write(bytes([21 if len(charts)>200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13,0]))
+            f.seek(12);f.write(bytes([21 if len(charts)>=200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13,0]))
+    # The engine pass reads individual charts itself. Retaining the full
+    # expanded catalog here needlessly doubles the compiler's memory peak.
+    del charts,blobs
     compile_engine(out,generate_pcm=not args.no_pcm)
 
 def compile_engine(out, *, generate_pcm=True):
@@ -109,7 +116,7 @@ def compile_engine(out, *, generate_pcm=True):
     write_menu_count(out,menu_levels)
     assert re.search(r'^orb_colors:.*$',current,re.M), 'Missing planet color table'
     table_path.write_text(re.sub(r'^orb_colors:.*$',lambda _:colors,current,flags=re.M))
-    if len(menu_levels)>200:
+    if len(menu_levels)>=200:
         current=table_path.read_text()
         rows=re.findall(r'^level_(?:view_insets|bitmap_prefetch):.*$',current,re.M)
         current=re.sub(r'^level_(?:view_insets|bitmap_prefetch):.*\n','',current,flags=re.M)
@@ -172,6 +179,11 @@ def compile_engine(out, *, generate_pcm=True):
                 text=text.replace(f'size=${size},type=ro,file=%O,fill=yes;\n PAY: start=$81{size},size=$7E{0x10000-int(size,16):04X}',
                                   'size=$7000,type=ro,file=%O,fill=yes;\n PAY: start=$817000,size=$7E9000')
         config.write_text(text)
+    assemble_engine(out)
+
+
+def assemble_engine(out):
+    """Reassemble both CPUs against already-generated, unchanged assets."""
     if not (out/'sa1_worker.bin').exists():(out/'sa1_worker.bin').write_bytes(bytes(32768))
     subprocess.run([sys.executable,str(ROOT/'build_campaign.py'),'--pack','master','--out',str(out),'--skip-assets'],cwd=ROOT,check=True)
     # Resolve engine labels before relocating worker-private temporaries.

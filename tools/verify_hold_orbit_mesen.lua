@@ -49,8 +49,12 @@ return function(C)
     local position={}
     for _,axis in ipairs({'x','y'}) do
       local base=H.addr['NOTE_'..string.upper(axis)];local mem=M
+      -- Stream-only floor_position reads the published WRAM coordinates.
+      -- SYMBOL coordinates can already contain the next prefetched pose.
+      local anchor=word(base+step*2,mem)
       if C.stream_runtime and word(0x3ef00,S)==1 and word(0x2b200,S)~=0 then
         base=axis=='x' and 0x10000 or 0x12200;mem=S
+        if H.native_anchor then anchor=word(base+step*2,mem) end
       end
       local start=word(base+step*2,mem)
       local delta=signed((word(base+(step+1)*2,mem)-start+h[axis])%65536)
@@ -58,7 +62,7 @@ return function(C)
       -- floor_position subtracts the shared raster origin before projection.
       -- SYMBOL/NOTE coordinates themselves stay in authored world space.
       local origin=word(axis=='x' and 0x1fcda or 0x1fcdc,S)
-      position[axis]=signed((start+offset-origin-value('cam_'..axis)-8)%65536)
+      position[axis]=signed((anchor+offset-origin-value('cam_'..axis)-8)%65536)
     end
     local O=emu.memType.snesSpriteRam
     for orb=0,1 do

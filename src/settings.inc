@@ -148,7 +148,7 @@ update_settings:
     beq @down
     lda settings_row
     bne @previous
-    lda #6
+    lda #7
     sta settings_row
 @previous:
     dec settings_row
@@ -158,7 +158,7 @@ update_settings:
     beq @adjust
     inc settings_row
     lda settings_row
-    cmp #6
+    cmp #7
     bcc @adjust
     stz settings_row
 @adjust:
@@ -183,6 +183,14 @@ update_settings:
     jmp start_calibration
 @change:
     lda settings_row
+    cmp #6
+    bne @ordinary_setting
+    lda vfx_enabled
+    eor #1
+    sta vfx_enabled
+    rts
+@ordinary_setting:
+    cmp #0
     bne @speed
     lda time_attack
     eor #1
@@ -257,7 +265,7 @@ draw_settings:
     adc #128
     tax
     lda #0
-    cpx #768
+    cpx #896
     bcc @clear_arrows
     lda settings_row
     asl a
@@ -304,7 +312,16 @@ draw_settings:
     jsr put_text
     lda calibration
     ldy #16*64+23*2
-    jmp put_offset
+    jsr put_offset
+    lda vfx_enabled
+    beq @vfx_off
+    lda #.loword(text_on)
+    bra @vfx_text
+@vfx_off:
+    lda #.loword(text_off)
+@vfx_text:
+    ldy #18*64+23*2
+    jmp put_text
 
 put_speed:
     ldx #0

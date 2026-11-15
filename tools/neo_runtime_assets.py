@@ -170,7 +170,7 @@ def table_source(out,levels):
     lines+=['.word '+','.join(str(v&65535) for v in row) for row in meteors]
     from neo_math import table_source as math_tables
     from decoration_hitboxes import table_source as decoration_tables
-    return '\n'.join(lines)+'\n'+math_tables(out,levels)+decoration_tables([json.loads((out/f'level{n}.json').read_text()) for n in levels])
+    return '\n'.join(lines)+'\n'+math_tables(out,levels)+decoration_tables(json.loads((out/f'level{n}.json').read_text()) for n in levels)
 
 
 def binary_tables(out, levels):

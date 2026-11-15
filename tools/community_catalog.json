@@ -40,5 +40,29 @@
     "author": "Lupel_2 (original by Nephrolepis)",
     "workshop": "2558945567",
     "reference": "https://www.youtube.com/watch?v=ckHERsEjrzI"
+  },
+  {
+    "id": 251,
+    "code": "ERW-X",
+    "title": "ENDLESS.REALITY (2022)",
+    "artist": "Ash Astral",
+    "author": "Rikri",
+    "workshop": "2879708027",
+    "neo_cosmos": true,
+    "requires_msu": true,
+    "set": "community",
+    "reference": "https://steamcommunity.com/sharedfiles/filedetails/?id=2879708027"
+  },
+  {
+    "id": 252,
+    "code": "CC-X",
+    "title": "CHAOS CONTROL",
+    "artist": "AZALI",
+    "author": "Keqi",
+    "workshop": "3364771383",
+    "neo_cosmos": true,
+    "requires_msu": true,
+    "set": "community",
+    "reference": "https://www.youtube.com/watch?v=EbGvBBlJqMY"
   }
 ]

@@ -460,6 +460,41 @@ mode1_restore_raw_atlas:
     clc
     adc #4096
     sta stream_destination
+.ifdef COMPACT_SNAPSHOT_SEEDS
+    lda f:STREAM_MODE1
+    cmp #3
+    bne @full_seed
+    lda f:M1_SNAPSHOT_BYTES
+    and #$7FFF
+    clc
+    adc #4127 ; blank glyph plus round up to a 4096-byte DMA block
+    and #$F000
+    cmp stream_destination
+    bne @chunk
+    ; Compact seeds omit unused atlas tails. The back buffer's blank
+    ; glyph must still be cleared before that buffer is first displayed.
+    ; Wide atlases use $5000; ordinary atlases use $4000. Do not clear
+    ; $4000 in wide mode: it can contain a live first-buffer glyph.
+    ldx #$4000
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    lda f:M1_GLYPH_COUNT
+    cmp #640
+    bne :+
+    ldx #$5000
+:
+.endif
+    ldy #16
+    lda #0
+@clear_blank:
+    sta f:$430000,x
+    inx
+    inx
+    dey
+    bne @clear_blank
+    rtl
+@full_seed:
+    lda stream_destination
+.endif
 .ifdef WIDE_SNAPSHOT_SUPPORT
     pha
     lda f:M1_GLYPH_COUNT

@@ -132,6 +132,39 @@ def compile_chart(data):
         compile_regions(data,result)
         from neo_visuals import configure
         configure(data,result)
+    # Gems is an authored track style, not a T3/T4-only special case.
+    from track_colors import sequences
+    for note,sequence in zip(notes,sequences(data,result)):
+        if sequence[0][3][5]=='Gems':note['gem_platform']=True
+    if data['id'] in (75,251):result['maze_decoration_tracks']=True
+    if data['id']==252:
+        result.update(decoration_tracks=True,decoration_depth_order=True,
+                      decoration_background_resolution=2,
+                      decoration_background_only=True,decoration_background_brightness=.35)
+    if data['id']==115:
+        # Vigor Lines Yoked bridges its PositionTrack gaps with authored
+        # tile images. Keep the large radial scenery out of this layer.
+        result.update(decoration_tracks=True,decoration_depth_order=True,
+                      decoration_gameplay_images=['ti-b180-1.png','tl-g.png'])
+    if data['id']==241:
+        result.update(decoration_tracks=True,decoration_depth_order=True,
+                      decoration_gameplay_images=['tilg1.png','tb1.png'])
+    if data['id']==248:
+        # Butterfly Planet replaces floors with image tiles and turn
+        # indicators during its custom platform section. These remain
+        # gameplay geometry even when optional scenery is disabled.
+        result.update(decoration_tracks=True,decoration_depth_order=True,
+                      decoration_gameplay_images=sorted({d.get('decorationImage')
+                          for d in data.get('featured_decorations',[])
+                          if d.get('decorationImage','').startswith(('obj_tile_','obj_indicator_'))}))
+    if data['id']==125:
+        # Black Rose replaces its hidden floors with authored colored PNG
+        # frames and warp entrances. These are gameplay, not optional VFX.
+        result.update(decoration_tracks=True,decoration_depth_order=True,
+                      decoration_gameplay_images=sorted({d.get('decorationImage')
+                          for d in data.get('featured_decorations',[])
+                          if d.get('decorationImage','').endswith('_frame.png')
+                          or d.get('decorationImage','').startswith(('warp_','360_'))}))
     return result,blob
 
 def connected_track(chart,grid=1):
@@ -349,7 +382,7 @@ def ui_assets(pack_title='MAIN WORLDS 1-12',mode7=False):
           hud([(2,'CALIBRATION COMPLETE',5),(7,'RECOMMENDED OFFSET',7),(10,'+00 FRAMES',6),
                (16,'A APPLY    X TRY AGAIN',7),(20,'< > ADJUST    SELECT CANCEL',4)]),
           hud([(2,'OPTIONS',7),(6,'TIME ATTACK',4),(8,'TRACK SPEED',4),(10,'HIT TIMING',4),
-               (12,'FIRE ORB',4),(14,'ICE ORB',4),(16,'AUDIO OFFSET',4),(20,'UP / DOWN SELECT  < > CHANGE',4),
+               (12,'FIRE ORB',4),(14,'ICE ORB',4),(16,'AUDIO OFFSET',4),(18,'VFX',4),(20,'UP / DOWN SELECT  < > CHANGE',4),
                (22,'A ON OFFSET TO CALIBRATE',4),(25,'B / START / SELECT BACK',5)]),
           hud([(1,'RUN RESULTS',6),(5,'JUDGMENT       COUNT  POINTS  ',4),(18,'   TOTAL SCORE'.ljust(32),5),(20,'   ACCURACY'.ljust(32),7),
                (22,'                 SPEED'.ljust(32),4),(24,'START RETRY  SELECT MENU',4),(26,'SELECT MENU',4)])]
@@ -367,7 +400,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if any(c.get('wide_snapshot_atlas') for c in charts):
         raw=assets['background_map']
         assets['background_map']=b''.join(struct.pack('<H',(w&0xFC00)|((w&1023)+64)) for (w,) in struct.iter_unpack('<H',raw))
-    neo_code_bytes=0x7000 if len(charts)>200 else 0x4000 if any(c['id']>=75 for c in charts) else 0x3000
+    neo_code_bytes=0x7000 if len(charts)>=200 else 0x4000 if any(c['id']>=75 for c in charts) else 0x3000
     snapshot_only=sa1 and msu and not rom_data and any(c['id']>=75 for c in charts)
     if snapshot_only:
         for c in charts:
@@ -393,15 +426,16 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     assert len(resident)<=1,'One paged resident dictionary is supported per cartridge'
     stream_charts=[c for c in charts if c.get('sa1_stream_format')] if sa1 and not rom_data else []
     if stream_charts:
-        assert any(c.get('native_stream_format') for c in resident),'Stream worker requires native decoder'
         assets['stream_descriptors']=bytes(32*len(charts))
+        if any(c.get('vfx_off') for c in charts):
+            assets['stream_vfx_off_descriptors']=bytes(32*len(charts))
         if any(c.get('fallback_stream_packets') for c in stream_charts):
             assets['stream_fallback_descriptors']=bytes(32*len(charts))
-    msu_charts=sa1 and msu and not rom_data and len(charts)>200
+    msu_charts=sa1 and msu and not rom_data and len(charts)>=200
     if msu_charts:
         for c in charts:assets[f'chart{c["id"]}']=bytes(2)
     zero_pauses=[]
-    if sa1 and not rom_data and 61<len(charts)<=200:
+    if sa1 and not rom_data and 61<len(charts)<200:
         for c in charts:
             name=f'chart{c["id"]}';size=len(c['notes'])*2
             absent=not any(assets[name][-size:]);zero_pauses.append(absent)
@@ -422,7 +456,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         from animation_assets import coordinate_index
         for c in charts:
             name=f'visibility_index{c["id"]}'
-            assets[name]=coordinate_index(c,wrapped=bool(resident))
+            assets[name]=coordinate_index(c,wrapped=bool(resident or stream_charts))
             (OUT/(name+'.bin')).write_bytes(assets[name])
             if snapshot_only and c.get('mode1_snapshot'):
                 # Complete projected poses contain their hardware map. The
@@ -443,7 +477,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
             # Worker code stays on SA-1; do not waste a second copy of it.
             free.extend([(0x208000,0x20f000),(0x210000+neo_code_bytes,0x800000 if rom_data else 0x400000)])
         else:free.append((0x208000,0x800000 if rom_data else 0x400000))
-        if resident and not rom_data:free.append((0x400000,0x800000))
+        if (resident or stream_charts) and not rom_data:free.append((0x400000,0x800000))
     image=bytearray(0x800000);loc={};shared_blobs={}
     def address(offset):
         if offset<0x400000:return offset+0xC00000
@@ -530,12 +564,25 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
                     ptr=0xC00000+(dictionary&0xFFFFF);rowptr=0xC00000+(rows&0xFFFFF)
                     page=((dictionary-0xC00000 if dictionary>=0xC00000 else dictionary)>>20)+1
                     image[dest+32*i:dest+32*(i+1)]=struct.pack('<16H',1,c['fallback_stream_packets'],table&65535,table>>16,base&65535,base>>16,0,0,0,0,ptr&65535,ptr>>16,rowptr&65535,rowptr>>16,page,0)
+        if 'stream_vfx_off_descriptors' in loc:
+            dest=loc['stream_vfx_off_descriptors'];dest=dest-0xC00000 if dest>=0xC00000 else dest
+            for i,c in enumerate(charts):
+                row=bytearray(image[at+32*i:at+32*(i+1)])
+                if c.get('vfx_off'):
+                    assert c['id'] not in (68,73), 'T3-X/EX effects are gameplay and must remain enabled'
+                    alt=c['vfx_off'];table=loc[f'stream_index_vfx_off{c["id"]}']
+                    struct.pack_into('<HII',row,2,alt['stream_packets'],table,alt['stream_msu_base'])
+                    struct.pack_into('<H',row,14,alt['mode1_seed_base']&65535)
+                    struct.pack_into('<H',row,18,alt['mode1_seed_base']>>16)
+                    struct.pack_into('<H',row,30,alt['mode1_glyph_count'])
+                image[dest+32*i:dest+32*(i+1)]=row
     (OUT/'payload0.bin').write_bytes(image[:0x408000])
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     (OUT/'placements.json').write_text(json.dumps(loc,indent=2))
     defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects','neo_math_font','level_titles')]
     if any(c.get('mode1_tracks') for c in stream_charts):defs += ['SA1_MODE1_BUILD = 1']
     if stream_charts:defs += ['SA1_STREAM_BUILD = 1','STREAM_INDEX_BYTES = 2',f'STREAM_DESCRIPTORS_ADDR = ${loc["stream_descriptors"]:06X}']
+    if 'stream_vfx_off_descriptors' in loc:defs += [f'STREAM_VFX_OFF_DESCRIPTORS_ADDR = ${loc["stream_vfx_off_descriptors"]:06X}']
     if 'stream_fallback_descriptors' in loc:defs += [f'STREAM_FALLBACK_DESCRIPTORS_ADDR = ${loc["stream_fallback_descriptors"]:06X}']
     defs.append('HITS_IN_MUSIC = 1')
     if snapshot_only:defs.extend(('SNAPSHOT_ONLY_MAPS = 1','SNAPSHOT_ONLY_COORDS = 1'))
@@ -545,6 +592,9 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     defs += [f'SPC_DRIVER_ADDR = ${loc["spc_driver"]:06X}',f'SPC_DRIVER_BYTES = {len(assets["spc_driver"])}']
     defs += [f'LEVEL_COUNT = {len(charts)}']
     if any(c.get('wide_snapshot_atlas') for c in charts):defs+=['WIDE_SNAPSHOT_SUPPORT = 1']
+    if any(c.get('compact_snapshot_seeds') for c in charts):
+        assert all(c.get('compact_snapshot_seeds') for c in charts if c.get('mode1_snapshot'))
+        defs+=['COMPACT_SNAPSHOT_SEEDS = 1']
     if msu_charts:defs+=['MSU_CHART_TABLES = 1','COMPRESSED_STREAM_INDEX = 1']
     if zero_pauses:defs+=['ZERO_PAUSE_TABLES = 1']
     if hit_banks:defs+=['HIT_SOUND_BANKS = 1',f'HIT_SOUND_DESCRIPTORS_ADDR = ${loc["hitdescriptors"]:06X}']
@@ -559,6 +609,14 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if rom_data:defs+=['ROM_DATA_BUILD = 1']
     if sa1:defs+=['SA1_BUILD = 1','SA1_FASTROM_MIRROR = 1']
     if sa1 and any(c.get('fastrom_helpers_trial') for c in charts):defs+=['SA1_FASTROM_HELPERS = 1']
+    if stream_charts and not resident:
+        # The streaming decoder shares the wrapped allocator and bank-mailbox
+        # helpers with the resident renderer. Keep those helpers without
+        # requiring a sacrificial resident chart in an all-snapshot catalog.
+        # $FFFF never matches a real menu index; no ROM pattern source exists.
+        defs+=['ROM_PACKED_COORDS = 1','ROM_PATTERN_LEVEL = $FFFF',
+               'ROM_PATTERN_COUNT = 32768','ROM_PATTERN_PAGED = 1',
+               'ROM_PATTERN_NO_SPILL = 1','ROM_WRAP_MAP = 1','ROM_DIRECT_UNTIL = 0']
     if resident:
         defs+=['ROM_PACKED_COORDS = 1']
         c=resident[0];n=c['id']
@@ -720,6 +778,7 @@ def main():
     ap.add_argument('--raster-min-shift',type=int,choices=(0,1),default=0,help='Minimum texture reduction for charts whose dense transitions exceed atomic cache capacity')
     ap.add_argument('--camera-zoom',action='store_true',help='Experimental Mode 7 zoom; requires per-chart capacity and runtime PPU validation')
     ap.add_argument('--camera-position',action='store_true')
+    ap.add_argument('--full-snapshot-source',action='store_true',help='Compile full-quality projection input without the resident Mode 7 pattern limit')
     ap.add_argument('--reuse-motion-phase',action='store_true')
     ap.add_argument('--viewport-inset',type=int,default=0,choices=(0,8),help='Letterbox for charts exceeding the Mode 7 pattern limit')
     ap.add_argument('--motion-step',type=int,choices=(1,2,4,8),default=None)
@@ -775,7 +834,7 @@ def main():
         material_capacity=args.material_capacity if args.material_capacity is not None else (3 if n==71 else 12 if n==58 else 48)
         adaptive_motion=args.adaptive_motion_raster
         shared_contours=args.shared_contours or n==71
-        fingerprint=hashlib.sha256((ROOT/'tools/neo_visuals.py').read_bytes()+(ROOT/'tools/neo_singsing.py').read_bytes()+(ROOT/'tools/neo_mawaru.py').read_bytes()+(ROOT/'tools/neo_warps.py').read_bytes()+(ROOT/'tools/neo_math.py').read_bytes()+(ROOT/'tools/neo_fog.py').read_bytes()+bytes([args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,adaptive_motion,reuse_motion_phase,args.viewport_inset,stable_color_quantization,optimal_pattern_cache,delta_pattern_cache,precise_pattern_view])+source.read_bytes()+inspect.getsource(compile_chart).encode()+(ROOT/'tools/supplemental_checkpoints.py').read_bytes()+inspect.getsource(compress_map).encode()+
+        fingerprint=hashlib.sha256((ROOT/'tools/neo_visuals.py').read_bytes()+(ROOT/'tools/neo_singsing.py').read_bytes()+(ROOT/'tools/neo_mawaru.py').read_bytes()+(ROOT/'tools/neo_warps.py').read_bytes()+(ROOT/'tools/neo_math.py').read_bytes()+(ROOT/'tools/neo_fog.py').read_bytes()+bytes([args.full_snapshot_source,args.camera_position,args.camera_rotation,args.camera_zoom,args.adaptive_raster,args.raster_min_shift,adaptive_motion,reuse_motion_phase,args.viewport_inset,stable_color_quantization,optimal_pattern_cache,delta_pattern_cache,precise_pattern_view])+source.read_bytes()+inspect.getsource(compile_chart).encode()+(ROOT/'tools/supplemental_checkpoints.py').read_bytes()+inspect.getsource(compress_map).encode()+
             (ROOT/'tools/neo_freeroam.py').read_bytes()+(ROOT/'tools/neo_mechanics.py').read_bytes()+(ROOT/'tools/neo_audio.py').read_bytes()+(ROOT/'tools/track_visibility.py').read_bytes()+(ROOT/'tools/viewport_cells.py').read_bytes()+(ROOT/'tools/projected_spill.py').read_bytes()+(ROOT/'tools/track_geometry.py').read_bytes()+(ROOT/'assets/graphics/track-shapes.json').read_bytes()+(ROOT/'tools/track_motion.py').read_bytes()+(ROOT/'tools/track_events.py').read_bytes()+(ROOT/'tools/raster_phase.py').read_bytes()+(ROOT/'tools/track_mipmaps.py').read_bytes()+
             ((ROOT/'tools/track_readability.py').read_bytes()+(ROOT/'tools/track_patterns.py').read_bytes()+(ROOT/'tools/track_camera.py').read_bytes() if msu or n in (26,31) or n>=40 else b'')+
             ((ROOT/'tools/track_colors.py').read_bytes() if msu else b'')+bytes([msu,1,args.preview_tiles,args.past_tiles,args.fixed_tile_positions,material_capacity,shared_contours,motion_step])+ (b'compact' if args.compact_graphics else b'')).hexdigest()
@@ -807,11 +866,11 @@ def main():
             c['mode7']=True
             c['compiled_reference_sets']=True
             c['motion_step']=motion_step
-            if n==49 or n in {m['id'] for m in FEATURED+FIRESTIX+JOKES+YANGSY+MAIN_EX}:
+            if args.full_snapshot_source or n==49 or n in {m['id'] for m in FEATURED+FIRESTIX+JOKES+YANGSY+MAIN_EX}:
                 c.update(projected_zoom_range=True,precise_viewport_cells=True,
                          pattern_pinned_limit=0,strict_pattern_quality=True,
                          share_palette_patterns=True,projected_pattern_overflow=True)
-            if n>=96:c['full_snapshot_source']=True
+            if n>=96 or args.full_snapshot_source:c['full_snapshot_source']=True
             if optimal_pattern_cache:c['optimal_pattern_cache']=True
             if delta_pattern_cache:c['delta_pattern_cache']=True
             if precise_pattern_view:c['precise_viewport_cells']=True

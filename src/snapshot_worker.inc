@@ -422,16 +422,15 @@ worker_snapshot_map:
     ldy #0
 @bank:
     lda [transfer_ptr],y
-.ifdef WIDE_SNAPSHOT_SUPPORT
     bne :+
     lda scratch
-    cmp #128
-    bne :++
+    ; Both wide and 8-bpp atlases need their own blank glyph. The
+    ; first bank may still contain 4-bpp glyph 1 in the upper half
+    ; of its 8-bpp glyph 0 while the other bank is being published.
+    cmp #512
+    beq :++
     lda #0
 :
-.else
-    beq :+
-.endif
     clc
     adc scratch
     sta [transfer_ptr],y

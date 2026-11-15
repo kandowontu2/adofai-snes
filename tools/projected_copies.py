@@ -47,7 +47,8 @@ def capture_world(folder,level):
         views[frame]=[x-40,y-40,width+80,height+80]
         transforms[frame]=[256,0,0,0]
     chart.update(render_viewports=views,render_transforms=transforms,precise_viewport_cells=False,
-                 projected_pattern_overflow=False,share_palette_patterns=False,allow_pattern_cache=True)
+                 projected_pattern_overflow=False,share_palette_patterns=False,allow_pattern_cache=True,
+                 full_snapshot_source=False)
     chart.pop('projected_spill_frames',None)
     captured={}
     class Complete(Exception):pass

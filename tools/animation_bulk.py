@@ -101,7 +101,12 @@ def patch_pack(out):
     pack = json.loads((out/'pack.json').read_text())
     standalone = 'ROM_DATA_BUILD' in (out/'addresses.inc').read_text()
     target = out/('sa1_payload.bin' if standalone else 'adofai.msu')
-    data = bytearray(target.read_bytes())
+    from atomic_mapped_file import atomic_mapped_file
+    with atomic_mapped_file(target,'.bulk-tmp') as data:
+        return patch_image(out,pack,standalone,data)
+
+
+def patch_image(out,pack,standalone,data):
     descriptors = (out/'msu_descriptors.bin').read_bytes()
     reports = []
     for i, n in enumerate(pack['levels']):
@@ -128,10 +133,6 @@ def patch_pack(out):
         addresses = out/'addresses.inc'
         import re
         addresses.write_text(re.sub(r'MSU_DATA_VERSION = \d+', 'MSU_DATA_VERSION = 23', addresses.read_text()))
-    # Atomic replacement also breaks any hard link to the published dataset.
-    if data != target.read_bytes():
-        temporary = target.with_suffix(target.suffix+'.bulk-tmp')
-        temporary.write_bytes(data); os.replace(temporary, target)
     report = out/'animation-bulk.json'
     if any(r['groups'] for r in reports) or not report.exists():
         report.write_text(json.dumps(dict(passed=True, levels=reports), indent=2))

@@ -14,6 +14,7 @@ def main():
     ap=argparse.ArgumentParser();ap.add_argument('--mesen',type=Path,default=Path(r'C:\mesen2\Mesen.exe'))
     ap.add_argument('--prepare-only',action='store_true');ap.add_argument('--levels',type=int,nargs='+');ap.add_argument('--pack',default='main');ap.add_argument('--all',action='store_true');ap.add_argument('--checkpoints',action='store_true')
     ap.add_argument('--speed',type=float,default=1.0);ap.add_argument('--time-attack',action='store_true');ap.add_argument('--resume',action='store_true')
+    ap.add_argument('--vfx-off',action='store_true',help='Disable optional scenery through the real options menu')
     ap.add_argument('--trace-frame',type=int);ap.add_argument('--graphics-dumps',action='store_true');ap.add_argument('--sampled-graphics',action='store_true',help='Sample hardware pixels every 240 commits; full DMA-byte checks remain a separate stress test');ap.add_argument('--capture-steps',type=int,nargs='+');ap.add_argument('--capture-times',type=int,nargs='+',help='Also verify PPU output at these presented chart-clock frames');ap.add_argument('--autoplay',action='store_true');args=ap.parse_args()
     if args.sampled_graphics:args.graphics_dumps=True
     speed=round(args.speed*10);assert 5<=speed<=40 and abs(speed-args.speed*10)<1e-6
@@ -27,10 +28,15 @@ def main():
       for level in args.levels or range(1,len(levels)+1):
         suffix=f'-speed-{speed:02d}'+('-attack' if args.time_attack else '') if speed!=10 or args.time_attack else ''
         if args.autoplay:suffix+='-autoplay'
+        if args.vfx_off:suffix+='-vfx-off'
         if args.prepare_only:suffix+='-prepared'
         out=base/f'verification/mesen-{"checkpoints-" if args.checkpoints else ""}{level}{suffix}';out.mkdir(parents=True,exist_ok=True)
         global_id=levels[level-1]
         chart=json.loads((base/f'level{global_id}.json').read_text())
+        if args.vfx_off and chart.get('vfx_off'):
+            alternate=chart['vfx_off']
+            chart=json.loads((base/alternate['verification_source']/f'level{global_id}.json').read_text())
+            chart.update(alternate)
         if args.checkpoints and not chart['checkpoints']:continue
         digest=hashlib.sha256((base/'adofai.sfc').read_bytes()).hexdigest()
         loaded_identity=identity(base/'adofai.sfc')
@@ -67,6 +73,9 @@ def main():
             if args.time_attack:seq[f]='right';f+=4
             seq[f]='down';f+=4
             for _ in range(abs(speed-10)):seq[f]='right' if speed>10 else 'left';f+=4
+            if args.vfx_off:
+                for _ in range(5):seq[f]='down';f+=4
+                seq[f]='right';f+=4
             seq[f]='start';f+=8
             if 'menu_depth' in labels:
                 from menu_sets import groups_for_pack
@@ -85,6 +94,8 @@ def main():
         if json.loads((base/'pack.json').read_text()).get('fast_audio_rate') and speed>10:pitch=round(pitch/3)*3
         manual_notes=[n for n in chart['notes'][1:] if not(n['flags']&8) for _ in range(n.get('taps_needed',1))]
         scheduled=',pitch='+str(pitch)+',manual_times={'+','.join(str(n['frame']) for n in manual_notes)+'},manual_steps={'+','.join(str(n['step']) for n in manual_notes)+'}'
+        if 'vfx_enabled' in labels:
+            scheduled+=',vfx={address='+str(labels['vfx_enabled'])+',expected='+str(0 if args.vfx_off else 1)+'}'
         if args.autoplay:scheduled+=',autoplay=true'
         if chart.get('neo_cosmos') and not args.autoplay:
             # Full manual replay uses down/up edges, not an autoplay toggle.
@@ -140,6 +151,7 @@ def main():
             # those charts real screenshot coverage across the whole song.
             if len(captures)<9:
                 captures=sorted(set(captures)|{round(chart['notes'][-1]['frame']*i/10) for i in range(1,10)})
+            captures=sorted(set(captures)|set(args.capture_times or []))
             scheduled+=',screen_captures={'+','.join(map(str,captures))+'}'
         if args.graphics_dumps and 'sa1_arc_complete' in labels:
             entries=('sa1_draw_arc','sa1_arc_complete','orbit_arc_x','orbit_arc_y','orbit_arc_tiles','orbit_arc_flips')
@@ -185,7 +197,7 @@ def main():
                 a=native['floors'][i+1]['entryangle']-math.pi/2
                 free_rows.append('['+str(i)+']={finish='+str(region['end'])+',angle='+str((round(a*128/math.pi)+128)&255)+',rate='+str(abs(chart['notes'][i]['rate'])*(-1 if end['ccw'] else 1))+'}')
             bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
-            scheduled+=',holds={projected='+str(bool(chart.get('mode1_projected'))).lower()+',complete='+str(labels['neo_far_apply_ease']+3)+',free_complete='+str(labels['neo_free_orbit']+4+bank)+',free={'+','.join(free_rows)+'},script='+json.dumps((ROOT/'tools/verify_hold_orbit_mesen.lua').as_posix())+',addr={'+','.join(n+'='+str(labels[n]) for n in hnames)+'},notes={'+','.join(holdrows)+'}}'
+            scheduled+=',holds={native_anchor='+str('ROM_NATIVE_ADDR =' in (base/'addresses.inc').read_text()).lower()+',projected='+str(bool(chart.get('mode1_projected'))).lower()+',complete='+str(labels['neo_far_apply_ease']+3)+',free_complete='+str(labels['neo_free_orbit']+4+bank)+',free={'+','.join(free_rows)+'},script='+json.dumps((ROOT/'tools/verify_hold_orbit_mesen.lua').as_posix())+',addr={'+','.join(n+'='+str(labels[n]) for n in hnames)+'},notes={'+','.join(holdrows)+'}}'
         if args.capture_times:scheduled+=',capture_times={'+','.join('['+str(t)+']=true' for t in args.capture_times)+'}'
         if chart.get('mode1_snapshot') and 'SNAPSHOT_ONLY_COORDS = 1' in (base/'addresses.inc').read_text():
             address=json.loads((base/'placements.json').read_text())[f'visibility_index{global_id}']
@@ -196,6 +208,9 @@ def main():
         actions+=',wide_atlas='+str(bool(chart.get('wide_snapshot_atlas'))).lower()
         actions+=',indexed_color_support='+('true' if chart.get('indexed_color_frames') else 'false')
         config='return {addr={'+','.join(k+'='+str(labels[k]) for k in names)+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'},out='+json.dumps(out.as_posix())+',level='+str(level)+',steps='+str(chart['steps'])+',hits='+str(chart['hits'])+',speed='+str(speed)+',attack='+str(int(args.time_attack))+',finish_centis='+str(round(chart['notes'][-1]['time']*100*1536/pitch) if 'time' in chart['notes'][-1] else round(chart['notes'][-1]['frame']/60.0988118623*100*1536/pitch))+',frames='+str(round(chart['duration']*60.099*1536/pitch)+600+(len(chart['checkpoints'])*900 if args.checkpoints else 0))+cpconfig+actions+'}\n'
+        if 'native_animation_receive_done' in labels:
+            coordinate_bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
+            scheduled+=',coordinates={script='+json.dumps((ROOT/'tools/verify_coordinates_mesen.lua').as_posix())+',done='+str(labels['native_animation_receive_done']+coordinate_bank)+',first=0x42B21E,last=0x42B220,x='+str(labels['NOTE_X'])+',y='+str(labels['NOTE_Y'])+'}'
         config=config.rstrip()[:-1]+scheduled+'}\n'
         path=out/'config.lua';path.write_text(config)
         if args.prepare_only:continue
@@ -214,7 +229,7 @@ def main():
         assert suite_digest()==loaded_suite,'Verification code changed during the replay'
         samples=re.search(r'palette_samples=(\d+)',text)
         overruns=re.search(r'vblank_overruns=(\d+)',text)
-        (out/'manifest.json').write_text(json.dumps(dict(code=chart['code'],sha256=digest,**loaded_identity,suite_version=2,suite_digest=loaded_suite,graphics_dumps=args.graphics_dumps,sampled_graphics=args.sampled_graphics,passed=False,summary=text.splitlines()[0],speed=speed/10,time_attack=args.time_attack,track_palette_samples=int(samples[1]) if samples else 0,vblank_overruns=int(overruns[1]) if overruns else None),indent=2))
+        (out/'manifest.json').write_text(json.dumps(dict(code=chart['code'],sha256=digest,**loaded_identity,suite_version=2,suite_digest=loaded_suite,graphics_dumps=args.graphics_dumps,sampled_graphics=args.sampled_graphics,passed=False,summary=text.splitlines()[0],speed=speed/10,time_attack=args.time_attack,vfx_off=args.vfx_off,track_palette_samples=int(samples[1]) if samples else 0,vblank_overruns=int(overruns[1]) if overruns else None),indent=2))
         assert result.returncode==0 and text.endswith('PASS\n'),text[-1000:]
         if overruns:assert int(overruns[1])==0,'Hardware upload crossed VBlank'
         if args.graphics_dumps and chart.get('mode1_tracks') and speed<=10:

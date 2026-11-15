@@ -67,6 +67,20 @@ def verify(base,source):
         assert 0x7FDC82<=meter['METER_BITMAP'] and meter['METER_BITMAP']+272<=0x7FE000
     for n in pack['levels']:
         chart=json.loads((base/f'level{n}.json').read_text())
+        if 'stream_vfx_off_descriptors' in loc:
+            row=pack['levels'].index(n)*32
+            on=offset(loc['stream_descriptors'])+row
+            off=offset(loc['stream_vfx_off_descriptors'])+row
+            if not chart.get('vfx_off'):
+                assert rom[on:on+32]==rom[off:off+32],(n,'VFX toggle changed gameplay-only chart')
+            else:
+                assert n not in (68,73),'T3 gameplay effects must remain enabled'
+                alt=chart['vfx_off']
+                count,index,stream=struct.unpack_from('<HII',rom,off+2)
+                assert (count,index,stream)==(alt['stream_packets'],loc[f'stream_index_vfx_off{n}'],alt['stream_msu_base'])
+                seed=struct.unpack_from('<H',rom,off+14)[0]+(struct.unpack_from('<H',rom,off+18)[0]<<16)
+                assert seed==alt['mode1_seed_base']
+            checked+=1
         if labels.get('NOTE_X') == 0x7F8000:
             assert chart['visibility_cells'] <= 0x6600, (n, 'Cell state overlaps relocated CHR shadow')
         if chart.get('projection_source_only'):

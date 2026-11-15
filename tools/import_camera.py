@@ -5,7 +5,7 @@ import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
 from UnityPy.files.ObjectReader import get_typetree_node
 from import_campaign import DEFAULT_GAME,SCENES
-from official_catalog import WORLDS,load_game_json
+from official_catalog import WORLDS,load_game_json,source_chart_json
 ROOT=Path(__file__).resolve().parents[1]
 
 def native(game,scene):
@@ -38,9 +38,7 @@ def main():
         path=ROOT/f'assets/private/level{n}.json'
         if not path.exists():continue
         data=json.loads(path.read_text())
-        if n>=40:raw=load_game_json(Path(data['source']).read_text(encoding='utf-8-sig'))
-        elif catalog[n].get('text'):raw=load_game_json((ROOT/f'build/catalog/text-{catalog[n]["text"]}.json').read_text(encoding='utf-8-sig'))
-        else:raw=None
+        raw=source_chart_json(catalog.get(n,dict(id=n)),data)
         if raw is not None:
             data['camera_initial']=raw['settings'].get('zoom',100)/100
             data['camera_rotation_initial']=raw['settings'].get('rotation',0)

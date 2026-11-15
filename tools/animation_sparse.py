@@ -40,7 +40,12 @@ def patch_pack(out):
         return
     standalone = 'ROM_DATA_BUILD' in addresses
     target = out/('sa1_payload.bin' if standalone else 'adofai.msu')
-    image = bytearray(target.read_bytes())
+    from atomic_mapped_file import atomic_mapped_file
+    with atomic_mapped_file(target,'.sparse-tmp') as image:
+        return patch_image(out,standalone,image)
+
+
+def patch_image(out,standalone,image):
     descriptors = (out/'msu_descriptors.bin').read_bytes()
     levels = json.loads((out/'pack.json').read_text())['levels']
     reports = []
@@ -64,10 +69,6 @@ def patch_pack(out):
         reports.append(dict(level=level, groups=len(groups),
                             dispatches_removed=sum(n-1 for _, _, n in groups),
                             semantic_sha256=semantic_digest(after)))
-    if image != target.read_bytes():
-        temporary = target.with_suffix(target.suffix+'.sparse-tmp')
-        temporary.write_bytes(image)
-        os.replace(temporary, target)
     report = out/'animation-sparse.json'
     if any(row['groups'] for row in reports) or not report.exists():
         report.write_text(json.dumps(dict(passed=True, levels=reports), indent=2))

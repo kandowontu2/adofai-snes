@@ -1331,6 +1331,7 @@ neo_draw_collectibles:
     lda neo_free_mode
     jeq @done
     jsr neo_draw_free_twirls
+    jsr neo_draw_conditional_mines
     ldx neo_free_record
     lda f:neo_free_records+38,x
     sta neo_free_count
@@ -1477,7 +1478,10 @@ neo_draw_free_twirls:
     clc
     adc #36
     sta sprite_tile
-    lda #$36
+    sec
+    sbc #36
+    clc
+    adc #$32
     sta sprite_attr
     jsl neo_call_sprite
     lda neo_free_pointer
@@ -1486,6 +1490,72 @@ neo_draw_free_twirls:
     sta neo_free_pointer
     dec neo_free_count
     bne @next
+@done:
+    rts
+
+; The Featured maze's pp mines activate after a perfect first hit and
+; disappear after an imperfect judgment. Watch follows the perfect route.
+neo_perfect_route:
+    lda autoplay
+    bne @yes
+    lda misses
+    bne @no
+    lda combo
+    beq @no
+    cmp judgment_counts+8
+    bne @no
+@yes:
+    sec
+    rts
+@no:
+    clc
+    rts
+
+neo_draw_conditional_mines:
+    lda neo_free_mode
+    cmp #1
+    bne @done
+    jsr neo_perfect_route
+    bcc @done
+    lda neo_free_record
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda f:neo_deco_ranges+2,x
+    sta neo_deco_count
+    beq @done
+    lda f:neo_deco_ranges,x
+    sta neo_deco_cursor
+    lda #1
+    sta object_small
+@object:
+    ldx neo_deco_cursor
+    lda f:neo_deco_conditions,x
+    beq @next
+    lda f:neo_deco_records,x
+    jsr neo_deco_track
+    lda [neo_deco_ptr],y
+    sta neo_free_object_x
+    iny
+    iny
+    lda [neo_deco_ptr],y
+    sta neo_free_object_y
+    jsr neo_object_position
+    lda #212
+    sta sprite_tile
+    lda #$23
+    sta sprite_attr
+    jsl neo_call_sprite
+@next:
+    lda neo_deco_cursor
+    clc
+    adc #6
+    sta neo_deco_cursor
+    dec neo_deco_count
+    bne @object
+    stz object_small
 @done:
     rts
 
@@ -1515,6 +1585,11 @@ neo_deco_collision:
     jsl neo_call_sine_cosine
 @object:
     ldx neo_deco_cursor
+    lda f:neo_deco_conditions,x
+    beq @unconditional
+    jsr neo_perfect_route
+    jcc @next
+@unconditional:
     lda f:neo_deco_records,x
     jsr neo_deco_track
     lda [neo_deco_ptr],y

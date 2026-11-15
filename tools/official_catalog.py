@@ -46,6 +46,39 @@ PACKS={
  'jokes':dict(title='OFFICIAL JOKE WORLDS',levels=list(range(33,39))),
 }
 
+def resolve_official_text(meta):
+    """TextAsset IDs shift between game releases; match the chart's audio."""
+    import json
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    names={21:'Miko skip - Kiraramagic',22:'Party_of_Spirits_ADOFAI_edit',
+           23:'libertas - master',29:'MO-X'}
+    expected=names.get(meta['id'],meta['audio']).casefold()
+    rows=json.loads((root/'build/catalog/text-catalog.json').read_text(encoding='utf-8'))
+    matches=[r for r in rows if Path(r['settings'].get('songFilename','')).stem.casefold()==expected]
+    assert len(matches)==1,('Ambiguous/missing official chart',meta['code'],expected,[r['source'] for r in matches])
+    return int(matches[0]['source'].removeprefix('text-'))
+
+
+def source_chart_json(meta, data):
+    """Resolve embedded main-world JSON as well as Workshop/TextAsset charts."""
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    source=data.get('source','')
+    if source.startswith('Native JSON '):
+        song=source.removeprefix('Native JSON ')
+        for path in (root/'build/catalog').glob('text-*.json'):
+            raw=load_game_json(path.read_text(encoding='utf-8-sig'))
+            if isinstance(raw,dict) and raw.get('settings',{}).get('song')==song:return raw
+        raise ValueError(f'Missing embedded chart: {song}')
+    if meta.get('text'):
+        text=resolve_official_text(meta)
+        return load_game_json((root/f'build/catalog/text-{text}.json').read_text(encoding='utf-8-sig'))
+    if meta['id']>=40:
+        return load_game_json(Path(source).read_text(encoding='utf-8-sig'))
+    return None
+
+
 def load_game_json(text):
     """Json.NET accepts trailing commas in the official XM-X chart."""
     import json
@@ -60,7 +93,7 @@ def load_game_json(text):
         elif c==',':
             j=i+1
             while j<len(text) and text[j].isspace():j+=1
-            if j==len(text) or text[j] not in ']}':out.append(c)
+            if j==len(text) or text[j] not in ']},':out.append(c)
         else:out.append(c)
     # Legacy Json.NET charts also contain literal newlines in descriptions.
     return json.loads(''.join(out),strict=False)

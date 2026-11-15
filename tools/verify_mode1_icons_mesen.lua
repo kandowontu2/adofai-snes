@@ -47,7 +47,7 @@ return function(C)
         local y=signed((positions[floor+1][2]-word(C.icons.cam_y,W)-8)%65536)
         local speed=flags%4
         if speed~=0 then sprite(x,y,speed==1 and 32 or 34,speed==1 and 0x32 or 0x34)end
-        if flag(flags,4)then sprite(x,y-(speed~=0 and 14 or 0),ccw~=0 and 38 or 36,0x36)end
+        if flag(flags,4)then sprite(x,y-(speed~=0 and 14 or 0),ccw~=0 and 38 or 36,ccw~=0 and 0x34 or 0x32)end
         if flag(flags,32)then
           if hold>=0 then sprite(x+(hold>=1 and 1 or 0),y,hold>=1 and 106 or 104,hold>=1 and 0x34 or 0x32)
           elseif p and p[2]>=0 then sprite(x,y,108,p[2]>=1 and 0x34 or 0x32)

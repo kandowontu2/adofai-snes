@@ -12,6 +12,86 @@ from make_assets import FPS
 
 
 class DecorationTrackTests(unittest.TestCase):
+    def test_optional_scenery_preserves_exact_floor_pixels_and_colors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)
+            Image.new('RGBA',(400,400),(255,0,0,255)).save(path/'red.png')
+            chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)],decoration_depth_order=True,
+                       decoration_background_only=True,decoration_background_resolution=2,
+                       decoration_background_brightness=.35)
+            floor=dict(floor=0,eventType='AddObject',objectType='Floor',trackAngle=90,depth=1)
+            scenery=dict(floor=0,eventType='AddDecoration',decorationImage='red.png',depth=-10)
+            py,px=np.mgrid[:32,:32];results=[]
+            for decorations in ([floor],[floor,scenery]):
+                palette=np.zeros(256,dtype=np.uint16);palette[32]=31<<10
+                image=np.zeros((34,32),dtype=np.uint8);image[17,16]=32
+                data=dict(source=str(path/'main.adofai'),bpm=120,featured_actions=[],featured_decorations=decorations)
+                result=DecorationTracks(data,chart).draw(image,0,px,py,0,palette)
+                results.append(palette[result].copy())
+            protected=results[0]!=0
+            self.assertGreater(int(protected.sum()),10)
+            np.testing.assert_array_equal(results[0][protected],results[1][protected])
+
+    def test_background_filter_keeps_native_and_png_track_objects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)
+            Image.new('RGBA',(100,100),(255,255,255,255)).save(path/'tile.png')
+            chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)],decoration_background_tags=['scenery'])
+            data=dict(source=str(path/'main.adofai'),bpm=120,featured_actions=[],
+                featured_decorations=[dict(floor=0,eventType='AddDecoration',
+                    decorationImage='tile.png',tag=tag) for tag in ('scenery','track')]+
+                    [dict(floor=0,eventType='AddObject',objectType='Floor',tag='scenery')])
+            renderer=DecorationTracks(data,chart)
+            self.assertEqual(len(renderer.objects),2)
+
+    def test_difference_overlay_preserves_underlying_track_contrast(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)
+            Image.new('RGBA',(100,100),(255,255,255,255)).save(path/'invert.png')
+            chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)],decoration_depth_order=True)
+            data=dict(source=str(path/'main.adofai'),bpm=120,featured_actions=[],
+                featured_decorations=[dict(floor=0,eventType='AddDecoration',
+                    decorationImage='invert.png',relativeTo='Tile',depth=-10,blendMode='Difference')])
+            py,px=np.mgrid[:32,:32]
+            palette=np.zeros(256,dtype=np.uint16);palette[32]=32767
+            image=np.zeros((34,32),dtype=np.uint8);image[17,16]=32
+            result=DecorationTracks(data,chart).draw(image,0,px,py,0,palette)
+            self.assertEqual(int(palette[result[17,16]]),0)
+            self.assertEqual(int(palette[result[17,15]]),32767)
+
+    def test_background_cannot_cover_playable_floor_but_foreground_can(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)
+            Image.new('RGBA',(100,100),(255,0,0,255)).save(path/'red.png')
+            chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)],decoration_depth_order=True)
+            py,px=np.mgrid[:32,:32]
+            for depth,expected in ((1,31<<10),(-1,31)):
+                data=dict(source=str(path/'main.adofai'),bpm=120,featured_actions=[],
+                    featured_decorations=[dict(floor=0,eventType='AddDecoration',
+                        decorationImage='red.png',relativeTo='Tile',depth=depth)])
+                palette=np.zeros(256,dtype=np.uint16);palette[32]=31<<10
+                image=np.zeros((34,32),dtype=np.uint8);image[17,16]=32
+                result=DecorationTracks(data,chart).draw(image,0,px,py,0,palette)
+                self.assertEqual(int(palette[result[17,16]]),expected)
+
+    def test_native_floor_objects_have_distinct_turn_geometry(self):
+        from decoration_tracks import floor_image
+        straight=floor_image(dict(trackAngle=180))
+        turn=floor_image(dict(trackAngle=90))
+        midspin=floor_image(dict(trackAngle=360,trackType='Midspin'))
+        self.assertEqual(straight.shape,(300,300,4))
+        self.assertTrue(np.any(straight[:,:,3]))
+        self.assertFalse(np.array_equal(straight,turn))
+        self.assertFalse(np.array_equal(turn,midspin))
+
+    def test_set_object_color_uses_authored_tween(self):
+        from decoration_tracks import expanded_moves
+        data=dict(bpm=120,featured_actions=[dict(floor=0,eventType='SetObject',tag='t',duration=2,
+                                                trackColor='ffb9b9ff',ease='InSine')])
+        rows=expanded_moves(data,dict(notes=[dict(time=1,speed=1)]))
+        self.assertEqual(rows[0][3]['color'],'ffb9b9ff')
+        self.assertAlmostEqual(rows[0][2],FPS)
+
     def test_live_projection_matches_both_displaced_planets(self):
         proxies=[dict(relativeTo=p,position=[2,-3],parallax=[50,50],tag=p)
                  for p in ('RedPlanet','BluePlanet')]

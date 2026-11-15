@@ -51,8 +51,28 @@ def portal_image():
     return np.asarray(Image.fromarray(canvas).resize((100,100),Image.Resampling.NEAREST))
 
 
+def floor_image(dec):
+    """Draw native AddObject floors with the same geometry as playable tiles."""
+    from track_geometry import surface
+    angle=float(dec.get('trackAngle',180))
+    kind='midspin' if dec.get('trackType')=='Midspin' else 'full' if angle in (0,360) else 'normal'
+    note=dict(x=24,y=24,entry_angle=math.pi,exit_angle=-math.radians(180-angle),spin_kind=kind)
+    x,y,part=surface([note,note,note],1)
+    pixels=Image.new('L',(48,48));pixels.paste(part,(x,y))
+    p=np.asarray(pixels);rgba=np.zeros((48,48,4),dtype=np.uint8)
+    rgba[p>0]=[215,215,215,255]
+    rgba[p>=3]=[255,255,255,255]
+    return np.asarray(Image.fromarray(rgba).resize((300,300),Image.Resampling.NEAREST))
+
+
 def expanded_moves(data, chart):
-    actions = data.get('featured_actions', [])
+    actions = list(data.get('featured_actions', []))
+    for event in data.get('featured_actions', []):
+        if event['eventType']=='SetObject':
+            converted=dict(event,eventType='MoveDecorations')
+            if 'trackColor' in event:converted['color']=event['trackColor']
+            if 'trackOpacity' in event:converted['opacity']=event['trackOpacity']
+            actions.append(converted)
     moves = [a for a in actions if a['eventType'] == 'MoveDecorations' and enabled(a.get('active', True))]
     conditions = {a['floor']: a for a in actions if a['eventType'] == 'SetConditionalEvents'}
     conditional_tags = {v for c in conditions.values() for k, v in c.items() if k.endswith('Tag') and v != 'NONE'}
@@ -166,6 +186,10 @@ class DecorationTracks:
         self.planet_proxies = []
         self.pending = []
         self.images = {}
+        self.respect_track_depth=chart.get('decoration_depth_order',False)
+        self.background_resolution=chart.get('decoration_background_resolution',1)
+        self.background_only=chart.get('decoration_background_only',False)
+        self.background_brightness=chart.get('decoration_background_brightness',1.)
         self.camera_samples = chart.get('camera_sampling_versions', chart.get('camera_rotation_versions', [[0,256,0]]))
         self.camera_sample_times = [r[0] for r in self.camera_samples]
         self.initial_camera_scale = max(.001, math.hypot(*self.camera_samples[0][1:])/256)
@@ -173,6 +197,15 @@ class DecorationTracks:
         directory = Path(data['source']).parent
         moves = expanded_moves(data, chart)
         for order, dec in enumerate(data.get('featured_decorations', [])):
+            gameplay_floor=dec['eventType']=='AddObject' and dec.get('objectType')=='Floor'
+            if chart.get('decoration_gameplay_images') and dec.get('decorationImage') not in chart['decoration_gameplay_images']:
+                continue
+            gameplay_floor=gameplay_floor or bool(chart.get('decoration_gameplay_images'))
+            # Performance editions omit only explicitly selected scenery.
+            # Native floor objects and PNG track/timing cues remain intact.
+            if (dec['eventType']=='AddDecoration' and
+                    set(dec.get('tag','').split()).intersection(chart.get('decoration_background_tags',[]))):
+                continue
             if dec['eventType']=='AddObject':
                 if dec.get('objectType')=='Planet' and dec.get('relativeTo') in ('RedPlanet','BluePlanet','GreenPlanet'):
                     self.planet_proxies.append(dec)
@@ -181,6 +214,11 @@ class DecorationTracks:
                         and dec.get('trackColor','ffffff')[6:8]=='00'):
                     self.images['@portal']=portal_image()
                     dec=dict(dec,eventType='AddDecoration',decorationImage='@portal')
+                elif dec.get('objectType')=='Floor' and dec.get('trackIcon','None')=='None':
+                    name='@floor:'+str(dec.get('trackAngle',180))+':'+dec.get('trackType','Normal')
+                    if name not in self.images:self.images[name]=floor_image(dec)
+                    dec=dict(dec,eventType='AddDecoration',decorationImage=name,
+                             color=dec.get('trackColor','ffffff'),opacity=dec.get('trackOpacity',100))
                 else:raise ValueError(('Unsupported native decoration object',dec.get('objectType'),dec.get('tag')))
             if dec['eventType']=='AddText':
                 name='@text:'+dec.get('decText','')
@@ -193,8 +231,10 @@ class DecorationTracks:
                 continue
             if dec.get('relativeTo', 'Tile') not in ('Tile','Camera','CameraAspect'):
                 raise ValueError(('Unsupported decoration placement', dec.get('relativeTo')))
-            if dec.get('maskingType', 'None') != 'None' or dec.get('tile', [1, 1]) != [1, 1]:
-                raise ValueError(('Unsupported decoration mask/tiling', dec.get('tag')))
+            if dec.get('maskingType', 'None') != 'None':
+                raise ValueError(('Unsupported decoration mask', dec.get('tag')))
+            if any(v<=0 for v in dec.get('tile',[1,1])):
+                raise ValueError(('Nonpositive decoration tiling',dec.get('tag')))
             note = chart['notes'][max(0,min(dec['floor'],len(chart['notes'])-1))]
             offset = note.get('position_track_offset', (0, 0))
             origin = (note['x']+offset[0], note['y']+offset[1])
@@ -248,11 +288,13 @@ class DecorationTracks:
             for _, name in images:
                 if name and name not in self.images:
                     self.images[name] = np.asarray(Image.open(directory/name).convert('RGBA'))
-            self.objects.append(dict(origin=origin, tracks=[Tween(v, c) for v, c in zip(initial, commands)],
+            self.objects.append(dict(origin=origin, gameplay_floor=gameplay_floor, tracks=[Tween(v, c) for v, c in zip(initial, commands)],
                                      images=images, image_times=[r[0] for r in images],
                                      pivot=dec.get('pivotOffset', [0, 0]), color=dec.get('color', 'ffffff')[:6],
                                      parallax=dec.get('parallax', [0, 0]),
                                      depth=dec.get('depth', 0), order=order,
+                                     blend=dec.get('blendMode','None'),
+                                     tile=dec.get('tile',[1,1]),
                                      placements=placements,placement_times=[v[0] for v in placements],
                                      lock_rotation=dec.get('lockRotation',False),
                                      lock_scale=dec.get('lockScale',False)))
@@ -262,8 +304,31 @@ class DecorationTracks:
         layer = np.zeros((*px.shape, 4), dtype=np.uint8)
         under=palette[image[top+1:top+1+px.shape[0]]]
         layer[:,:,:3]=np.stack([(under&31)*8,((under>>5)&31)*8,((under>>10)&31)*8],axis=-1)
+        native_rgb=layer[:,:,:3].copy()
+        native_mask=image[top+1:top+1+px.shape[0]]!=0
+        if self.background_only:layer[native_mask,:3]=0
+        floor_mask=np.zeros(px.shape,dtype=bool)
+        floor_rgb=layer[:,:,:3].copy()
+        restored=False
+        def restore_native():
+            if self.background_resolution>1:
+                # Scenery alone uses a smaller sampling grid. Restore native
+                # track pixels afterwards at their original resolution.
+                factor=self.background_resolution
+                small=Image.fromarray(layer).resize((layer.shape[1]//factor,layer.shape[0]//factor),Image.Resampling.BOX)
+                layer[:]=np.asarray(small.resize((layer.shape[1],layer.shape[0]),Image.Resampling.NEAREST))
+            if self.background_only:
+                layer[:,:,:3]=(layer[:,:,:3].astype(float)*self.background_brightness).astype(np.uint8)
+            if self.background_resolution>1 or self.background_only:
+                layer[floor_mask,:3]=floor_rgb[floor_mask]
+                layer[floor_mask,3]=255
+            if self.respect_track_depth:
+                layer[native_mask,:3]=native_rgb[native_mask]
+                layer[native_mask,3]=0
         left,right,bottom,upper = px.min(),px.max(),py.min(),py.max()
         for obj in self.objects:
+            if obj['depth']<0 and not restored and not self.background_only:
+                restore_native();restored=True
             x, y, rotation, sx, sy, opacity, parallax_x, parallax_y, red, green, blue, color_alpha, visible = [t.at(frame) for t in obj['tracks']]
             opacity *= color_alpha/255*visible
             if opacity <= 0 or abs(sx) < .001 or abs(sy) < .001:
@@ -311,15 +376,30 @@ class DecorationTracks:
             v = (dx*si+dy*co+24*obj['pivot'][1])/(.0016*sy)+rgba.shape[0]/2
             mask = (u >= 0) & (v >= 0) & (u < rgba.shape[1]) & (v < rgba.shape[0])
             yy, xx = yy[mask], xx[mask]
-            sample = rgba[v[mask].astype(int), u[mask].astype(int)].copy()
+            uu=(u[mask]*obj['tile'][0])%rgba.shape[1]
+            vv=(v[mask]*obj['tile'][1])%rgba.shape[0]
+            sample = rgba[vv.astype(int), uu.astype(int)].copy()
             alpha=np.clip(sample[:,3].astype(float)/255*opacity/100,0,1)
             visible = alpha > 0
             yy, xx, sample = yy[visible], xx[visible], sample[visible]
             tint = np.array([red,green,blue])
             a=alpha[visible,None]
-            sample[:, :3] = np.clip(sample[:, :3].astype(float)*tint/255*a+layer[yy,xx,:3]*(1-a),0,255).astype(np.uint8)
+            source_rgb=sample[:,:3].astype(float)*tint/255
+            destination_rgb=layer[yy,xx,:3].astype(float)
+            if self.background_only and obj['gameplay_floor']:
+                existing=floor_mask[yy,xx]
+                destination_rgb[existing]=floor_rgb[yy[existing],xx[existing]]
+            if obj['blend']=='Difference':
+                # Difference is a color operation, not an opaque foreground.
+                # White inverts the underlying track; it must not erase it.
+                source_rgb=np.abs(destination_rgb-source_rgb)
+            sample[:, :3] = np.clip(source_rgb*a+destination_rgb*(1-a),0,255).astype(np.uint8)
             sample[:,3]=255
-            layer[yy, xx] = sample
+            if not (self.background_only and obj['gameplay_floor']):layer[yy, xx] = sample
+            if obj['gameplay_floor']:
+                floor_mask[yy,xx]=True
+                floor_rgb[yy,xx]=sample[:,:3]
+        if not restored:restore_native()
         mask = layer[:, :, 3] >= 128
         if not mask.any():
             return image
@@ -327,11 +407,23 @@ class DecorationTracks:
         if len(available) < 12:
             raise ValueError('Not enough free source palette entries for decoration art')
         # One shared SNES palette for custom art; native track pixels are intact.
-        colors = Image.fromarray(layer[:, :, :3]).quantize(colors=12, method=Image.Quantize.FASTOCTREE)
+        protected=floor_mask&~native_mask if self.background_only else np.zeros(px.shape,dtype=bool)
+        floor_words=np.array([],dtype=np.uint16)
+        floor_inverse=np.array([],dtype=np.intp)
+        if protected.any():
+            rgb=floor_rgb[protected].astype(np.uint16)>>3
+            floor_words,floor_inverse=np.unique(rgb[:,0]|(rgb[:,1]<<5)|(rgb[:,2]<<10),return_inverse=True)
+        count=min(12,len(available)-len(floor_words))
+        if count<1:raise ValueError(('Gameplay floor colors exceed source palette',frame,len(floor_words)))
+        colors = Image.fromarray(layer[:, :, :3]).quantize(colors=count, method=Image.Quantize.FASTOCTREE)
         indices = np.asarray(colors)
-        rgb = np.array(colors.getpalette(), dtype=np.uint16).reshape(-1, 3)[:12] >> 3
+        rgb = np.array(colors.getpalette(), dtype=np.uint16).reshape(-1, 3)[:count] >> 3
         words = rgb[:, 0] | (rgb[:, 1] << 5) | (rgb[:, 2] << 10)
-        slots = np.array(available[:12], dtype=np.uint8)
+        slots = np.array(available[:count], dtype=np.uint8)
         palette[slots] = words
         image[top+1:top+1+px.shape[0]][mask] = slots[indices[mask]]
+        if protected.any():
+            floor_slots=np.array(available[count:count+len(floor_words)],dtype=np.uint8)
+            palette[floor_slots]=floor_words
+            image[top+1:top+1+px.shape[0]][protected]=floor_slots[floor_inverse]
         return image

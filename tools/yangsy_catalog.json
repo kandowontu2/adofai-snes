@@ -10,7 +10,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 1
+    "source_order": 1,
+    "enabled": false
   },
   {
     "id": 172,
@@ -23,7 +24,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 2
+    "source_order": 2,
+    "enabled": false
   },
   {
     "id": 173,
@@ -36,7 +38,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 3
+    "source_order": 3,
+    "enabled": false
   },
   {
     "id": 174,
@@ -49,7 +52,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 4
+    "source_order": 4,
+    "enabled": false
   },
   {
     "id": 175,
@@ -62,7 +66,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 5
+    "source_order": 5,
+    "enabled": false
   },
   {
     "id": 176,
@@ -75,7 +80,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 6
+    "source_order": 6,
+    "enabled": false
   },
   {
     "id": 177,
@@ -88,7 +94,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 7
+    "source_order": 7,
+    "enabled": false
   },
   {
     "id": 178,
@@ -101,7 +108,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 8
+    "source_order": 8,
+    "enabled": false
   },
   {
     "id": 179,
@@ -114,7 +122,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 9
+    "source_order": 9,
+    "enabled": false
   },
   {
     "id": 180,
@@ -127,7 +136,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 10
+    "source_order": 10,
+    "enabled": false
   },
   {
     "id": 181,
@@ -140,7 +150,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 11
+    "source_order": 11,
+    "enabled": true
   },
   {
     "id": 182,
@@ -153,7 +164,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 12
+    "source_order": 12,
+    "enabled": true
   },
   {
     "id": 183,
@@ -166,7 +178,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 13
+    "source_order": 13,
+    "enabled": false
   },
   {
     "id": 184,
@@ -179,7 +192,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 14
+    "source_order": 14,
+    "enabled": false
   },
   {
     "id": 185,
@@ -192,7 +206,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 15
+    "source_order": 15,
+    "enabled": true
   },
   {
     "id": 186,
@@ -205,7 +220,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 16
+    "source_order": 16,
+    "enabled": false
   },
   {
     "id": 187,
@@ -218,7 +234,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 17
+    "source_order": 17,
+    "enabled": false
   },
   {
     "id": 188,
@@ -231,7 +248,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 18
+    "source_order": 18,
+    "enabled": true
   },
   {
     "id": 189,
@@ -244,7 +262,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 19
+    "source_order": 19,
+    "enabled": false
   },
   {
     "id": 190,
@@ -257,7 +276,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 20
+    "source_order": 20,
+    "enabled": false
   },
   {
     "id": 191,
@@ -270,7 +290,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 21
+    "source_order": 21,
+    "enabled": false
   },
   {
     "id": 192,
@@ -283,7 +304,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 22
+    "source_order": 22,
+    "enabled": false
   },
   {
     "id": 193,
@@ -296,7 +318,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 23
+    "source_order": 23,
+    "enabled": false
   },
   {
     "id": 194,
@@ -309,7 +332,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 24
+    "source_order": 24,
+    "enabled": false
   },
   {
     "id": 195,
@@ -322,7 +346,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 25
+    "source_order": 25,
+    "enabled": false
   },
   {
     "id": 196,
@@ -335,7 +360,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 26
+    "source_order": 26,
+    "enabled": true
   },
   {
     "id": 197,
@@ -348,7 +374,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 27
+    "source_order": 27,
+    "enabled": true
   },
   {
     "id": 198,
@@ -361,7 +388,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 28
+    "source_order": 28,
+    "enabled": false
   },
   {
     "id": 199,
@@ -374,7 +402,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 29
+    "source_order": 29,
+    "enabled": true
   },
   {
     "id": 200,
@@ -387,7 +416,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 30
+    "source_order": 30,
+    "enabled": false
   },
   {
     "id": 201,
@@ -400,7 +430,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 31
+    "source_order": 31,
+    "enabled": false
   },
   {
     "id": 202,
@@ -413,7 +444,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 32
+    "source_order": 32,
+    "enabled": true
   },
   {
     "id": 203,
@@ -426,7 +458,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 33
+    "source_order": 33,
+    "enabled": false
   },
   {
     "id": 204,
@@ -439,7 +472,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 34
+    "source_order": 34,
+    "enabled": false
   },
   {
     "id": 205,
@@ -452,7 +486,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 35
+    "source_order": 35,
+    "enabled": true
   },
   {
     "id": 206,
@@ -465,7 +500,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 36
+    "source_order": 36,
+    "enabled": true
   },
   {
     "id": 207,
@@ -478,7 +514,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 37
+    "source_order": 37,
+    "enabled": true
   },
   {
     "id": 208,
@@ -491,7 +528,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 38
+    "source_order": 38,
+    "enabled": false
   },
   {
     "id": 209,
@@ -504,7 +542,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 39
+    "source_order": 39,
+    "enabled": false
   },
   {
     "id": 210,
@@ -517,7 +556,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 40
+    "source_order": 40,
+    "enabled": true
   },
   {
     "id": 211,
@@ -530,7 +570,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 41
+    "source_order": 41,
+    "enabled": true
   },
   {
     "id": 212,
@@ -543,7 +584,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 42
+    "source_order": 42,
+    "enabled": true
   },
   {
     "id": 213,
@@ -556,7 +598,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 43
+    "source_order": 43,
+    "enabled": true
   },
   {
     "id": 214,
@@ -569,7 +612,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 44
+    "source_order": 44,
+    "enabled": false
   },
   {
     "id": 215,
@@ -582,7 +626,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 45
+    "source_order": 45,
+    "enabled": true
   },
   {
     "id": 216,
@@ -595,7 +640,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 46
+    "source_order": 46,
+    "enabled": false
   },
   {
     "id": 217,
@@ -608,7 +654,8 @@
     "set": "yangsy",
     "series": "String Curses",
     "collection": "3127510524",
-    "source_order": 47
+    "source_order": 47,
+    "enabled": true
   },
   {
     "id": 218,
@@ -621,7 +668,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 12
+    "source_order": 12,
+    "enabled": false
   },
   {
     "id": 219,
@@ -634,7 +682,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 13
+    "source_order": 13,
+    "enabled": false
   },
   {
     "id": 220,
@@ -647,7 +696,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 14
+    "source_order": 14,
+    "enabled": false
   },
   {
     "id": 221,
@@ -660,7 +710,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 15
+    "source_order": 15,
+    "enabled": false
   },
   {
     "id": 222,
@@ -673,7 +724,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 16
+    "source_order": 16,
+    "enabled": true
   },
   {
     "id": 223,
@@ -686,7 +738,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 17
+    "source_order": 17,
+    "enabled": true
   },
   {
     "id": 224,
@@ -699,7 +752,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 18
+    "source_order": 18,
+    "enabled": true
   },
   {
     "id": 225,
@@ -712,7 +766,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 19
+    "source_order": 19,
+    "enabled": false
   },
   {
     "id": 226,
@@ -725,7 +780,8 @@
     "set": "yangsy",
     "series": "String Curse Affected",
     "collection": "3511430969",
-    "source_order": 20
+    "source_order": 20,
+    "enabled": false
   },
   {
     "id": 227,
@@ -738,7 +794,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 1
+    "source_order": 1,
+    "enabled": false
   },
   {
     "id": 228,
@@ -751,7 +808,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 2
+    "source_order": 2,
+    "enabled": false
   },
   {
     "id": 229,
@@ -764,7 +822,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 3
+    "source_order": 3,
+    "enabled": false
   },
   {
     "id": 230,
@@ -777,7 +836,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 4
+    "source_order": 4,
+    "enabled": false
   },
   {
     "id": 231,
@@ -790,7 +850,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 5
+    "source_order": 5,
+    "enabled": false
   },
   {
     "id": 232,
@@ -803,7 +864,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 6
+    "source_order": 6,
+    "enabled": false
   },
   {
     "id": 233,
@@ -816,7 +878,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 7
+    "source_order": 7,
+    "enabled": false
   },
   {
     "id": 234,
@@ -829,7 +892,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 8
+    "source_order": 8,
+    "enabled": false
   },
   {
     "id": 235,
@@ -842,7 +906,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 9
+    "source_order": 9,
+    "enabled": false
   },
   {
     "id": 236,
@@ -855,7 +920,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 10
+    "source_order": 10,
+    "enabled": false
   },
   {
     "id": 237,
@@ -868,7 +934,8 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 11
+    "source_order": 11,
+    "enabled": false
   },
   {
     "id": 238,
@@ -881,6 +948,7 @@
     "set": "yangsy",
     "series": "Shifted Curses",
     "collection": "3519311769",
-    "source_order": 12
+    "source_order": 12,
+    "enabled": false
   }
 ]

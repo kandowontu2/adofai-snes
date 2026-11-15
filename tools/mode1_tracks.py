@@ -214,7 +214,7 @@ def icon_descriptors(chart):
     for i,n in enumerate(notes):
         flags=n['flags'];icons=[(0,0)]*4
         if flags&3:icons[0]=(0x3220 if flags&3==1 else 0x3422,0)
-        if flags&4:icons[1]=(0x3624+(2 if n['ccw'] else 0),-14 if flags&3 else 0)
+        if flags&4:icons[1]=(0x3426 if n['ccw'] else 0x3224,-14 if flags&3 else 0)
         if flags&32:
             if n.get('hold_length',-1)>=0:icons[2]=(0x346A if n['hold_length']>=1 else 0x3268,0)
             elif i and notes[i-1].get('hold_length',-1)>=0:icons[2]=(0x346C if notes[i-1]['hold_length']>=1 else 0x326C,0)

@@ -14,6 +14,36 @@ from make_assets import FPS
 
 
 class DecorationHitboxTests(unittest.TestCase):
+    def test_featured_perfect_mines_keep_condition_and_restored_position(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Image.new('RGBA',(10,10),'white').save(Path(folder)/'mine.png')
+            data=dict(id=75,source=str(Path(folder)/'main.adofai'),bpm=60,
+                      featured_decorations=[dict(floor=0,hitbox='Kill',relativeTo='Tile',
+                          decorationImage='mine.png',position=[7,3],tag='pp mine')],
+                      featured_actions=[
+                          dict(floor=0,eventType='MoveDecorations',tag='pp',positionOffset=[None,200]),
+                          dict(floor=1,eventType='MoveDecorations',tag='pp',positionOffset=[None,0],eventTag='stcheck'),
+                          dict(floor=1,eventType='MoveDecorations',tag='pp',scale=[0,0],eventTag='ppfail')])
+            chart=dict(notes=[dict(x=0,y=0,time=0,speed=1),dict(x=24,y=0,time=1,speed=1)])
+            region=dict(step=1,start=61,return_start=120)
+            compile_region(data,chart,region)
+            mine=region['decoration_hitboxes'][0]
+            self.assertTrue(mine['perfect_only'])
+            self.assertEqual(mine['frames'][0][:2],[144,-72])
+            self.assertGreater(mine['frames'][0][4],0)
+            self.assertIn('neo_deco_conditions:\n.word 1,0,0',table_source([dict(freeroam_regions=[region])]))
+
+    def test_legacy_fail_hitbox_and_modern_override(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Image.new('RGBA',(10,10),'white').save(Path(folder)/'bar.png')
+            base=dict(floor=0,relativeTo='Tile',decorationImage='bar.png',
+                      position=[0,0],tag='legacy',failHitbox='Enabled')
+            data=dict(source=str(Path(folder)/'main.adofai'),bpm=60,featured_actions=[],
+                      featured_decorations=[base,dict(base,tag='disabled',hitbox='None')])
+            region=dict(step=1,start=60,return_start=120)
+            compile_region(data,dict(notes=[dict(x=0,y=0),dict(x=24,y=0)]),region)
+            self.assertEqual([o['tag'] for o in region['decoration_hitboxes']],['legacy'])
+
     def test_authored_bar_rotation_and_null_axis(self):
         with tempfile.TemporaryDirectory() as folder:
             Image.new('RGBA', (10, 10), 'white').save(Path(folder)/'bar.png')

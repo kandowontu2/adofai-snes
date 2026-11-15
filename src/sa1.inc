@@ -252,7 +252,7 @@ sa1_cache_finish:
 
 .segment "CODE"
 
-.ifdef ROM_PATTERN_PAGED
+.if .defined(ROM_PATTERN_PAGED) .or .defined(SA1_STREAM_BUILD)
 ; Only the C0 window changes. Low-bank code stays fixed, and the SNES's
 ; independent F0 audio/animation reader retains its own selected bank.
 .segment "FASTWRAM"

@@ -525,6 +525,8 @@ NATIVE_ALPHA_BEGIN=$42B216
 NATIVE_ALPHA_END=$42B218
 NATIVE_CAMERA_X=$42B21A
 NATIVE_CAMERA_Y=$42B21C
+NATIVE_COORD_BEGIN=$42B21E
+NATIVE_COORD_END=$42B220
 M7_SPARSE_BATCH=$43E800
 M7_MISSING_LIST=$43F400
 M7_CACHE_MISSING_COUNT=$416C64
@@ -766,6 +768,7 @@ run_cs_frac: .res 2
 finish_cs: .res 2
 time_attack: .res 2
 settings_row: .res 2
+vfx_enabled: .res 2
 fire_color: .res 2
 ice_color: .res 2
 palette_dirty: .res 2
@@ -1137,6 +1140,7 @@ sa1_fast_main:
     lda #1
     sta difficulty
     sta ice_color
+    sta vfx_enabled
     lda #10
     sta speed_tenths
     jsr prepare_speed
@@ -1553,7 +1557,15 @@ load_selected_level:
 @stream_descriptor:
     phx
     tyx
+.ifdef STREAM_VFX_OFF_DESCRIPTORS_ADDR
+    lda vfx_enabled
+    bne @stream_vfx_on
+    lda f:STREAM_VFX_OFF_DESCRIPTORS_ADDR,x
+    bra @stream_descriptor_value
+@stream_vfx_on:
+.endif
     lda f:STREAM_DESCRIPTORS_ADDR,x
+@stream_descriptor_value:
     plx
     sta f:STREAM_CONFIG,x
     inx

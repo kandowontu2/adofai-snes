@@ -84,6 +84,24 @@ def follow_schedule(chart,motion,data=None):
                 if not merged or merged[-1][1:]!=list(value):merged.append([frame,*value])
             result=merged
         else:result=scripted
+    if data and data.get('id')==111:
+        # The opening is drawn with paired planet/track copies 20 units
+        # above the physical floors. This renderer uses native floor art;
+        # compensate its camera until the authored copy is removed.
+        proxies=[d for d in data.get('featured_decorations',[])
+                 if d.get('tag') in ('p1_fire1','p1_ice1')]
+        if len(proxies)==2 and proxies[0]['position']==proxies[1]['position']:
+            tags={p['tag'] for p in proxies}
+            ends=[a['floor'] for a in data.get('featured_actions',[])
+                  if a['eventType']=='MoveDecorations' and a.get('scale')==[0,0]
+                  and tags.issubset(a.get('tag','').split())]
+            if ends:
+                end=notes[min(ends)]['frame'];dx,dy=proxies[0]['position']
+                frames={f:(x,y) for f,x,y in result}
+                frames.setdefault(end,next((x,y) for f,x,y in reversed(result) if f<=end))
+                result=[(f,round(x-24*dx) if f<end else x,round(y+24*dy) if f<end else y)
+                        for f,(x,y) in sorted(frames.items())]
+                chart['opening_proxy_camera']={'end':end,'position':[dx,dy]}
     chart['camera_follow_versions']=[list(p) for p in result]
     return result
 

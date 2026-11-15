@@ -8,13 +8,13 @@ RATE=44100
 def generate(out,charts,music,*,generate_pcm=True):
     descriptors=bytearray();manifest=[];stem=out/'adofai'
     with stem.with_suffix('.msu').open('wb') as data:
-        data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',21 if len(charts)>200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
+        data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',21 if len(charts)>=200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
         for c in charts:
             n=c['id'];offset=data.tell();data.write(music[n]);track=n
             animation_offset=data.tell();data.write((out/f'animation{n}.bin').read_bytes())
             # Sequential animation and the ROM coordinate index replace the
             # old random-access timelines. Retain the descriptor field.
-            timeline_offset=data.tell();data.write((out/f'chart{n}.bin').read_bytes() if len(charts)>200 else bytes(2))
+            timeline_offset=data.tell();data.write((out/f'chart{n}.bin').read_bytes() if len(charts)>=200 else bytes(2))
             table_offset=data.tell();data.write(bytes(4*len(c['checkpoints'])))
             snapshots=[]
             for i,cp in enumerate(c['checkpoints']):
@@ -31,6 +31,11 @@ def generate(out,charts,music,*,generate_pcm=True):
                         data.write((out/f'mode1_icons{n}.bin').read_bytes())
                     c['mode1_seed_base']=data.tell()
                     data.write((out/f'mode1_seeds{n}.bin').read_bytes())
+                    if c.get('vfx_off'):
+                        c['vfx_off']['stream_msu_base']=data.tell()
+                        data.write((out/f'stream_data_vfx_off{n}.bin').read_bytes())
+                        c['vfx_off']['mode1_seed_base']=data.tell()
+                        data.write((out/f'mode1_seeds_vfx_off{n}.bin').read_bytes())
                     if c.get('fallback_stream_packets'):
                         c['fallback_stream_msu_base']=data.tell()
                         data.write((out/f'stream_data_fallback{n}.bin').read_bytes())

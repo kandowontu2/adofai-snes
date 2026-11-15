@@ -10,6 +10,15 @@ from import_campaign import DEFAULT_GAME,SCENES
 from official_catalog import WORLDS
 ROOT=Path(__file__).resolve().parents[1]
 
+def native_tile_size(controller):
+    # scrController.tileSize is a computed property, not a serialized field.
+    # TileShape.Short/Long use scrFloor.ShortDimensions/LongDimensions.
+    shape=controller.get('tileShape',1)
+    if shape==0:return 1.0
+    if shape==1:return 1.5
+    if shape==2:return 2*controller['customFloorDimensions']['x']
+    raise ValueError(('Unknown native tile shape',shape))
+
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--levels',type=int,nargs='+');args=ap.parse_args()
     game=Path(DEFAULT_GAME)
@@ -40,7 +49,7 @@ def main():
             return cache[i]
         assert controller is not None
         path=ROOT/f'assets/private/level{meta["id"]}.json';data=json.loads(path.read_text())
-        data['native_tile_size']=controller.get('tileSize',1.5)
+        data['native_tile_size']=native_tile_size(controller)
         data['native_component_notation']=controller.get('useComponentNotationForFx',True)
         data['native_positions']=[world(by_object[floors[i]])[:2,3].tolist() for i in range(len(data['floors']))]
         # scrFloor.Start overrides serialized per-floor values in native worlds.

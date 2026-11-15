@@ -1,10 +1,11 @@
 import random
+import struct
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from snapshot_codec import encode, decode, encode_split, decode_split
+from snapshot_codec import encode, decode, encode_split, decode_split, encode_ordered_split
 
 
 def cartridge_decode(payload):
@@ -43,6 +44,25 @@ def cartridge_decode(payload):
 
 
 class SnapshotCodecTests(unittest.TestCase):
+    def test_atlas_reordering_preserves_every_cell_and_flip(self):
+        rng=random.Random(242)
+        for indexed in (False,True):
+            stride=64 if indexed else 32
+            glyphs=[bytes([i//8])* (stride-2)+bytes([i,255-i]) for i in range(1,120)]
+            rng.shuffle(glyphs)
+            words=[(i%len(glyphs)+1)|((i%4)<<14)|((i%6+2)<<10) for i in range(608)]
+            raw=bytes(range(96))+struct.pack('<608H',*words)+(bytes(32) if indexed else b'')+b''.join(glyphs)
+            packed=encode_ordered_split(raw,indexed=indexed)
+            self.assertLessEqual(len(packed),len(encode_split(raw)))
+            decoded=decode_split(packed,len(glyphs)*2+1 if indexed else len(glyphs))
+            self.assertEqual(decoded[:96],raw[:96])
+            atlas=decoded[1312+(32 if indexed else 0):]
+            for cell,old in enumerate(words):
+                new=struct.unpack_from('<H',decoded,96+cell*2)[0]
+                self.assertEqual(new&~1023,old&~1023)
+                slot=new&1023
+                self.assertEqual(atlas[(slot-1)*stride:slot*stride],glyphs[(old&1023)-1])
+
     def test_palette_map_and_atlas_round_trip(self):
         rng = random.Random(56302)
         for count in (0, 1, 127, 128, 255, 511):

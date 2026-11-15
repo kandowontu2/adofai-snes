@@ -2,8 +2,12 @@
 SUCCESS=('perfectTag','earlyPerfectTag','latePerfectTag','veryEarlyTag','veryLateTag','hitTag','barelyTag')
 FAILURE=('tooEarlyTag','tooLateTag','missTag','lossTag','onCheckpointTag')
 
+def enabled(value):
+    # Older Workshop charts serialize toggles as Enabled/Disabled strings.
+    return value.lower() in ('enabled','true','yes','on','1') if isinstance(value,str) else bool(value)
+
 def gameplay_actions(data):
-    actions=[a for a in data.get('track_actions',[]) if a.get('active',True) and not a.get('minVfxOnly',False)]
+    actions=[a for a in data.get('track_actions',[]) if enabled(a.get('active',True)) and not enabled(a.get('minVfxOnly',False))]
     conditions={a['floor']:a for a in actions if a['eventType']=='SetConditionalEvents'}
     def allowed(a):
         tag=a.get('eventTag','');condition=conditions.get(a['floor'],{})

@@ -10,7 +10,7 @@ mode7_landing_time:
 ; MSU animation format 9: byte cell states, translated floors, authored
 ; alpha and tile palettes. Camera sampling and sprite projection are distinct matrices.
 load_patterns:
-.ifdef ROM_NATIVE_ADDR
+.if .defined(ROM_NATIVE_ADDR) .or .defined(SA1_STREAM_BUILD)
     lda #0
     sta f:NATIVE_READY
 .endif
@@ -1159,7 +1159,7 @@ restore_pattern_cache:
     jsl early_dma_suspend
 .endif
     lda #256
-.ifdef ROM_NATIVE_ADDR
+.if .defined(ROM_NATIVE_ADDR) .or .defined(SA1_STREAM_BUILD)
     pha
     lda #0
     sta f:NATIVE_READY

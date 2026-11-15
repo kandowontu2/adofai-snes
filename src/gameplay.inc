@@ -1,12 +1,7 @@
 return_title:
     lda #$80
     jsr spc_command
-    lda state
-    cmp #7
-    beq @keep_mode
-    stz autoplay
-    stz practice
-@keep_mode:
+    ; The menu mode is a persistent selection, including after a song.
     stz state
     stz music_active
     rts
@@ -262,9 +257,18 @@ update_game:
     lda state
     cmp #1
     jne @done
-    lda tap_tail
-    cmp tap_head
-    jne @timing
+    ldx tap_tail
+    cpx tap_head
+    beq :+
+    ; NMI can enqueue a newer tap while free-roam collision runs. The
+    ; current frame's audio clock cannot advance inside this drain loop;
+    ; leave that future tap queued for the next update instead of spinning.
+    lda audio_ticks
+    sec
+    sbc tap_stamps,x
+    bmi :+
+    jmp @timing
+:
     rts
 @not_free:
 .endif

@@ -206,7 +206,7 @@ mode7_commit_map:
     .a16
     rts
 
-.ifdef ROM_WRAP_MAP
+.if .defined(ROM_WRAP_MAP) .or .defined(SA1_STREAM_BUILD)
 ; Wrapped descriptors already contain a bounded 14-bit VRAM address.
 ; Avoid a per-row address mask and the generic tiny-write dispatch.
 mode7_commit_wrapped_rows:

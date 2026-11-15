@@ -1,7 +1,8 @@
-.ifdef ROM_NATIVE_ADDR
+.if .defined(ROM_NATIVE_ADDR) .or .defined(SA1_STREAM_BUILD)
 .segment "CODE"
 ; Checkpoint/loading passes retain the canonical MSU decoder. Ordinary
 ; frames hand the same byte offset to SA-1's immutable ROM event stream.
+.ifdef ROM_NATIVE_ADDR
 native_animation_update:
     jsr native_animation_seed
     lda animation_cursor
@@ -50,7 +51,39 @@ native_animation_update:
     stz animation_header
     lda #1
     sta animation_seek_dirty
+.endif
 native_animation_receive:
+    lda f:NATIVE_COORD_END
+    beq @coordinates_ready
+    lda #(^NOTE_X)&1
+    sta transfer_wbank
+    lda f:NATIVE_COORD_BEGIN
+    clc
+    adc #.loword(SYMBOL_X)
+    tax
+    lda f:NATIVE_COORD_BEGIN
+    clc
+    adc #.loword(NOTE_X)
+    tay
+    lda f:NATIVE_COORD_END
+    sec
+    sbc f:NATIVE_COORD_BEGIN
+    jsr native_receive_coordinate_span
+    lda #(^NOTE_Y)&1
+    sta transfer_wbank
+    lda f:NATIVE_COORD_BEGIN
+    clc
+    adc #.loword(SYMBOL_Y)
+    tax
+    lda f:NATIVE_COORD_BEGIN
+    clc
+    adc #.loword(NOTE_Y)
+    tay
+    lda f:NATIVE_COORD_END
+    sec
+    sbc f:NATIVE_COORD_BEGIN
+    jsr native_receive_coordinate_span
+@coordinates_ready:
     lda f:NATIVE_ZOOM
     sta camera_zoom
     lda f:NATIVE_INVERSE
@@ -91,6 +124,7 @@ native_animation_receive:
     lda f:NATIVE_PALETTE_DIRTY
     jsr native_receive_span
 @done:
+native_animation_receive_done:
     rts
 
 native_animation_seed:
@@ -158,6 +192,17 @@ native_seed_span:
 ; X=BW-RAM offset, Y=WRAM offset, A=count; source/destination reversed.
 native_receive_span:
     pha
+    lda #$42
+    bra native_receive_bank
+native_receive_coordinate_span:
+    pha
+    lda #$41
+native_receive_bank:
+    sep #$20
+    .a8
+    sta $4304
+    rep #$20
+    .a16
     lda #1
     sta msu_data_busy
     pla
@@ -168,8 +213,6 @@ native_receive_span:
     .a8
     lda transfer_wbank
     sta $2183
-    lda #$42
-    sta $4304
     stz $4300
     lda #$80
     sta $4301

@@ -15,6 +15,20 @@ from menu_sets import groups
 
 
 class FeaturedImportTests(unittest.TestCase):
+    def test_legacy_action_decorations_survive_import(self):
+        from import_featured import import_chart
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'123';source.mkdir();out=root/'out';out.mkdir()
+            legacy=dict(floor=2,eventType='AddDecoration',decorationImage='turn.png',tag='turn')
+            modern=dict(floor=3,eventType='AddDecoration',decorationImage='bridge.png',tag='bridge')
+            raw=dict(settings=dict(bpm=120,offset=0),angleData=[0]*5,
+                     actions=[legacy],decorations=[modern])
+            (source/'main.adofai').write_text(json.dumps(raw))
+            (out/'999-X.wav').write_bytes(b'cached audio')
+            meta=dict(id=999,code='TEST',title='TEST',workshop='123',artist='TEST',author='TEST',set='main_ex')
+            data,_=import_chart(meta,root,out)
+            self.assertEqual(data['featured_decorations'],[modern,legacy])
+
     def test_hold_release_enters_displaced_freeroam_at_landing_tile(self):
         from import_official import normalize_json
         from import_featured import neo_fields

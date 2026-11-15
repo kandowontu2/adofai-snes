@@ -5,7 +5,7 @@ import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
 from UnityPy.files.ObjectReader import get_typetree_node
 from import_campaign import DEFAULT_GAME,SCENES
-from official_catalog import WORLDS,load_game_json
+from official_catalog import WORLDS,load_game_json,source_chart_json
 from import_tech import TECH
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -47,9 +47,8 @@ def main():
         path=ROOT/f'assets/private/level{meta["id"]}.json'
         if not path.exists():continue
         data=json.loads(path.read_text())
-        if meta.get('text') or meta['id']>=40:
-            source=Path(data['source']) if meta['id']>=40 else ROOT/f'build/catalog/text-{meta["text"]}.json'
-            raw=load_game_json(source.read_text(encoding='utf-8-sig'))
+        raw=source_chart_json(meta,data)
+        if raw is not None:
             data['track_settings']=raw['settings']
             data['track_actions']=[a for a in raw['actions'] if a['eventType'] in ('AnimateTrack','MoveTrack','PositionTrack','RepeatEvents','Hide','ColorTrack','RecolorTrack','ChangeTrack','SetConditionalEvents')]
         else:

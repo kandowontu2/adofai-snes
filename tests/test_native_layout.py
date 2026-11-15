@@ -6,6 +6,12 @@ from campaign_assets import compile_chart
 from track_motion import motion_schedule
 
 class NativeLayout(unittest.TestCase):
+    def test_controller_tile_size_is_a_computed_property(self):
+        from import_native_layout import native_tile_size
+        self.assertEqual(native_tile_size(dict(tileShape=0)),1.0)
+        self.assertEqual(native_tile_size(dict(tileShape=1)),1.5)
+        self.assertEqual(native_tile_size(dict(tileShape=2,customFloorDimensions=dict(x=1.25))),2.5)
+
     def data(self):
         return dict(id=25,title='TEST',bpm=120,offset=0,countdown=4,separate_countdown=True,
             floors=[dict(seqID=i,entryangle=math.pi*1.5,exitangle=math.pi*.5,speed=1.,isCCW=0,

@@ -1,5 +1,5 @@
 """Import explicitly selected community charts from the local Steam workshop."""
-import json,subprocess,hashlib
+import argparse,json,subprocess,hashlib
 from pathlib import Path
 from import_campaign import DEFAULT_GAME
 from import_official import normalize_json
@@ -8,10 +8,20 @@ ROOT=Path(__file__).resolve().parents[1]
 COMMUNITY=json.loads((ROOT/'tools/community_catalog.json').read_text())
 
 def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--levels',type=int,nargs='+');args=parser.parse_args()
     folder=Path(DEFAULT_GAME).parents[1]/'workshop/content/977950'
     soundfile=ROOT/'assets/private/hitsound-levels.json'
     sounds=json.loads(soundfile.read_text())
     for meta in COMMUNITY:
+        if args.levels and meta['id'] not in args.levels:continue
+        if meta.get('neo_cosmos'):
+            from import_featured import import_chart
+            data,sound=import_chart(meta,folder,ROOT/'assets/private')
+            data['community']=True
+            (ROOT/f'assets/private/level{meta["id"]}.json').write_text(json.dumps(data,indent=2))
+            sounds[str(meta['id'])]=sound
+            print(meta['code'],len(data['floors'])-1,'tiles',flush=True)
+            continue
         source=ROOT/meta['source'] if 'source' in meta else folder/meta['workshop']/'main.adofai'
         text=source.read_text(encoding='utf-8-sig')
         # Original archived v2 file omits one separator between floors 431/432.

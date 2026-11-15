@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 from import_featured import ROOT, DEFAULT_GAME, import_chart, read_chart
 
-YANGSY = json.loads(Path(__file__).with_name('yangsy_catalog.json').read_text())
+YANGSY = [m for m in json.loads(Path(__file__).with_name('yangsy_catalog.json').read_text())
+          if m.get('enabled', True)]
 
 
 def main():

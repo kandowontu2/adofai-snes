@@ -36,11 +36,16 @@ def sprite_tiles(oam,vram):
 def verify(base,level,folder):
     n=json.loads((base/'pack.json').read_text())['levels'][level-1]
     chart=json.loads((base/f'level{n}.json').read_text())
+    render_base=base
+    capture=json.loads((folder/'manifest.json').read_text())
+    if capture.get('vfx_off') and chart.get('vfx_off'):
+        render_base=base/chart['vfx_off']['verification_source']
+        chart=json.loads((render_base/f'level{n}.json').read_text())
     if chart.get('mode1_projected'):
         from projected_tracks import Source
-        projected_source=Source(base,n)
-    timeline=(base/f'timeline{n}.bin').read_bytes();patterns=(base/f'patterns{n}.bin').read_bytes()
-    tile=map_reader((base/f'track_map{n}.bin').read_bytes(),chart['map_height'],chart.get('map_offset_shift',0))
+        projected_source=Source(render_base,n)
+    timeline=(render_base/f'timeline{n}.bin').read_bytes();patterns=(render_base/f'patterns{n}.bin').read_bytes()
+    tile=map_reader((render_base/f'track_map{n}.bin').read_bytes(),chart['map_height'],chart.get('map_offset_shift',0))
     nodes=[]
     for offset in chart['visibility_offsets'][:chart['visibility_cells']]:
         count=struct.unpack_from('<H',timeline,offset)[0]

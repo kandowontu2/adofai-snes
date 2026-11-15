@@ -6,6 +6,7 @@ import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
 from UnityPy.files.ObjectReader import get_typetree_node
 from import_campaign import DEFAULT_GAME,native_checkpoints
+from official_catalog import load_game_json
 ROOT=Path(__file__).resolve().parents[1]
 
 def main():
@@ -17,7 +18,7 @@ def main():
     for o in env.objects:
         if o.type.name!='TextAsset':continue
         t=o.read()
-        try:j=json.loads(t.m_Script)
+        try:j=load_game_json(t.m_Script)
         except Exception:continue
         if not isinstance(j,dict) or not ('angleData' in j or 'pathData' in j):continue
         name=f'text-{o.path_id}'

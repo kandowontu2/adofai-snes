@@ -115,9 +115,9 @@ all worlds, but `--levels 1` includes only 1-X.
 
 **Your playable files are:**
 
-- `build/sa1-demo/adofai.sfc` — the ROM to open in your emulator.
-- `build/sa1-demo/adofai.msu` — required data; keep it beside the ROM.
-- `build/sa1-demo/adofai-*.pcm` — optional full-quality music, if present.
+- `build/sa1-demo/adofai.sfc` â€” the ROM to open in your emulator.
+- `build/sa1-demo/adofai.msu` â€” required data; keep it beside the ROM.
+- `build/sa1-demo/adofai-*.pcm` â€” optional full-quality music, if present.
 
 For compressed playback, copy only the `.sfc` and `.msu` into a separate play
 folder. For PCM playback, also copy the `adofai-*.pcm` files from
@@ -288,7 +288,7 @@ game directory, then import its nine full-song main/EX stages and hold sounds:
 ```
 
 The importer reads the installed `Bundles/neocosmos_scenes_all.bundle` without
-changing the game. It assigns IDs 66–74, preserving native camera/track effects,
+changing the game. It assigns IDs 66â€“74, preserving native camera/track effects,
 holds, planet easing, and free-roam cells. Tutorials and the playground are
 excluded. Extracted charts and audio remain private build inputs.
 
@@ -305,7 +305,7 @@ Open `build/packs/neo-t1-dev/adofai.sfc` in MesenCE, keeping its matching
 generating full-size PCM music during development.
 
 For a free-roam test, substitute `68` for `66` in the asset command and use
-a fresh output directory. IDs 66�74 cover the five main worlds and four EX
+a fresh output directory. IDs 66–74 cover the five main worlds and four EX
 variants. Free-roam movement, objectives and return transitions use player
 input; autoplay chooses a legal route. The compiler retains the generated
 grid cells separately from the song notes.
@@ -339,7 +339,7 @@ regenerates the matching ROM and MSU data file together. Keep both files
 together when testing or distributing them. PCM music is unchanged. The
 packet compiler rejects old catch-up/native or bitmap-prefetch chart formats;
 use fresh canonical chart assets rather than mixing those formats. This path
-uses a lossless Mode 1 tile cache for T1-X and T1-EX at 1� and below.
+uses a lossless Mode 1 tile cache for T1-X and T1-EX at 1× and below.
 Accelerated playback retains the established full-detail Mode 7 renderer;
 the compiler builds both streams from the same per-frame source assets.
 The preloader ramps up speculative loading after idle intervals; it does
@@ -395,3 +395,55 @@ folder. A cold-boot replay alone does not cover stale state between songs.
 
 
 For the projected T3 renderer and engine-only rebuilds, see [PROJECTED-RENDERER.md](PROJECTED-RENDERER.md).
+
+
+## Refreshing all stock charts
+
+After updating the installed game, refresh the private source imports before
+rendering. This resolves embedded JSON charts by song identity rather than
+assuming Unity asset numbers are unchanged. Native short and long tiles use
+the controller's actual tile dimensions.
+
+```powershell
+.\.venv\Scripts\python.exe tools/reimport_stock.py
+```
+
+This updates imported chart data; it does not replace installed ROMs or ZIPs.
+Rebuild and verify the master after importing. The full snapshot cache builder
+uses per-frame source poses and lossless compression:
+
+```powershell
+.\.venv\Scripts\python.exe tools/build_catalog_cache.py --out build/packs/stock-refresh-assets --levels 1 2 3 --workers 2
+```
+
+Replace the example level IDs with the charts you need. Do not use --resume
+for a chart whose source or renderer changed; that option trusts a completed cache.
+
+For the additional Community versions, download and import the exact charts:
+
+```powershell
+.\.venv\Scripts\python.exe tools/download_tech.py --ids 2879708027 3364771383
+.\.venv\Scripts\python.exe tools/import_community.py --levels 251 252
+```
+
+251 is the original endless.reality; 252 is CHAOS CONTROL. The Featured
+endless.reality remains chart 75.
+
+### Optional scenery and render caches
+
+The global VFX option selects alternate pre-rendered scenery data. It does not
+disable gameplay cues or T3-X/EX effects. CHAOS CONTROL keeps its track at full
+resolution while simplifying and dimming decorative scenery behind it.
+Both variants must be built and tested; testing VFX ON alone does not cover OFF.
+
+For a faster host-side render, set the worker count before invoking the cache
+builder. This changes build speed, not in-game update frequency or image quality:
+
+```powershell
+$env:ADOFAI_RENDER_WORKERS = '4'
+```
+
+Use `tools/merge_render_cache.py --help` when replacing a chart in an existing
+master. It checks that timing, audio and checkpoint data still match and copies
+the complete render cache, including Mode 1 seeds. Preserve a VFX OFF cache
+before merging its VFX ON replacement. Do not manually copy only stream files.

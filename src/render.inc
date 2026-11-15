@@ -354,13 +354,13 @@ render_inner:
 @no_orbs:
     rts
 @settings:
-    lda #96
+    lda #56
     sta sprite_x
-    lda #140
+    lda #92
     sta sprite_y
     jsr sprite
-    lda #144
-    sta sprite_x
+    lda #108
+    sta sprite_y
     lda #$3A
     sta sprite_attr
     jmp sprite
@@ -863,7 +863,10 @@ render_symbols:
     clc
     adc #36
     sta sprite_tile
-    lda #$36
+    sec
+    sbc #36
+    clc
+    adc #$32
     sta sprite_attr
     ldx render_i
     lda f:NOTE_FLAGS,x

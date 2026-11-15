@@ -5,7 +5,7 @@ import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
 from UnityPy.files.ObjectReader import get_typetree_node
 from import_campaign import DEFAULT_GAME,SCENES
-from official_catalog import WORLDS
+from official_catalog import WORLDS,source_chart_json
 ROOT=Path(__file__).resolve().parents[1]
 
 def native(game,scene):
@@ -31,8 +31,8 @@ def main():
         path=ROOT/f'assets/private/level{meta["id"]}.json'
         if not path.exists():continue
         data=json.loads(path.read_text())
-        if meta.get('text'):
-            source=json.loads((ROOT/f'build/catalog/text-{meta["text"]}.json').read_text(encoding='utf-8'))
+        source=source_chart_json(meta,data)
+        if source is not None:
             data['track_settings']=source['settings']
             data['track_actions']=[a for a in source.get('actions',[]) if a['eventType'] in ('AnimateTrack','MoveTrack','PositionTrack','RepeatEvents','Hide','ColorTrack','RecolorTrack','ChangeTrack','SetConditionalEvents')]
             hides={a['floor']:a['hideTileIcon'] for a in source.get('actions',[]) if a['eventType']=='Hide' and a.get('active',True) and 'hideTileIcon' in a}

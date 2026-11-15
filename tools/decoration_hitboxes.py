@@ -13,6 +13,36 @@ from make_assets import FPS
 from track_motion import easing, enabled
 
 
+def standard_route_decoration(data, dec):
+    tags = set(dec.get('tag', '').split())
+    if ('pp' in tags and not ('mine' in tags and data.get('id')==75)) or 'coincheck' in tags:
+        return False
+    # The Featured revision retains the old rotating bar as an unused
+    # decoration. It belongs to the original Community maze, not this route.
+    if data.get('id') == 75 and 'redspinny' in tags:
+        return False
+    return True
+
+
+def visual_maze_decorations(data):
+    """Keep original PNG hazards that are not represented by collision overlays."""
+    selected = []
+    for dec in data.get('featured_decorations', []):
+        tags = set(dec.get('tag', '').split())
+        if not standard_route_decoration(data, dec):
+            continue
+        if dec.get('decorationImage') not in ('gearmltemp.png', 'pulsebar.png'):
+            continue
+        if data.get('id') in (75, 251):
+            # The free-roam objects already share visuals with collision.
+            include = 'minePt2' in tags
+        else:
+            include = False
+        if include:
+            selected.append(dec)
+    return dict(data, featured_decorations=selected)
+
+
 def compile_region(data, chart, region):
     if not data.get('featured_decorations'):
         return
@@ -23,11 +53,13 @@ def compile_region(data, chart, region):
     objects = []
     for dec in data['featured_decorations']:
         tags = set(dec.get('tag', '').split())
-        if dec.get('hitbox') != 'Kill' or dec['floor'] != floor - 1:
+        kills = dec.get('hitbox') == 'Kill' or (
+            'hitbox' not in dec and enabled(dec.get('failHitbox', False)))
+        if not kills or dec['floor'] != floor - 1:
             continue
         # These are the optional all-perfect secret route and its failure
         # screen, not obstacles on the normal maze route.
-        if 'pp' in tags or 'coincheck' in tags:
+        if not standard_route_decoration(data, dec):
             continue
         if dec.get('relativeTo') != 'Tile' or dec.get('failHitboxType', 'Box') != 'Box':
             raise ValueError(('Unsupported maze hitbox', dec))
@@ -45,7 +77,8 @@ def compile_region(data, chart, region):
             if not tags.intersection(event.get('tag', '').split()):
                 continue
             # Conditional secret-route relocations must not run unconditionally.
-            if event.get('eventTag') and event['eventTag'] not in ('minecolor',):
+            allowed=('minecolor','stcheck') if 'pp' in tags else ('minecolor',)
+            if event.get('eventTag') and event['eventTag'] not in allowed:
                 continue
             note = chart['notes'][event['floor']]
             beat = 60 / data['bpm'] / note['speed'] * FPS
@@ -83,7 +116,7 @@ def compile_region(data, chart, region):
                            round(math.cos(angle) * 256), round(math.sin(angle) * 256),
                            round(width * hit_scale[0] / 200), round(height * hit_scale[1] / 200),
                            width / 2, height / 2, max(0, min(100, opacity))])
-        objects.append(dict(tag=dec['tag'], start=region['start'], end=end,
+        objects.append(dict(tag=dec['tag'], perfect_only='pp' in tags, start=region['start'], end=end,
                             size=list(image.size), alpha=base64.b64encode(zlib.compress(image.getchannel('A').tobytes())).decode(),
                             frames=frames))
     if objects:
@@ -91,7 +124,7 @@ def compile_region(data, chart, region):
 
 
 def table_source(charts):
-    ranges = []; records = []; tracks = []; geometry = bytearray(); shared = {}
+    ranges = []; records = []; conditions=[]; tracks = []; geometry = bytearray(); shared = {}
     for chart in charts:
         for region in chart.get('freeroam_regions', []):
             objects = region.get('decoration_hitboxes', [])
@@ -117,8 +150,10 @@ def table_source(charts):
                         geometry.extend(blob)
                     record.append(shared[key])
                 records.append(record)
+                conditions.append(int(obj.get('perfect_only',False)))
     lines = ['neo_deco_ranges:'] + ['.word ' + ','.join(map(str, r)) for r in ranges]
     lines += ['neo_deco_records:'] + ['.word ' + ','.join(map(str, r)) for r in records]
+    lines += ['neo_deco_conditions:'] + ['.word '+str(v)+',0,0' for v in conditions]
     lines += ['neo_deco_tracks:'] + ['.word ' + ','.join(map(str, r)) for r in tracks]
     lines += ['neo_deco_geometry:'] + ['.byte ' + ','.join(map(str, geometry[i:i+32])) for i in range(0, len(geometry), 32)]
     return '\n'.join(lines) + '\n'
@@ -131,6 +166,7 @@ class Overlay:
         for region in chart.get('freeroam_regions', []):
             root = chart['notes'][region['step']]
             for obj in region.get('decoration_hitboxes', []):
+                if obj.get('perfect_only'):continue  # Runtime sprites follow the run's actual judgments.
                 mask = np.frombuffer(zlib.decompress(base64.b64decode(obj['alpha'])), dtype=np.uint8).reshape(obj['size'][1], obj['size'][0])
                 self.objects.append((root, obj, mask))
 
@@ -145,9 +181,17 @@ class Overlay:
         red, light = unused[-2:]
         palette[red], palette[light] = 31 | (3 << 5), 31 | (14 << 5) | (12 << 10)
         dest = image[top+1:top+1+px.shape[0]]
+        left,right,top_y,bottom_y=px.min(),px.max(),py.min(),py.max()
         for root, obj, mask in active:
             x, y, co, si, _, _, hw, hh, opacity = obj['frames'][frame-obj['start']]
             if hw < .01 or hh < .01 or opacity <= 0:
+                continue
+            # Authored collision-only boxes are often parked far from the
+            # maze. Reject their conservative rotated bounds before making
+            # full viewport arrays; this cannot remove an on-screen pixel.
+            cx,cy=root['x']+x,root['y']+y
+            ex,ey=(abs(co)*hw+abs(si)*hh)/256,(abs(si)*hw+abs(co)*hh)/256
+            if cx+ex<left or cx-ex>right or cy+ey<top_y or cy-ey>bottom_y:
                 continue
             dx, dy = px-root['x']-x, py-root['y']-y
             lx, ly = (dx*co+dy*si)/256, (-dx*si+dy*co)/256
