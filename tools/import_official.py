@@ -44,7 +44,7 @@ def normalize_json(d,meta):
                 else:assert a['duration']<=0,'Active hold requires explicit support'
             elif kind=='Multitap':f['tapsNeeded']=int(a['taps'])
             elif kind=='MultiPlanet':
-                planets={'TwoPlanets':2,'ThreePlanets':3}[a['planets']]
+                planets={'TwoPlanets':2,'ThreePlanets':3,2:2,3:3}[a['planets']]
                 if i and floors[i-1]['midSpin']:floors[i-1]['numPlanets']=planets
             elif kind=='AutoPlayTiles':auto=enabled(a['enabled'])
             elif kind=='ScaleMargin':margin=a['scale']

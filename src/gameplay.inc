@@ -440,7 +440,7 @@ update_game:
     sec
     sbc #9
     cmp tap_clock
-    bcs @done
+    jcs @done
 @judge:
     lda timing_error
     bpl @positive
@@ -464,6 +464,15 @@ update_game:
     bra @late_fail
 @early_fail:
     stz fail_reason
+.ifdef CONDITIONAL_JUDGMENT_BUILD
+    lda practice
+    bne @charge
+    lda step
+    jsl conditional_requires_perfect
+    bcc @charge
+    jmp fail
+@charge:
+.endif
     jsr charge_overload
     bcs @overload_fail
     lda #0
@@ -510,6 +519,29 @@ update_game:
 hit:
     jsr classify_hit
     sta last_judgment
+.ifdef CONDITIONAL_JUDGMENT_BUILD
+    cmp #3
+    bcc :+
+    cmp #6
+    bcc @accepted
+:
+    lda step
+    inc a
+    jsl conditional_requires_perfect
+    bcc @accepted
+    lda practice
+    bne @conditional_practice
+    lda #1
+    sta fail_reason
+    jmp fail
+@conditional_practice:
+    inc misses
+    stz combo
+    lda last_judgment
+    jsr record_judgment
+    jsr meter_add_hit
+    jmp advance
+.endif
     ; Counted Early/Late landings succeed in the original game. Only
     ; unmatched extra taps charge the overload bar.
 @accepted:

@@ -4,7 +4,7 @@ A native SNES adaptation of A Dance of Fire and Ice, using the SA-1, Mode 7,
 and SPC700. The master also uses MSU-1 for chart data and optional PCM music.
 This is an unofficial project; it is not affiliated with 7th Beat Games.
 
-The selected master catalog contains 202 charts, including the remaining
+The selected master catalog contains 234 charts, including the remaining
 Classic and Tech Featured waves, 20 Yangsy-authored cursed charts, and the
 Team Vega 1-EX through 12-EX remakes. **MAIN EX LEVELS** and **YANGSY CURSED
 LEVELS** have separate menu categories. Main EX charts without authored
@@ -20,6 +20,11 @@ separate where their layouts differ. BJ-X is retired; BJW-X remains. The
 Firestix cursed MN-X chart is excluded. These additions target the master
 editions; the older self-contained standalone cartridges retain their
 existing renderer and documented limitations.
+
+**TRIPLE PLANET WORLDS** contains mariokirby1703/Luma1703's 31 Workshop
+variants. Community includes KeqiTheKombuPig's **1234 OVERCLOCKED (BETA)**
+by Cansol, using the author's publicly available playable beta. It is not
+the finished-effects version shown in the work-in-progress video.
 
 Options includes a global **VFX ON/OFF** setting. CHAOS CONTROL uses it to
 toggle simplified, dimmed scenery behind the full-detail track. Turn it off

@@ -198,13 +198,17 @@ native_receive_coordinate_span:
     pha
     lda #$41
 native_receive_bank:
+    ; NMI also programs DMA channel 0. Claim it before touching even the
+    ; source-bank register, or an interrupt can turn this into a WRAM copy.
+    pha
+    lda #1
+    sta msu_data_busy
+    pla
     sep #$20
     .a8
     sta $4304
     rep #$20
     .a16
-    lda #1
-    sta msu_data_busy
     pla
     sta $4305
     stx $4302

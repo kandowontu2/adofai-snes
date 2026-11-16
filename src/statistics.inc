@@ -106,6 +106,12 @@ classify_hit:
     eor #$FFFF
     inc a
 @absolute:
+.ifdef CONDITIONAL_JUDGMENT_BUILD
+    jsl conditional_classify_hit
+    bcc :+
+    rts
+:
+.endif
 .ifdef MSU_BUILD
     ldx input_margin
     cpx #100

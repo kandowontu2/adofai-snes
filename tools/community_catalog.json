@@ -64,5 +64,19 @@
     "requires_msu": true,
     "set": "community",
     "reference": "https://www.youtube.com/watch?v=EbGvBBlJqMY"
+  },
+  {
+    "id": 284,
+    "code": "OC-X",
+    "title": "1234 OVERCLOCKED (BETA)",
+    "artist": "Cansol",
+    "author": "KeqiTheKombuPig",
+    "neo_cosmos": true,
+    "set": "community",
+    "source": "assets/private/overclocked-source/1234 Overclocked Edition/1234overclocked.adofai",
+    "archive": "https://drive.google.com/file/d/1f6hE_8KJlWFkNMXj7ILVN82yibFX4RBS/view",
+    "reference": "https://www.youtube.com/watch?v=eOePfbcQkzY",
+    "perfect_only_tag": "death",
+    "requires_msu": true
   }
 ]

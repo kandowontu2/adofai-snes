@@ -141,6 +141,10 @@ def compile_chart(data):
         result.update(decoration_tracks=True,decoration_depth_order=True,
                       decoration_background_resolution=2,
                       decoration_background_only=True,decoration_background_brightness=.35)
+    if data['id']==284 or data.get('triple_planet') and data.get('featured_decorations'):
+        result.update(decoration_tracks=True,decoration_depth_order=True)
+    if data['id']==284:
+        result['decoration_text_contrast']=True
     if data['id']==115:
         # Vigor Lines Yoked bridges its PositionTrack gaps with authored
         # tile images. Keep the large radial scenery out of this layer.
@@ -764,6 +768,7 @@ def main():
     from import_jokes import JOKES
     from import_yangsy import YANGSY
     from import_main_ex import MAIN_EX
+    from import_triple_planet import TRIPLE_PLANET
     ap=argparse.ArgumentParser();ap.add_argument('--pack',choices=[*PACKS,'master'],default='main');ap.add_argument('--out',type=Path);ap.add_argument('--levels',type=int,nargs='+');ap.add_argument('--chart-cache-only',action='store_true')
     ap.add_argument('--preview-tiles',type=int,choices=range(4,65),default=16)
     ap.add_argument('--past-tiles',type=int,choices=range(0,5),default=1)
@@ -784,7 +789,7 @@ def main():
     ap.add_argument('--motion-step',type=int,choices=(1,2,4,8),default=None)
     ap.add_argument('--no-pcm',action='store_true',help='Generate the compressed master without full-size PCM tracks')
     args=ap.parse_args();msu=args.pack=='master'
-    pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=sorted(m['id'] for m in WORLDS+TECH+COMMUNITY+NEO+FEATURED+FIRESTIX+JOKES+YANGSY+MAIN_EX if m['id'] not in RETIRED_LEVEL_IDS)) if msu else PACKS[args.pack]
+    pack=dict(title='MSU-1 ALL WORLDS + TECH',levels=sorted(m['id'] for m in WORLDS+TECH+COMMUNITY+NEO+FEATURED+FIRESTIX+JOKES+YANGSY+MAIN_EX+TRIPLE_PLANET if m['id'] not in RETIRED_LEVEL_IDS)) if msu else PACKS[args.pack]
     if args.levels:pack=dict(pack,levels=args.levels)
     OUT=args.out or (ROOT/'build/campaign' if args.pack=='main' else ROOT/f'build/packs/{args.pack}')
     OUT.mkdir(parents=True,exist_ok=True)
@@ -801,6 +806,8 @@ def main():
         subprocess.run([sys.executable,str(ROOT/'tools/import_jokes.py'),'--levels',*map(str,missing_jokes)],check=True)
     missing_main_ex=[n for n in pack['levels'] if n in {m['id'] for m in MAIN_EX} and not (ROOT/f'assets/private/level{n}.json').exists()]
     if missing_main_ex:subprocess.run([sys.executable,str(ROOT/'tools/import_main_ex.py'),'--levels',*map(str,missing_main_ex)],check=True)
+    missing_triple=[n for n in pack['levels'] if n in {m['id'] for m in TRIPLE_PLANET} and not (ROOT/f'assets/private/level{n}.json').exists()]
+    if missing_triple:subprocess.run([sys.executable,str(ROOT/'tools/import_triple_planet.py'),'--levels',*map(str,missing_triple)],check=True)
     missing_yangsy=[n for n in pack['levels'] if n in {m['id'] for m in YANGSY} and not (ROOT/f'assets/private/level{n}.json').exists()]
     if missing_yangsy:
         subprocess.run([sys.executable,str(ROOT/'tools/import_yangsy.py'),'--levels',*map(str,missing_yangsy)],check=True)
@@ -866,7 +873,7 @@ def main():
             c['mode7']=True
             c['compiled_reference_sets']=True
             c['motion_step']=motion_step
-            if args.full_snapshot_source or n==49 or n in {m['id'] for m in FEATURED+FIRESTIX+JOKES+YANGSY+MAIN_EX}:
+            if args.full_snapshot_source or n==49 or n in {m['id'] for m in FEATURED+FIRESTIX+JOKES+YANGSY+MAIN_EX+TRIPLE_PLANET}:
                 c.update(projected_zoom_range=True,precise_viewport_cells=True,
                          pattern_pinned_limit=0,strict_pattern_quality=True,
                          share_palette_patterns=True,projected_pattern_overflow=True)

@@ -50,12 +50,16 @@ def compile_region(data, chart, region):
     floor = region['step']
     root = chart['notes'][floor]
     actions = data.get('featured_actions', [])
+    all_regions = data.get('decoration_hitboxes_all_regions', False)
+    if all_regions:
+        from track_motion import motion_schedule
+        motion_schedule(data, chart)
     objects = []
     for dec in data['featured_decorations']:
         tags = set(dec.get('tag', '').split())
         kills = dec.get('hitbox') == 'Kill' or (
             'hitbox' not in dec and enabled(dec.get('failHitbox', False)))
-        if not kills or dec['floor'] != floor - 1:
+        if not kills or (not all_regions and dec['floor'] != floor - 1):
             continue
         # These are the optional all-perfect secret route and its failure
         # screen, not obstacles on the normal maze route.
@@ -69,6 +73,8 @@ def compile_region(data, chart, region):
         base = chart['notes'][dec['floor']]
         origin = [base['x'] - root['x'] + 24 * dec['position'][0],
                   base['y'] - root['y'] - 24 * dec['position'][1]]
+        if all_regions:
+            origin = [v+b-r for v,b,r in zip(origin,base['position_track_offset'],root['position_track_offset'])]
         initial = [0., 0., 0., *dec.get('scale', (100, 100)), dec.get('opacity', 100)]
         commands = [[] for _ in initial]
         for event in actions:
@@ -116,6 +122,14 @@ def compile_region(data, chart, region):
                            round(math.cos(angle) * 256), round(math.sin(angle) * 256),
                            round(width * hit_scale[0] / 200), round(height * hit_scale[1] / 200),
                            width / 2, height / 2, max(0, min(100, opacity))])
+        if all_regions:
+            left,top,right,bottom=region['bounds']
+            # Keep hazards reachable by either planet, including its orbit.
+            # Other regions' objects retain their world positions and must
+            # not become duplicate local obstacles in this grid.
+            if not any(left-30-max(f[4:6]) <= f[0] <= right+30+max(f[4:6]) and
+                       top-30-max(f[4:6]) <= f[1] <= bottom+30+max(f[4:6]) for f in frames):
+                continue
         objects.append(dict(tag=dec['tag'], perfect_only='pp' in tags, start=region['start'], end=end,
                             size=list(image.size), alpha=base64.b64encode(zlib.compress(image.getchannel('A').tobytes())).decode(),
                             frames=frames))
@@ -176,7 +190,8 @@ class Overlay:
         if not active:
             return image
         # Allocate from unused source indices, never overwrite a track color.
-        unused = [i for i in range(32, 128) if i not in set(image.ravel())]
+        used = set(image.ravel())
+        unused = [i for i in range(32, 128) if i not in used]
         assert len(unused) >= 2, 'Maze hazard palette capacity'
         red, light = unused[-2:]
         palette[red], palette[light] = 31 | (3 << 5), 31 | (14 << 5) | (12 << 10)
@@ -225,7 +240,11 @@ def demo_route(region, note):
         times = np.arange(time, min(until+1, end))
         h = geometry[:, times-start, :6]
         angles = (angle+(times-time)*rate*sign)*math.pi/128
-        for px, py in ((x, y), (x+np.round(24*np.cos(angles)), y+np.round(24*np.sin(angles)))):
+        planets=[(x,y),(x+np.round(24*np.cos(angles)),y+np.round(24*np.sin(angles)))]
+        if note.get('planets',2)==3:
+            third=angles-sign*43*math.pi/128
+            planets.append((x+np.round(24*np.cos(third)),y+np.round(24*np.sin(third))))
+        for px, py in planets:
             dx, dy = px-h[:,:,0], py-h[:,:,1]
             co, si = h[:,:,2]/256, h[:,:,3]/256
             u = np.maximum(0, abs(np.round(dx*co+dy*si))-h[:,:,4])
@@ -246,7 +265,8 @@ def demo_route(region, note):
             raise ValueError('Maze controller route exceeds search budget')
         # FreeRoam returns from any occupied cell. The far side is a demo
         # destination, not an extra chart objective or compulsory corner.
-        if x >= goal[0]-24 and safe(x,y,time,angle,sign,end):
+        reached=(abs(x-goal[0])+abs(y-goal[1]) <= region['demo_goal_radius']) if 'demo_goal_radius' in region else x >= goal[0]-24
+        if reached and safe(x,y,time,angle,sign,end):
             return path
         for dx, dy, direction in ((24,0,0),(0,-24,192),(-24,0,128),(0,24,64)):
             point = (x+dx,y+dy)
@@ -260,8 +280,9 @@ def demo_route(region, note):
                 if at >= end or not safe(x,y,time,angle,sign,at):
                     continue
                 next_sign = -sign if point in twirls else sign
-                if safe(*point,at,direction^128,next_sign,at):
-                    heapq.heappush(queue,(at,*point,direction^128,next_sign,path+[[at,*point,direction^128]]))
+                next_angle=((direction^128)+(43*next_sign if note.get('planets',2)==3 else 0))%256
+                if safe(*point,at,next_angle,next_sign,at):
+                    heapq.heappush(queue,(at,*point,next_angle,next_sign,path+[[at,*point,next_angle]]))
     raise ValueError('No collision-free controller route through authored maze')
 
 

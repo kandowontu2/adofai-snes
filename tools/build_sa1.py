@@ -112,6 +112,16 @@ def compile_engine(out, *, generate_pcm=True):
     current+=inputs
     addresses=re.sub(r'^INPUT_EVENT_BUILD = .*\n?','',addresses,flags=re.M)
     if inputs:addresses+='\nINPUT_EVENT_BUILD = 1\n'
+    from conditional_judgments import tables as conditional_tables
+    conditions=conditional_tables(out,menu_levels)
+    current+=conditions
+    addresses=re.sub(r'^CONDITIONAL_JUDGMENT_BUILD = .*\n?','',addresses,flags=re.M)
+    if conditions:addresses+='\nCONDITIONAL_JUDGMENT_BUILD = 1\n'
+    from planet_scale import tables as planet_scale_tables
+    scales=planet_scale_tables(out,menu_levels)
+    current+=scales
+    addresses=re.sub(r'^PLANET_SCALE_BUILD = .*\n?','',addresses,flags=re.M)
+    if scales:addresses+='\nPLANET_SCALE_BUILD = 1\n'
     (out/'addresses.inc').write_text(addresses)
     write_menu_count(out,menu_levels)
     assert re.search(r'^orb_colors:.*$',current,re.M), 'Missing planet color table'

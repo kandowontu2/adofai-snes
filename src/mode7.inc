@@ -431,9 +431,31 @@ mode7_prepare_view:
     lda #7
  .endif
     sta m7_radius
+.ifdef PLANET_SCALE_BUILD
+    jsl planet_scale_update
+.endif
     rts
 
 mode7_draw_orb:
+.ifdef PLANET_SCALE_BUILD
+    lda m7_radius
+    pha
+    jsl planet_scaled_radius
+    beq @hidden
+    sta m7_radius
+    jsr mode7_draw_scaled_orb
+    pla
+    sta m7_radius
+    rts
+@hidden:
+    pla
+    lda oam_pos
+    clc
+    adc #16
+    sta oam_pos
+    rts
+mode7_draw_scaled_orb:
+.endif
     stz object_small
     lda m7_radius
     cmp #9

@@ -1,5 +1,5 @@
 """Recover exact-build release evidence and run final sequential regressions."""
-import json,subprocess,sys
+import argparse,json,subprocess,sys
 from pathlib import Path
 from verification_data import identity
 from run_mesen_campaign import suite_digest
@@ -35,9 +35,14 @@ def regressions(frozen,ids):
     return result
 
 def main():
+    global BASE,V
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--pack',default='stock-refresh-master')
+    parser.add_argument('--regressions-only',action='store_true')
+    args=parser.parse_args();BASE=ROOT/'build/packs'/args.pack;V=BASE/'verification'
     frozen=identity(BASE/'adofai.sfc');ids=read(BASE/'pack.json')['levels'];rows=[]
-    assert len(ids)==202
-    if '--regressions-only' in sys.argv:
+    assert len(ids)==len(set(ids)) and ids
+    if args.regressions_only:
         regressions(frozen,ids)
         print('RELEASE REGRESSIONS PASS; CATALOG STILL REQUIRED',flush=True)
         return
@@ -52,13 +57,32 @@ def main():
         rows.append(dict(id=n,local=local,passed=True,validation_suite_digest=m['suite_digest']))
     report=dict(**frozen,passed=True,complete=True,suite_digest=suite_digest(),results=rows)
     (V/'catalog/results.json').write_text(json.dumps(report,indent=2))
-    print('CATALOG 202 PASS',flush=True)
+    print(f'CATALOG {len(ids)} PASS',flush=True)
     path=V/'release-regressions.json'
     previous=read(path) if path.exists() else {}
     if not (previous.get('passed') and previous.get('suite_digest')==suite_digest()
             and all(previous.get(k)==v for k,v in frozen.items())):
         previous=regressions(frozen,ids)
+    features=[]
+    for level,tool,report in (
+            (140,'verify_coordinate_dma_mesen.py','coordinate-dma/verification.json'),
+            (284,'verify_overclocked_rules.py','overclocked-rules.json'),
+            (284,'verify_compressed_overclocked.py','overclocked-compressed/verification.json'),
+            (280,'verify_triple_maze.py','triple-third-planet-collision/verification.json')):
+        if level not in ids:continue
+        path=V/report;prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and all(prior.get(k)==v for k,v in frozen.items())):
+            run('run_mesen_campaign.py','--pack',BASE.name,'--levels',ids.index(level)+1,'--prepare-only')
+            run(tool,'--pack',BASE.name)
+        bound(path,frozen);features.append(report)
+    if 284 in ids:
+        local=ids.index(284)+1
+        path=V/f'mesen-checkpoints-{local}/manifest.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('run_mesen_campaign.py','--pack',BASE.name,'--levels',local,'--checkpoints','--sampled-graphics')
+        bound(path,frozen);features.append(str(path.relative_to(V)))
     assert identity(BASE/'adofai.sfc')==frozen
-    (V/'release-gates.json').write_text(json.dumps(dict(previous,catalog=202),indent=2))
+    (V/'release-gates.json').write_text(json.dumps(dict(previous,catalog=len(ids),features=features),indent=2))
     print('RELEASE GATES PASS',flush=True)
 if __name__=='__main__':main()

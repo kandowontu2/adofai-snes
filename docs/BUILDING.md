@@ -447,3 +447,30 @@ Use `tools/merge_render_cache.py --help` when replacing a chart in an existing
 master. It checks that timing, audio and checkpoint data still match and copies
 the complete render cache, including Mode 1 seeds. Preserve a VFX OFF cache
 before merging its VFX ON replacement. Do not manually copy only stream files.
+
+### Triple Planet collection and Overclocked beta
+
+The [Triple Planet collection](https://steamcommunity.com/sharedfiles/filedetails/?id=2922411723)
+contains 31 charts by mariokirby1703/Luma1703. With Steam running on the
+account that owns the game, download the selected Workshop catalogs, then import:
+
+```powershell
+.\.venv\Scripts\python.exe tools/download_tech.py
+.\.venv\Scripts\python.exe tools/import_triple_planet.py
+```
+
+For **1234 OVERCLOCKED (BETA)**, use the author's
+[playable beta archive](https://drive.google.com/file/d/1f6hE_8KJlWFkNMXj7ILVN82yibFX4RBS/view),
+linked from the [work-in-progress video](https://www.youtube.com/watch?v=eOePfbcQkzY).
+Extract it so this file exists under the project folder:
+`assets/private/overclocked-source/1234 Overclocked Edition/1234overclocked.adofai`.
+Keep its accompanying music and image files beside the chart. Then run:
+
+```powershell
+.\.venv\Scripts\python.exe tools/import_community.py --levels 284
+```
+
+These import commands prepare private source assets; they do not update an
+installed ROM by themselves. Use the full snapshot/master build workflow above.
+Overclocked's instructional text, perfect-only conditions and planet scaling
+are part of its gameplay. The beta does not contain the video's finished VFX.

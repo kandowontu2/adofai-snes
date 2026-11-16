@@ -705,6 +705,13 @@ render_inner:
     pha
     lda f:NOTE_CCW,x
     and #1
+.ifdef NEO_BUILD
+    ldy neo_free_mode
+    cpy #1
+    bne :+
+    eor neo_free_reversed
+:
+.endif
     beq @third_cw
     lda angle
     clc

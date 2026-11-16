@@ -8,7 +8,7 @@ from official_catalog import PACKS
 from verification_data import identity
 
 def suite_digest():
-    paths=sorted((ROOT/'tools').glob('verify*mesen.lua'))+[ROOT/'tools/mesen_failfast.lua',ROOT/'tools/run_mesen_campaign.py',ROOT/'tools/run_mesen_sequence.py',ROOT/'tools/menu_sets.py']
+    paths=sorted((ROOT/'tools').glob('verify*mesen.lua'))+[ROOT/'tools/mesen_failfast.lua',ROOT/'tools/run_mesen_campaign.py',ROOT/'tools/run_mesen_sequence.py',ROOT/'tools/menu_sets.py',ROOT/'tools/controller_events.py']
     return hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in paths)).hexdigest()
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--mesen',type=Path,default=Path(r'C:\mesen2\Mesen.exe'))
@@ -55,6 +55,8 @@ def main():
             for name in ('hold-orbits.txt','hold-planets.txt','screen-registers.txt','screen-capture-times.csv','mode1-icon-jobs.txt','ppu-verification.json'):
                 (out/name).unlink(missing_ok=True)
         names=('state','step','elapsed','combo','perfects','misses','selected_level','speed_tenths','time_attack','judgment_counts','score_lo','score_hi','finish_cs','nmi_audio_ticks','audio_ticks','speed_offset','joy')
+        if global_id in (280,284):
+            names+=('clock_song_frames','clock_song_frac','speed_offset_frac','music_origin','speed_scale')
         if 'pattern_vblank_overruns' in labels:names+=('pattern_vblank_overruns',)
         if chart.get('track_palette_versions'):
             names+=('display_state','display_chart_time','commits')
@@ -119,7 +121,8 @@ def main():
                     held=3-held
                     events.append((at,held,region['step']+1))
                 events.append((route[-1][0]+3,0,region['step']+1))
-            events.sort()
+            from controller_events import chords
+            events=chords(events)
             scheduled+=',neo_events={'+','.join('{'+','.join(map(str,row))+'}' for row in events)+'}'
         scheduled+=',failfast_script='+json.dumps((ROOT/'tools/mesen_failfast.lua').as_posix())
         scheduled+=',input_script='+json.dumps((ROOT/'tools/verify_input_sampling_mesen.lua').as_posix())
@@ -187,8 +190,12 @@ def main():
                 # from NOTE_ANGLE (which contains multiplanet spacing).
                 a=native['floors'][i]['exitangle']-math.pi/2
                 radius=24*native['floors'][i+1].get('radiusScale',1)
-                holdrows.append('['+str(i)+']={start='+str(n['frame'])+',finish='+str(end['frame'])+',angle='+str(n['angle'])+',sweep='+str(sweep(n)*128/math.pi)+',x='+str(round(-radius*math.cos(a)))+',y='+str(round(-radius*math.sin(a)))+'}')
+                holdrows.append('['+str(i)+']={start='+str(n['frame'])+',finish='+str(end['frame'])+',planets='+str(n.get('planets',2))+',angle='+str(n['angle'])+',sweep='+str(sweep(n)*128/math.pi)+',x='+str(round(-radius*math.cos(a)))+',y='+str(round(-radius*math.sin(a)))+'}')
             hnames=('state','step','chart_time','angle','neo_hold_phase','neo_hold_x','neo_hold_y','NOTE_X','NOTE_Y','palette_dirty','cam_x','cam_y','m7_radius','orbit_x','orbit_y','CAMERA_SCRIPT_X','CAMERA_SCRIPT_Y','neo_free_mode')
+            hnames+=('neo_orb_roles',)
+            from planet_scale import schedule as planet_scale_schedule
+            scale_rows=planet_scale_schedule(native,chart) if native.get('planet_scale_import') else []
+            scale_lua='{'+','.join('{'+','.join(map(str,row))+'}' for row in scale_rows)+'}'
             for name in ('CAMERA_SCRIPT_X','CAMERA_SCRIPT_Y'):
                 labels[name]=int(re.search(r'^'+name+r'=\$([0-9A-Fa-f]+)',(ROOT/'src/campaign.s').read_text(),re.M)[1],16)
             free_rows=[]
@@ -197,7 +204,7 @@ def main():
                 a=native['floors'][i+1]['entryangle']-math.pi/2
                 free_rows.append('['+str(i)+']={finish='+str(region['end'])+',angle='+str((round(a*128/math.pi)+128)&255)+',rate='+str(abs(chart['notes'][i]['rate'])*(-1 if end['ccw'] else 1))+'}')
             bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
-            scheduled+=',holds={native_anchor='+str('ROM_NATIVE_ADDR =' in (base/'addresses.inc').read_text()).lower()+',projected='+str(bool(chart.get('mode1_projected'))).lower()+',complete='+str(labels['neo_far_apply_ease']+3)+',free_complete='+str(labels['neo_free_orbit']+4+bank)+',free={'+','.join(free_rows)+'},script='+json.dumps((ROOT/'tools/verify_hold_orbit_mesen.lua').as_posix())+',addr={'+','.join(n+'='+str(labels[n]) for n in hnames)+'},notes={'+','.join(holdrows)+'}}'
+            scheduled+=',holds={scales='+scale_lua+',native_anchor='+str('ROM_NATIVE_ADDR =' in (base/'addresses.inc').read_text()).lower()+',projected='+str(bool(chart.get('mode1_projected'))).lower()+',complete='+str(labels['neo_far_apply_ease']+3)+',free_complete='+str(labels['neo_free_orbit']+4+bank)+',free={'+','.join(free_rows)+'},script='+json.dumps((ROOT/'tools/verify_hold_orbit_mesen.lua').as_posix())+',addr={'+','.join(n+'='+str(labels[n]) for n in hnames)+'},notes={'+','.join(holdrows)+'}}'
         if args.capture_times:scheduled+=',capture_times={'+','.join('['+str(t)+']=true' for t in args.capture_times)+'}'
         if chart.get('mode1_snapshot') and 'SNAPSHOT_ONLY_COORDS = 1' in (base/'addresses.inc').read_text():
             address=json.loads((base/'placements.json').read_text())[f'visibility_index{global_id}']

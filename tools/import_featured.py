@@ -100,11 +100,13 @@ def neo_fields(raw,data):
                 if frame>chart['notes'][i]['frame']:break
                 offsets.update(updates)
             p=chart['notes'][i-1];n=chart['notes'][i];px,py=offsets.get(i-1,(0,0));nx,ny=offsets.get(i,(0,0))
-            if p.get('hold_length',-1)>=0:
+            if p.get('hold_length',-1)>=0 or floors[i-1].get('freeroam'):
                 # A hold interpolates to the destination, including authored
                 # PositionTrack displacement. Its release is not a one-tile
                 # orbit from the hold's original position (scrPlanet's held
-                # MoveToNextFloor path). The region root is the landing cell.
+                # MoveToNextFloor path). A preceding free-roam region also
+                # returns to the next floor's entry vector before landing.
+                # The destination region root is therefore the landing cell.
                 f['freeroamEntry']=[0,0]
             else:
                 f['freeroamEntry']=[round(p['x']+px+24*math.cos(p['exit_angle'])-n['x']-nx),
@@ -112,14 +114,15 @@ def neo_fields(raw,data):
 
 
 def import_chart(meta,folder,out):
-    source=folder/meta['workshop']/'main.adofai';raw,repairs=read_chart(source)
+    source=ROOT/meta['source'] if 'source' in meta else folder/meta['workshop']/'main.adofai'
+    raw,repairs=read_chart(source)
     neo_events={'Hold','FreeRoam','ScaleRadius','SetPlanetRotation'}
     has_neo=meta.get('neo_cosmos') or any(a['eventType'] in neo_events for a in raw['actions'])
-    data=normalize_json(raw,dict(meta,text=meta['workshop'],neo_cosmos=bool(has_neo)))
+    data=normalize_json(raw,dict(meta,text=meta.get('workshop',meta.get('archive')),neo_cosmos=bool(has_neo)))
     settings=raw['settings'];actions=raw['actions']
     data.update(source=str(source),source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),source_repairs=repairs,
         artist=meta['artist'],author=meta['author'],featured_classic=meta.get('set') not in ('firestix','jokes','featured_tech','yangsy','main_ex','community'),featured_wave=meta.get('wave'),
-        workshop=meta['workshop'],firestix=meta.get('set')=='firestix',
+        workshop=meta.get('workshop'),firestix=meta.get('set')=='firestix',
         track_settings=settings,track_color_import=1,camera_rotation_initial=settings.get('rotation',0),
         camera_actions=[a for a in actions if a['eventType'] in ('MoveCamera','RepeatEvents','SetConditionalEvents')],
         track_actions=[a for a in actions if a['eventType'] in ('AnimateTrack','MoveTrack','PositionTrack','RepeatEvents','Hide','ColorTrack','RecolorTrack','ChangeTrack','SetConditionalEvents')],
@@ -131,6 +134,8 @@ def import_chart(meta,folder,out):
     for i in range(len(data['floors'])):
         hidden=hides.get(i,hidden);data['hidden_icons'].append(hidden)
     if has_neo:neo_fields(raw,data)
+    data['planet_scale_import']=True
+    if meta.get('perfect_only_tag'):data['perfect_only_tag']=meta['perfect_only_tag']
     n=meta['id'];out.mkdir(exist_ok=True,parents=True)
     (out/f'level{n}.json').write_text(json.dumps(data,indent=2))
     wav=out/f'{n}-X.wav'

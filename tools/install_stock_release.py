@@ -1,5 +1,5 @@
-"""Install the verified 202-chart dataset and all four master archives."""
-import copy,hashlib,json,os,re,shutil,struct,zipfile,sys
+"""Install a verified catalog and all four master archives."""
+import argparse,copy,hashlib,json,os,re,shutil,struct,zipfile,sys
 from pathlib import Path
 from verification_data import identity,file_sha256
 ROOT=Path(__file__).resolve().parents[1]
@@ -20,20 +20,35 @@ def raw_entry(source,output,name):
         block=source.fp.read(min(left,4*1024*1024));assert block;output.fp.write(block);left-=len(block)
     output.start_dir=output.fp.tell();output.filelist.append(entry);output.NameToInfo[name]=entry;output._didModify=True
 def main():
-    frozen=identity(BASE/'adofai.sfc');ids=read(BASE/'pack.json')['levels'];assert len(ids)==202
+    global BASE,V
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--pack',default='stock-refresh-master')
+    parser.add_argument('--folders-only',action='store_true')
+    args=parser.parse_args();BASE=ROOT/'build/packs'/args.pack;V=BASE/'verification'
+    frozen=identity(BASE/'adofai.sfc');pack=read(BASE/'pack.json');ids=pack['levels'];assert ids and len(set(ids))==len(ids)
     reports={}
-    folders_only='--folders-only' in sys.argv
+    folders_only=args.folders_only
     for name in (('sa1-layout.json','chaos-performance.json') if folders_only else ('catalog/results.json','release-gates.json','sa1-layout.json','chaos-performance.json')):
         d=read(V/name);assert d.get('passed') and all(d.get(k)==v for k,v in frozen.items()),name;reports[name]=d
     if folders_only:
         for local in range(1,len(ids)+1):
             p=V/f'mesen-{local}-autoplay/manifest.json';d=read(p)
             assert d.get('passed') and all(d.get(k)==v for k,v in frozen.items()),str(p)
-        reports['catalog_replays']={'passed':True,'count':202,'final_release_regressions':'in progress'}
-    full=DIST/'adofai-msu-master';pcm=read(full/'pcm-manifest.json');assert [r['id'] for r in pcm]==ids
+        reports['catalog_replays']={'passed':True,'count':len(ids),'final_release_regressions':'in progress'}
+    if not folders_only:
+        assert reports['release-gates.json']['catalog']==len(ids)
+        assert [r['id'] for r in reports['catalog/results.json']['results']]==ids
+    full=DIST/'adofai-msu-master'
+    pcm_path=BASE/'pcm-manifest.json'
+    pcm=read(pcm_path if pcm_path.exists() else full/'pcm-manifest.json');assert [r['id'] for r in pcm]==ids
     full_tracks={f'adofai-{t["track"]}.pcm' for r in pcm for t in r['tracks']}
     main_tracks={f'adofai-{n}.pcm' for n in ids}
-    update_tracks={f'adofai-{t["track"]}.pcm' for r in pcm if r['id'] in (53,251,252) for t in r['tracks']}
+    update_tracks={f'adofai-{t["track"]}.pcm' for r in pcm if r['id'] in pack.get('updated_audio_levels',(53,251,252)) for t in r['tracks']}
+    for name in sorted(full_tracks):
+        source=BASE/name
+        if source.exists() and (not (full/name).exists() or file_sha256(source)!=file_sha256(full/name)):
+            copy_file(source,full/name)
+    if pcm_path.exists():copy_file(pcm_path,full/'pcm-manifest.json')
     assert all((full/n).is_file() for n in full_tracks)
     catalog={'levels':[{k:c[k] for k in ('id','code','title')} for c in read(BASE/'msu-manifest.json')['levels']]}
     note='''ADOFAI SNES - 2026-11-15, dataset 32, 202 charts
@@ -54,7 +69,8 @@ MesenCE tested. Dense scenes can still stutter; not a locked-60-fps guarantee.
 Replace BOTH adofai.sfc and adofai.msu together. Saves are not removed.
 Legacy self-contained standalone cartridges are unchanged by this master release.
 '''
-    evidence=dict(passed=True,**frozen,world_count=202,reports=reports,hardware_tested=False)
+    if (BASE/'release-notes.txt').exists():note=(BASE/'release-notes.txt').read_text()
+    evidence=dict(passed=True,**frozen,world_count=len(ids),reports=reports,hardware_tested=False)
     installed=V/'installed-folders.json'
     reuse_installed=not folders_only and installed.exists() and all(read(installed).get(k)==v for k,v in frozen.items())
     if reuse_installed:
@@ -93,10 +109,27 @@ Legacy self-contained standalone cartridges are unchanged by this master release
         print('ALL THREE FOLDERS UPDATED; ARCHIVES PENDING',flush=True)
         return
     fullzip=full/'adofai-msu-master.zip';temp=fullzip.with_suffix('.zip.new')
-    with zipfile.ZipFile(temp,'w',zipfile.ZIP_DEFLATED,compresslevel=1,allowZip64=True) as z:
-        for n in ['adofai.sfc','adofai.msu',*meta,*sorted(full_tracks)]:
-            z.write(full/n,n)
-        print('FULL ZIP WRITTEN',flush=True)
+    previous=None;previous_hashes={}
+    if fullzip.exists():
+        try:
+            previous=zipfile.ZipFile(fullzip)
+            previous_hashes={name:digest for digest,name in
+                             (line.split('  ',1) for line in previous.read('SHA256SUMS.txt').decode().splitlines())}
+        except (OSError,KeyError,ValueError,UnicodeError,zipfile.BadZipFile):
+            if previous:previous.close()
+            previous=None
+    try:
+        reused=0
+        with zipfile.ZipFile(temp,'w',zipfile.ZIP_DEFLATED,compresslevel=1,allowZip64=True) as z:
+            for n in ['adofai.sfc','adofai.msu',*meta,*sorted(full_tracks)]:
+                # Reuse only unchanged PCM payloads. The paired engine/data
+                # and release metadata are always written from this build.
+                if previous and n in hashes and previous_hashes.get(n)==hashes[n] and n in previous.NameToInfo:
+                    raw_entry(previous,z,n);reused+=1
+                else:z.write(full/n,n)
+            print('FULL ZIP WRITTEN;',reused,'unchanged audio entries reused',flush=True)
+    finally:
+        if previous:previous.close()
     with zipfile.ZipFile(temp) as z:assert z.testzip() is None
     os.replace(temp,fullzip)
     archives=[fullzip]

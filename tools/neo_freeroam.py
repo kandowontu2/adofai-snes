@@ -81,6 +81,10 @@ def compile_regions(data, chart):
                 for p in ((x+24,y),(x,y-24),(x-24,y),(x,y+24)):
                     if p in cells and p not in seen:seen.add(p);queue.append(p)
             r['goal']=list(max(seen,key=lambda p:(p[0],p[1])))
+            if data.get('decoration_hitboxes_all_regions'):
+                ex,ey=r['entry']
+                r['goal']=list(max(seen,key=lambda p:(abs(p[0]-ex)+abs(p[1]-ey),abs(p[0]-ex),p)))
+                r['demo_goal_radius']=24
         if r.get('decoration_hitboxes'):
             from decoration_hitboxes import demo_route as hazard_route
             r['demo_route']=hazard_route(r,n)
@@ -155,8 +159,9 @@ def demo_route(region,note,reverse=False):
             if turn<16:turn+=256
             at=round(at+turn/abs(rate))
             if at>=deadline:raise ValueError('Free-roam demo route misses objective deadline')
-            result.append([at,*p,direction^128]);angle=direction^128;current=p
             if list(p) in region.get('twirls',[]):rate=-rate;sign=-sign
+            angle=((direction^128)+(43*sign if note.get('planets',2)==3 else 0))%256
+            result.append([at,*p,angle]);current=p
         if not goals:
             # Keep this safe position through the check before seeking the
             # next safe region (whose safe half may be the current hazard).

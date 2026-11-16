@@ -11,6 +11,8 @@ TECH=json.loads(Path(__file__).with_name('tech_catalog.json').read_text())
 COMMUNITY=json.loads(Path(__file__).with_name('community_catalog.json').read_text())
 YANGSY=json.loads(Path(__file__).with_name('yangsy_catalog.json').read_text())
 MAIN_EX=json.loads(Path(__file__).with_name('main_ex_catalog.json').read_text())
+TRIPLE_PLANET=json.loads(Path(__file__).with_name('triple_planet_catalog.json').read_text())
+TRIPLE_IDS={m['id'] for m in TRIPLE_PLANET}
 MAIN_EX_IDS={m['id'] for m in MAIN_EX}
 YANGSY_IDS={m['id'] for m in YANGSY}
 CLASSIC_IDS={63,64,*[m['id'] for m in FEATURED if m.get('set')!='featured_tech']}
@@ -37,7 +39,8 @@ def groups(levels):
           ('FEATURED TECH',TECH_IDS),
           ('FEATURED CLASSIC',CLASSIC_IDS),
           ('YANGSY CURSED LEVELS',YANGSY_IDS),
-          ('COMMUNITY',[n for n in range(62,1000) if n not in {m['id'] for m in NEO}|CLASSIC_IDS|TECH_IDS|FIRESTIX_IDS|JOKE_IDS|YANGSY_IDS|MAIN_EX_IDS]),
+          ('TRIPLE PLANET WORLDS',TRIPLE_IDS),
+          ('COMMUNITY',[n for n in range(62,1000) if n not in {m['id'] for m in NEO}|CLASSIC_IDS|TECH_IDS|FIRESTIX_IDS|JOKE_IDS|YANGSY_IDS|MAIN_EX_IDS|TRIPLE_IDS]),
           ('NEO COSMOS',[m['id'] for m in NEO])]
     result=[(name,[i for i,n in enumerate(levels) if n in members]) for name,members in sets]
     result=[row for row in result if row[1]]

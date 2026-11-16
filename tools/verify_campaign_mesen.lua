@@ -1,4 +1,4 @@
--- Real-controller replay in a second, independent emulator core.
+-- Real-controller replay in MesenCE.
 local C = dofile(os.getenv('ADOFAI_TEST_CONFIG'))
 dofile(C.failfast_script)(C)
 if C.coordinates then dofile(C.coordinates.script)(C) end
@@ -141,11 +141,20 @@ emu.addEventCallback(function()
       local delta=(word(C.addr.nmi_audio_ticks)-word(C.addr.audio_ticks)+32768)%65536-32768
       local offset=word(C.addr.speed_offset);if offset>=32768 then offset=offset-65536 end
       local current=elapsed+delta*.004*60.0988118623*C.pitch/1536-offset
-      while C.neo_events[neoInput] and current+1>=C.neo_events[neoInput][1] do
+      local lead=1
+      if C.addr.clock_song_frac then
+        current=word(C.addr.clock_song_frames)+word(C.addr.clock_song_frac)/65536+word(C.addr.music_origin)
+          -offset-word(C.addr.speed_offset_frac)/65536+delta*word(C.addr.speed_scale)/65536
+        -- inputPolled supplies the next controller latch, one video frame
+        -- later. Center that discrete poll inside the perfect window.
+        lead=1.5
+      end
+      while C.neo_events[neoInput] and current+lead>=C.neo_events[neoInput][1] do
         neoHeld=C.neo_events[neoInput][2];neoInput=neoInput+1
       end
-      if neoHeld%2==1 then buttons.a=true end
-      if math.floor(neoHeld/2)%2==1 then buttons.b=true end
+      for i,key in ipairs({'a','b','x','y','l','r'}) do
+        if math.floor(neoHeld/2^(i-1))%2==1 then buttons[key]=true end
+      end
     elseif C.manual_times then
       local delta=(word(C.addr.nmi_audio_ticks)-word(C.addr.audio_ticks)+32768)%65536-32768
       local offset=word(C.addr.speed_offset);if offset>=32768 then offset=offset-65536 end

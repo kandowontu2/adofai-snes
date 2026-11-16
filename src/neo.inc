@@ -149,6 +149,38 @@ neo_far_hold_style:
 
 neo_far_orb_roles:
     jsr neo_note_presentation
+    sta scratch
+    lda neo_free_mode
+    cmp #1
+    bne @unchanged
+    lda neo_free_hops
+@modulo:
+    cmp #3
+    bcc @rotate_count
+    sec
+    sbc #3
+    bra @modulo
+@rotate_count:
+    tay
+    beq @unchanged
+@rotate:
+    lda scratch
+    and #6
+    asl a
+    asl a
+    asl a
+    asl a
+    sta scratch2
+    lda scratch
+    lsr a
+    lsr a
+    and #$1E
+    ora scratch2
+    sta scratch
+    dey
+    bne @rotate
+@unchanged:
+    lda scratch
     rtl
 
 neo_note_presentation:
@@ -818,7 +850,7 @@ neo_impl_free_input:
     inx
     dec scratch
     bne @cell
-    bra @outside
+    jmp @outside
 @land:
     ; Preserve the matched cell while checking its destruction deadline.
     phx
@@ -857,6 +889,25 @@ neo_impl_free_input:
     lda scratch2
     eor #128
     sta neo_free_angle
+    ldx step
+    lda f:NOTE_CCW,x
+    bit #2
+    beq @hop_angle_ready
+    and #1
+    eor neo_free_reversed
+    bne @hop_ccw
+    lda neo_free_angle
+    clc
+    adc #43
+    bra @hop_adjusted
+@hop_ccw:
+    lda neo_free_angle
+    sec
+    sbc #43
+@hop_adjusted:
+    and #255
+    sta neo_free_angle
+@hop_angle_ready:
     lda tap_clock
     sta neo_free_time
     inc neo_free_hops
@@ -1625,7 +1676,7 @@ neo_deco_collision:
     lda neo_free_y
     sta neo_free_object_y
     jsr neo_deco_point
-    bcs @failed
+    jcs @failed
     lda neo_free_x
     clc
     adc orbit_x
@@ -1635,7 +1686,49 @@ neo_deco_collision:
     adc orbit_y
     sta neo_free_object_y
     jsr neo_deco_point
-    bcs @failed
+    jcs @failed
+    ldx step
+    lda f:NOTE_CCW,x
+    bit #2
+    beq @next
+    lda angle
+    pha
+    lda orbit_x
+    pha
+    lda orbit_y
+    pha
+    lda f:NOTE_CCW,x
+    and #1
+    eor neo_free_reversed
+    beq @third_cw
+    lda angle
+    clc
+    adc #43
+    bra @third
+@third_cw:
+    lda angle
+    sec
+    sbc #43
+@third:
+    and #255
+    sta angle
+    jsl neo_call_sine_cosine
+    lda neo_free_x
+    clc
+    adc orbit_x
+    sta neo_free_object_x
+    lda neo_free_y
+    clc
+    adc orbit_y
+    sta neo_free_object_y
+    pla
+    sta orbit_y
+    pla
+    sta orbit_x
+    pla
+    sta angle
+    jsr neo_deco_point
+    jcs @failed
 @next:
     lda neo_deco_cursor
     clc

@@ -6,6 +6,7 @@ images are reported separately because their transforms must follow live input.
 import bisect
 import collections
 import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -18,20 +19,40 @@ from track_motion import enabled, easing
 def text_image(text):
     """Keep instructional text readable with the project's editable CHR font."""
     font=(Path(__file__).resolve().parents[1]/'assets/graphics/campaign/font.chr').read_bytes()
-    lines=text.upper().splitlines() or ['']
+    mathfont=(Path(__file__).resolve().parents[1]/'assets/graphics/campaign/math-font.chr').read_bytes()
+    # Color is part of instructions such as "blue tiles are twirls".
+    # Parse the supported TMP color spans without drawing markup as glyphs.
+    lines=[[]];colors=[(255,255,255,255)]
+    for token in re.split(r'(<[^>]*>)',text):
+        if token.lower().startswith('<color='):
+            value=token[7:-1].lstrip('#')
+            if len(value) not in (6,8):raise ValueError(('Unsupported text color',token))
+            colors.append(tuple(int(value[i:i+2],16) for i in (0,2,4))+(int(value[6:8] or 'ff',16),))
+        elif token.lower()=='</color>':
+            if len(colors)>1:colors.pop()
+        elif token.startswith('<'):
+            raise ValueError(('Unsupported instructional text markup',token))
+        else:
+            for char in token.upper():
+                if char=='\n':lines.append([])
+                elif char!='\r':lines[-1].append((char,colors[-1]))
     canvas=np.zeros((8*len(lines),max(1,max(map(len,lines)))*8,4),dtype=np.uint8)
     for row,line in enumerate(lines):
-        for column,char in enumerate(line):
-            if char=='↑':
+        for column,(char,color) in enumerate(line):
+            if char=='■':
+                pixels=np.zeros((8,8),dtype=bool);pixels[1:7,1:7]=True
+            elif char=='↑':
                 pixels=np.array([[int(v) for v in s] for s in
                     ['00010000','00111000','01111100','00010000','00010000','00010000','00010000','00000000']],dtype=bool)
-            elif ord(char)<128:
-                raw=font[ord(char)*16:ord(char)*16+16]
+            elif ord(char)<128 or char in '√×Π':
+                glyph='√×Π'.index(char) if char in '√×Π' else ord(char)
+                sheet=mathfont if char in '√×Π' else font
+                raw=sheet[glyph*16:glyph*16+16]
                 pixels=np.array([[bool((raw[y*2]|raw[y*2+1])&(128>>x)) for x in range(8)] for y in range(8)])
             else:
                 raise ValueError(('Unsupported instructional text character',char))
             tile=canvas[row*8:row*8+8,column*8:column*8+8]
-            tile[pixels]=255
+            tile[pixels]=color
     return np.asarray(Image.fromarray(canvas).resize((canvas.shape[1]*8,canvas.shape[0]*8),Image.Resampling.NEAREST))
 
 
@@ -68,6 +89,9 @@ def floor_image(dec):
 def expanded_moves(data, chart):
     actions = list(data.get('featured_actions', []))
     for event in data.get('featured_actions', []):
+        if event['eventType']=='SetText':
+            actions.append(dict(event,eventType='MoveDecorations',duration=0,
+                                decorationImage='@text:'+event.get('decText','')))
         if event['eventType']=='SetObject':
             converted=dict(event,eventType='MoveDecorations')
             if 'trackColor' in event:converted['color']=event['trackColor']
@@ -186,6 +210,7 @@ class DecorationTracks:
         self.planet_proxies = []
         self.pending = []
         self.images = {}
+        self.text_contrast=chart.get('decoration_text_contrast',False)
         self.respect_track_depth=chart.get('decoration_depth_order',False)
         self.background_resolution=chart.get('decoration_background_resolution',1)
         self.background_only=chart.get('decoration_background_only',False)
@@ -195,6 +220,10 @@ class DecorationTracks:
         self.initial_camera_scale = max(.001, math.hypot(*self.camera_samples[0][1:])/256)
         self.world_origin=(chart['notes'][0]['x'],chart['notes'][0]['y'])
         directory = Path(data['source']).parent
+        for event in data.get('featured_actions',[]):
+            if event['eventType']=='SetText':
+                name='@text:'+event.get('decText','')
+                if name not in self.images:self.images[name]=text_image(event.get('decText',''))
         moves = expanded_moves(data, chart)
         for order, dec in enumerate(data.get('featured_decorations', [])):
             gameplay_floor=dec['eventType']=='AddObject' and dec.get('objectType')=='Floor'
@@ -235,7 +264,7 @@ class DecorationTracks:
                 raise ValueError(('Unsupported decoration mask', dec.get('tag')))
             if any(v<=0 for v in dec.get('tile',[1,1])):
                 raise ValueError(('Nonpositive decoration tiling',dec.get('tag')))
-            note = chart['notes'][max(0,min(dec['floor'],len(chart['notes'])-1))]
+            note = chart['notes'][max(0,min(dec.get('floor',0),len(chart['notes'])-1))]
             offset = note.get('position_track_offset', (0, 0))
             origin = (note['x']+offset[0], note['y']+offset[1])
             placement=dec.get('relativeTo','Tile')
@@ -288,7 +317,7 @@ class DecorationTracks:
             for _, name in images:
                 if name and name not in self.images:
                     self.images[name] = np.asarray(Image.open(directory/name).convert('RGBA'))
-            self.objects.append(dict(origin=origin, gameplay_floor=gameplay_floor, tracks=[Tween(v, c) for v, c in zip(initial, commands)],
+            self.objects.append(dict(origin=origin, gameplay_floor=gameplay_floor, text=dec.get('decorationImage','').startswith('@text:'), tracks=[Tween(v, c) for v, c in zip(initial, commands)],
                                      images=images, image_times=[r[0] for r in images],
                                      pivot=dec.get('pivotOffset', [0, 0]), color=dec.get('color', 'ffffff')[:6],
                                      parallax=dec.get('parallax', [0, 0]),
@@ -383,6 +412,11 @@ class DecorationTracks:
             visible = alpha > 0
             yy, xx, sample = yy[visible], xx[visible], sample[visible]
             tint = np.array([red,green,blue])
+            # The port uses a dark playfield instead of the beta's white
+            # background. Keep neutral dark instructions readable while
+            # retaining colored spans and authored opacity transitions.
+            if self.text_contrast and obj['text'] and max(tint)<96 and max(tint)-min(tint)<16:
+                tint=np.array([240,240,240])
             a=alpha[visible,None]
             source_rgb=sample[:,:3].astype(float)*tint/255
             destination_rgb=layer[yy,xx,:3].astype(float)
@@ -403,7 +437,8 @@ class DecorationTracks:
         mask = layer[:, :, 3] >= 128
         if not mask.any():
             return image
-        available = [i for i in range(32, 128) if i not in set(image.ravel())]
+        used = set(image.ravel())
+        available = [i for i in range(32, 128) if i not in used]
         if len(available) < 12:
             raise ValueError('Not enough free source palette entries for decoration art')
         # One shared SNES palette for custom art; native track pixels are intact.

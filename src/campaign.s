@@ -778,6 +778,7 @@ orb_palette: .res 64
 ; SA-1's similarly named $0580 is in its separate internal RAM.
 third_palette=$0580
 neo_orb_roles=third_palette+32
+.export neo_orb_roles
 .endif
 last_judgment: .res 2
 judge_signed: .res 2
@@ -1051,6 +1052,9 @@ neo_curve_cache_step: .res 2
 neo_curve_cache_level: .res 2
 neo_curve_cache_record: .res 2
 sprite_limit: .res 2
+.ifdef PLANET_SCALE_BUILD
+planet_scale_values: .res 6
+.endif
 
 .segment "CODE"
 .a16
@@ -1940,6 +1944,12 @@ start_game:
 .include "src/render.inc"
 .ifdef NEO_BUILD
 .include "src/neo.inc"
+.ifdef CONDITIONAL_JUDGMENT_BUILD
+.include "src/conditional_judgments.inc"
+.endif
+.ifdef PLANET_SCALE_BUILD
+.include "src/planet_scale.inc"
+.endif
 .include "src/neo_math.inc"
 .endif
 .include "src/effects.inc"

@@ -96,12 +96,19 @@ emu.addEventCallback(function()
       local delta=(word('nmi_audio_ticks')-word('audio_ticks')+32768)%65536-32768
       local offset=word('speed_offset');if offset>=32768 then offset=offset-65536 end
       local current=word('elapsed')+delta*.004*60.0988118623*C.pitch/1536-offset
-      while stage~='die' and word('checkpoint_preroll')==0 and C.neo_events[neoInput] and current+1>=C.neo_events[neoInput][1] do
+      local lead=1
+      if C.addr.clock_song_frac then
+        current=word('clock_song_frames')+word('clock_song_frac')/65536+word('music_origin')
+          -offset-word('speed_offset_frac')/65536+delta*word('speed_scale')/65536
+        lead=1.5
+      end
+      while stage~='die' and word('checkpoint_preroll')==0 and C.neo_events[neoInput] and current+lead>=C.neo_events[neoInput][1] do
         neoHeld=C.neo_events[neoInput][2];neoInput=neoInput+1
       end
       if stage~='die' and word('checkpoint_preroll')==0 then
-        if neoHeld%2==1 then buttons.a=true end
-        if math.floor(neoHeld/2)%2==1 then buttons.b=true end
+        for i,key in ipairs({'a','b','x','y','l','r'}) do
+          if math.floor(neoHeld/2^(i-1))%2==1 then buttons[key]=true end
+        end
       end
     elseif C.manual_times then
       local delta=(word('nmi_audio_ticks')-word('audio_ticks')+32768)%65536-32768

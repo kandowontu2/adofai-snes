@@ -65,12 +65,26 @@ return function(C)
       position[axis]=signed((anchor+offset-origin-value('cam_'..axis)-8)%65536)
     end
     local O=emu.memType.snesSpriteRam
+    local scales={0,256,256,256}
+    for _,row in ipairs(H.scales or {}) do
+      if row[1]>time then break end
+      scales=row
+    end
     for orb=0,1 do
       local x=position.x+(orb==1 and signed(value('orbit_x')) or 0)
       local y=position.y+(orb==1 and signed(value('orbit_y')) or 0)
+      local color=(step+orb)%2
+      if h.planets==3 then color=math.floor(value('neo_orb_roles')/2^(1+orb*2))%4 end
+      local scaled=math.min(15,math.floor(radius*scales[color+2]/256+0.5))
       if x>=0 and x<=240 and y>=32 and y<=160 then
-        if not check(emu.read(orb*16,O)==x and emu.read(orb*16+1,O)==y,
+        if scaled==0 then
+          if not check(emu.read(orb*16+1,O)>=224,'Authored hidden hold planet is visible at floor '..step) then return end
+        else
+          local shift=scaled<5 and 4 or scaled>=9 and -8 or 0
+          x=x+shift;y=y+shift
+          if not check(emu.read(orb*16,O)==x and emu.read(orb*16+1,O)==y,
           'Hold planet missing/displaced at floor '..step..' orb '..orb..' time '..time..' actual='..emu.read(orb*16,O)..','..emu.read(orb*16+1,O)..' expected='..x..','..y..' phase='..value('neo_hold_phase')) then return end
+        end
         planet_samples=planet_samples+1
       end
     end

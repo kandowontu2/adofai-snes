@@ -12,6 +12,38 @@ from make_assets import FPS
 
 
 class DecorationTrackTests(unittest.TestCase):
+    def test_dark_instruction_is_readable_on_port_playfield(self):
+        chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)],decoration_text_contrast=True)
+        data=dict(source='unused.adofai',bpm=120,featured_actions=[],featured_decorations=[
+            dict(floor=0,eventType='AddText',decText='A',color='000000ff')])
+        py,px=np.mgrid[:32,:32]
+        palette=np.zeros(256,dtype=np.uint16)
+        result=DecorationTracks(data,chart).draw(np.zeros((34,32),dtype=np.uint8),0,px,py,0,palette)
+        self.assertGreater(np.count_nonzero(palette[result]),3)
+
+    def test_instructional_color_spans_do_not_draw_markup(self):
+        from decoration_tracks import text_image
+        plain=text_image('AB')
+        colored=text_image('<color=#ff0000>A</color>B')
+        self.assertEqual(plain.shape,colored.shape)
+        self.assertTrue(np.array_equal(plain[:,:,3],colored[:,:,3]))
+        first=colored[:,:64];second=colored[:,64:]
+        self.assertTrue(np.all(first[first[:,:,3]>0]==[255,0,0,255]))
+        self.assertTrue(np.all(second[second[:,:,3]>0]==255))
+
+    def test_set_text_becomes_instant_tagged_image_change(self):
+        from decoration_tracks import expanded_moves
+        data=dict(bpm=120,featured_actions=[dict(eventType='SetText',floor=1,
+                  tag='instruction',decText='TURN',angleOffset=90)])
+        chart=dict(notes=[dict(time=0,speed=1),dict(time=2,speed=1)])
+        rows=expanded_moves(data,chart)
+        self.assertEqual(len(rows),1)
+        start,_,duration,event=rows[0]
+        self.assertAlmostEqual(start,2.25*FPS)
+        self.assertEqual(duration,0)
+        self.assertEqual(event['decorationImage'],'@text:TURN')
+        self.assertEqual(event['tag'],'instruction')
+
     def test_optional_scenery_preserves_exact_floor_pixels_and_colors(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)

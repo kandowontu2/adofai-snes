@@ -143,3 +143,8 @@ a one-pixel margin. Preserve ink index 7 and transparent index 0. Both answers u
 correct-answer highlight. `math-questions.json` contains the original
 four question/answer variants for each difficulty pool. New runs and
 checkpoint attempts select fresh question variants.
+
+Workshop instructional text also uses `campaign/math-font.chr`: three 8x8
+2bpp glyphs, 16 bytes each, ordered square root, multiplication sign, and pi.
+Use ink index 1 and transparent index 0. These supplement the ordinary
+`campaign/font.chr` when chart text is rendered into the track view.

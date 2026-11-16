@@ -44,6 +44,20 @@ class FeaturedImportTests(unittest.TestCase):
         self.assertEqual(chart['freeroam_regions'][0]['entry'],[0,0])
         self.assertIn((0,0),chart['freeroam_regions'][0]['cells'])
 
+    def test_consecutive_displaced_freeroam_regions_enter_at_return_destination(self):
+        from import_official import normalize_json
+        from import_featured import neo_fields
+        actions=[dict(floor=i,eventType='FreeRoam',duration=8,size=[4,4],positionOffset=[-3,0])
+                 for i in (1,2)]
+        actions.append(dict(floor=2,eventType='PositionTrack',positionOffset=[-4,0],
+                            relativeTo=[0,'ThisTile'],justThisTile=False,editorOnly=False))
+        raw=dict(settings=dict(bpm=120,offset=0),angleData=[0]*5,actions=actions)
+        data=normalize_json(raw,dict(id=1,code='TEST',title='TEST',text='test',neo_cosmos=True))
+        data['track_actions']=actions
+        neo_fields(raw,data)
+        chart,_=compile_chart(data)
+        self.assertEqual([r['entry'] for r in chart['freeroam_regions']],[[0,0],[0,0]])
+
     def test_small_tempo_changes_have_no_gameplay_speed_icon(self):
         from import_official import normalize_json
         raw=dict(settings=dict(bpm=100,offset=0),angleData=[0]*6,actions=[
