@@ -206,6 +206,9 @@ def actor_camera_events(data, chart, end):
 
 class DecorationTracks:
     def __init__(self, data, chart):
+        if data.get('id')==284:
+            from overclocked_readability import title_actions
+            data=dict(data,featured_actions=title_actions(data.get('featured_actions',[])))
         self.objects = []
         self.planet_proxies = []
         self.pending = []
@@ -226,6 +229,12 @@ class DecorationTracks:
                 if name not in self.images:self.images[name]=text_image(event.get('decText',''))
         moves = expanded_moves(data, chart)
         for order, dec in enumerate(data.get('featured_decorations', [])):
+            if data.get('id')==284 and dec.get('decorationImage') in ('triangle.png','square.png'):
+                from overclocked_readability import shortcut_image
+                self.images[dec['decorationImage']]=shortcut_image(dec['decorationImage'])
+                # These PNGs replace playable floors. Drawing them behind
+                # the native floor erased their identifying center symbols.
+                dec=dict(dec,depth=-2)
             gameplay_floor=dec['eventType']=='AddObject' and dec.get('objectType')=='Floor'
             if chart.get('decoration_gameplay_images') and dec.get('decorationImage') not in chart['decoration_gameplay_images']:
                 continue

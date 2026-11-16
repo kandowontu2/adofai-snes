@@ -17,13 +17,13 @@ local frame=0
 local presses={[90]='b',[110]='right',[130]='up',[150]='right',[170]='start',[190]='b',[210]='right'}
 emu.addEventCallback(function()
  frame=frame+1
- if frame==105 then assert(w('state')==7 and w('vfx_enabled')==1,'VFX default/options entry') end
+ if frame==105 then assert(w('state')==7 and w('vfx_enabled')==0,'VFX default/options entry') end
  if frame==125 then assert(w('time_attack')==1 and w('ice_color')==1,'Time attack toggled wrong setting') end
  if frame==145 then assert(w('settings_row')==6,'Options wrap omitted VFX row') end
- if frame==165 then assert(w('vfx_enabled')==0,'VFX OFF did not toggle') end
- if frame==205 then assert(w('state')==7 and w('vfx_enabled')==0,'VFX OFF lost when returning to options') end
+ if frame==165 then assert(w('vfx_enabled')==1,'VFX ON did not toggle') end
+ if frame==205 then assert(w('state')==7 and w('vfx_enabled')==1,'VFX ON lost when returning to options') end
  if frame==230 then
-  assert(w('vfx_enabled')==1 and w('time_attack')==1,'VFX ON changed another setting')
+  assert(w('vfx_enabled')==0 and w('time_attack')==1,'VFX OFF changed another setting')
   local f=assert(io.open(out..'/options.png','wb'));f:write(emu.takeScreenshot());f:close()
   f=assert(io.open(out..'/result.txt','w'));f:write('PASS default, toggle, wrap, retention, neighboring setting\n');f:close()
   emu.stop(0)

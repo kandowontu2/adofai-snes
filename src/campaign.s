@@ -768,6 +768,8 @@ run_cs_frac: .res 2
 finish_cs: .res 2
 time_attack: .res 2
 settings_row: .res 2
+.export vfx_default_value
+vfx_default_value = 0
 vfx_enabled: .res 2
 fire_color: .res 2
 ice_color: .res 2
@@ -1144,7 +1146,7 @@ sa1_fast_main:
     lda #1
     sta difficulty
     sta ice_color
-    sta vfx_enabled
+    stz vfx_enabled
     lda #10
     sta speed_tenths
     jsr prepare_speed

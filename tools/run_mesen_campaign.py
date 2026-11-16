@@ -75,7 +75,7 @@ def main():
             if args.time_attack:seq[f]='right';f+=4
             seq[f]='down';f+=4
             for _ in range(abs(speed-10)):seq[f]='right' if speed>10 else 'left';f+=4
-            if args.vfx_off:
+            if args.vfx_off != (labels.get('vfx_default_value',1)==0):
                 for _ in range(5):seq[f]='down';f+=4
                 seq[f]='right';f+=4
             seq[f]='start';f+=8

@@ -26,7 +26,7 @@ variants. Community includes KeqiTheKombuPig's **1234 OVERCLOCKED (BETA)**
 by Cansol, using the author's publicly available playable beta. It is not
 the finished-effects version shown in the work-in-progress video.
 
-Options includes a global **VFX ON/OFF** setting. CHAOS CONTROL uses it to
+Options includes a global **VFX ON/OFF** setting, defaulting to **OFF**. CHAOS CONTROL uses it to
 toggle simplified, dimmed scenery behind the full-detail track. Turn it off
 to reduce graphics load. Gameplay cues remain visible, and T3-X/EX gameplay
 effects are unaffected. Watch, Practice and Normal selections persist when
