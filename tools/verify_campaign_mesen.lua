@@ -14,7 +14,6 @@ if C.midspin then dofile(C.midspin.script)(C) end
 if C.dma_script then dofile(C.dma_script)(C) end
 if C.input_script then dofile(C.input_script)(C) end
 if C.holds then dofile(C.holds.script)(C) end
-if C.main_vfx_budget then dofile(C.main_vfx_budget.script)(C) end
 local W=emu.memType.snesWorkRam
 local function word(address) return emu.read(address,W)+emu.read(address+1,W)*256 end
 if C.vfx then

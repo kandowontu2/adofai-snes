@@ -736,9 +736,6 @@ rom_data_ptr: .res 3
 ; Decoration collision cursor is transient; preserve the existing stream pointers.
 .segment "ZEROPAGE"
 neo_deco_ptr: .res 3
-.ifdef MAIN_VFX_BUILD
-main_vfx_pointer: .res 3
-.endif
 .segment "BSS"
 neo_deco_cursor: .res 2
 neo_deco_count: .res 2
@@ -772,13 +769,6 @@ finish_cs: .res 2
 time_attack: .res 2
 settings_row: .res 2
 vfx_enabled: .res 2
-.ifdef MAIN_VFX_BUILD
-main_vfx_active: .res 2
-main_vfx_index: .res 2
-main_vfx_last_palette: .res 2
-main_vfx_layer_top: .res 2
-main_vfx_layer_tail: .res 2
-.endif
 fire_color: .res 2
 ice_color: .res 2
 palette_dirty: .res 2
@@ -1857,9 +1847,6 @@ start_game:
 .endif
     stz music_active
     jsr reset_run_stats
-    lda #0
-    sta f:MENU_REPEAT_MASK
-    sta f:MENU_REPEAT_DELAY
     stz music_origin
     stz checkpoint_floor
     stz checkpoint_record
@@ -1910,9 +1897,6 @@ start_game:
     cpx #16
     bne @effects
     jsr load_selected_level
-.ifdef MAIN_VFX_BUILD
-    jsr main_vfx_load
-.endif
     jsr prepare_speed
     jsr apply_audio_speed
     lda #5460
@@ -1977,9 +1961,6 @@ start_game:
 .include "src/mode7_nmi.inc"
 .endif
 .include "src/nmi.inc"
-.ifdef MAIN_VFX_BUILD
-.include "src/main_vfx.inc"
-.endif
 
 .segment "RODATA"
 zero_word: .word 0

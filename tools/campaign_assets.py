@@ -539,14 +539,6 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
                 if key is not None:shared_blobs[key]=loc[name]
                 free[i:i+1]=[(a,z) for a,z in [(start,aligned),(aligned+len(blob),end)] if a<z];break
         else:raise RuntimeError(f'8 MiB cartridge is full while placing {name} ({len(blob)} bytes); {sum(end-start for start,end in free)} bytes free; {sum(len(value) for key,value in assets.items() if key not in loc)} bytes unplaced')
-    if 'main_vfx_descriptors' in loc:
-        dest=loc['main_vfx_descriptors'];dest=dest-0xC00000 if dest>=0xC00000 else dest
-        for i,c in enumerate(charts):
-            n=c['id']
-            if f'main_vfx_chr{n}' not in loc:continue
-            row=b''.join(loc[f'main_vfx_{key}{n}'].to_bytes(3,'little') for key in ('chr','map','cues','pal'))
-            row+=struct.pack('<HH',len(assets[f'main_vfx_cues{n}'])//4|(0x8000 if c.get('main_vfx_static') else 0),len(assets[f'main_vfx_chr{n}']))
-            image[dest+i*16:dest+(i+1)*16]=row
     if hit_banks:
         sound_banks={r['id']:r for r in json.loads((OUT/'hit-sounds.json').read_text())}
         start=loc['hitdescriptors']-0xC00000 if loc['hitdescriptors']>=0xC00000 else loc['hitdescriptors']
@@ -588,8 +580,6 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     (OUT/'placements.json').write_text(json.dumps(loc,indent=2))
     defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects','neo_math_font','level_titles')]
-    if 'main_vfx_descriptors' in loc:
-        defs+=['MAIN_VFX_BUILD = 1',f'MAIN_VFX_DESCRIPTORS_ADDR = ${loc["main_vfx_descriptors"]:06X}',f'MAIN_VFX_DEFAULT_MAP_ADDR = ${loc["main_vfx_default_map"]:06X}']
     if any(c.get('mode1_tracks') for c in stream_charts):defs += ['SA1_MODE1_BUILD = 1']
     if stream_charts:defs += ['SA1_STREAM_BUILD = 1','STREAM_INDEX_BYTES = 2',f'STREAM_DESCRIPTORS_ADDR = ${loc["stream_descriptors"]:06X}']
     if 'stream_vfx_off_descriptors' in loc:defs += [f'STREAM_VFX_OFF_DESCRIPTORS_ADDR = ${loc["stream_vfx_off_descriptors"]:06X}']

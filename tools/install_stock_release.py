@@ -25,24 +25,6 @@ def main():
     folders_only='--folders-only' in sys.argv
     for name in (('sa1-layout.json','chaos-performance.json') if folders_only else ('catalog/results.json','release-gates.json','sa1-layout.json','chaos-performance.json')):
         d=read(V/name);assert d.get('passed') and all(d.get(k)==v for k,v in frozen.items()),name;reports[name]=d
-    if read(BASE/'pack.json').get('main_vfx'):
-        name='main-vfx-performance.json';d=read(V/name)
-        assert d.get('passed') and all(d.get(k)==v for k,v in frozen.items()),name
-        assert d['levels']==list(range(1,13)) and len(d['cases'])==48,name
-        reports[name]=d
-        name='main-vfx-pcm-performance.json';d=read(V/name)
-        assert d.get('passed') and d.get('audio')=='PCM' and all(d.get(k)==v for k,v in frozen.items()),name
-        static=set(read(ROOT/'assets/graphics/main-vfx.json')['static_levels'])
-        assert set(range(1,13))-static<=set(d['levels']) and len(d['cases'])==4*len(d['levels']),name
-        reports[name]=d
-        name='main-vfx-speed.json';d=read(V/name)
-        assert d.get('passed') and d.get('speed')==4 and len(d['cases'])==8 and all(d.get(k)==v for k,v in frozen.items()),name
-        reports[name]=d
-        for name in ('main-vfx-performance.json','main-vfx-pcm-performance.json','main-vfx-speed.json'):
-            rows=reports[name]['cases']
-            for level,watch in {(r['level'],r['watch']) for r in rows}:
-                pair={r['vfx']:r for r in rows if r['level']==level and r['watch']==watch}
-                assert all(pair[True][k]<=pair[False][k] for k in ('max_frame_gap','missed_presentations','settled_missed')),(name,level,watch)
     if folders_only:
         for local in range(1,len(ids)+1):
             p=V/f'mesen-{local}-autoplay/manifest.json';d=read(p)
@@ -59,9 +41,8 @@ Updated stock camera/event imports, retained Yangsy selection and gem platforms.
 Watch/Practice/Normal persists when leaving a level.
 Featured endless.reality has no rotating red bar; Community 2022 has its own maze.
 Added CC-X CHAOS CONTROL with optional optimized scenery (Options: VFX).
-Main worlds 1-X through 12-X now have optional source-derived BG2 scenery.
-2-X and 8-X animate at 1.0x; other main worlds and speeds use static backgrounds.
-This avoids measured animation overhead while retaining gameplay detail and updates.
+Removed the experimental main-world backgrounds and palette animation.
+6-EX's two intentionally hidden late midspins retain their original behavior.
 VFX OFF retains gameplay cues and never disables T3-X/EX gameplay effects.
 Updated contributor objects, free-roam graphics and red/blue twirl palettes.
 Corrected moving-track coordinate publication and missing custom track images.
@@ -76,6 +57,9 @@ Legacy self-contained standalone cartridges are unchanged by this master release
     evidence=dict(passed=True,**frozen,world_count=202,reports=reports,hardware_tested=False)
     installed=V/'installed-folders.json'
     reuse_installed=not folders_only and installed.exists() and all(read(installed).get(k)==v for k,v in frozen.items())
+    if reuse_installed:
+        reuse_installed=all(identity(DIST/f'adofai-msu-{edition}'/'adofai.sfc')==frozen
+                            for edition in ('master','hybrid','compressed'))
     # Install the paired core files first so the requested folders are ready
     # while the much larger audio inventory is being checked.
     for edition in ('master','hybrid','compressed'):
@@ -84,9 +68,6 @@ Legacy self-contained standalone cartridges are unchanged by this master release
             for name in ('adofai.sfc','adofai.msu'):copy_file(BASE/name,target/name)
         print('CORE INSTALLED',edition,flush=True)
     hashes={n:file_sha256(full/n) for n in sorted(full_tracks)}
-    if 'main-vfx-pcm-performance.json' in reports:
-        for n,digest in reports['main-vfx-pcm-performance.json']['pcm_sha256'].items():
-            assert hashes[f'adofai-{n}.pcm']==digest,('PCM test/install mismatch',n)
     ledger=[]
     meta=['catalog.json','README.txt','RELEASE-NOTES.txt','verification.json','SHA256SUMS.txt']
     for edition,tracks in [('master',full_tracks),('hybrid',main_tracks),('compressed',set())]:

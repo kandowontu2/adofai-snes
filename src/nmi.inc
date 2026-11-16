@@ -413,11 +413,6 @@ nmi_fast:
     ; the width before the A8 polling code and its banked readiness helper.
     sep #$20
     .a8
-.ifdef MAIN_VFX_BUILD
-    ; Auto-joypad is still shifting for several scanlines here. Use that
-    ; mandatory wait for cosmetic work, guarded against pending palettes.
-    jsr main_vfx_idle
-.endif
 .ifdef NEO_BUILD
     jsl early_pad_ready
 .endif
@@ -518,9 +513,7 @@ nmi_fast:
     sta tap_queue_peak
 .endif
 @input_done:
-.ifndef HITS_IN_MUSIC
     jsr service_tap_sounds
-.endif
     jsr update_menu_repeat
 .ifdef MSU_BUILD
     jsr msu_audio_tick
@@ -592,11 +585,6 @@ upload_third_palette:
 .endif
 update_menu_repeat:
     lda state
-    ; start_game clears the menu hold state once. Repeating the two
-    ; cartridge-RAM clears on every gameplay NMI wastes critical cycles.
-    cmp #1
-    beq @done
-    cmp #0
     beq @eligible
     cmp #6
     beq @eligible

@@ -27,16 +27,6 @@ to reduce graphics load. Gameplay cues remain visible, and T3-X/EX gameplay
 effects are unaffected. Watch, Practice and Normal selections persist when
 leaving a song.
 
-Main worlds 1-X through 12-X also use this option for subdued scenery
-adapted from their original backgrounds. A separate BG2 hardware layer
-handles scenery, palette fades and limited parallax; gameplay tiles keep
-their full detail and update rate. This is a simplified SNES interpretation,
-not a reproduction of every Unity particle, shader or animated decoration.
-2-X and 8-X animate; the other main worlds use static source scenery because
-animation added missed frames in paired manual/Watch tests with compressed or
-PCM music. VFX OFF disables either version.
-At speeds other than 1.0×, all main-world scenery stays static.
-
 ## Contributing graphics
 
 Editable CHR, tilemaps and palettes are in [`assets/graphics`](assets/graphics/).

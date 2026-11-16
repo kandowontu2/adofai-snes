@@ -36,10 +36,6 @@ def verify(pack, level, tag, boot_only=False):
     labels = {name: int(address,16) & 0x1ffff for address,name in
               re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)', (base/'adofai.lbl').read_text())}
     config.update(state=labels['state'], selected=labels['selected_level'], index=index)
-    if 'main_vfx_active' in labels and 1<=level<=12:
-        config.update(main=level,clock=labels['display_chart_time'])
-        from main_vfx_assets import STATIC_LEVELS
-        if level in STATIC_LEVELS:config['static']=1
     script = 'local C=' + '{' + ','.join(k+'='+json.dumps(v) for k,v in config.items()) + '}\n'
     script += 'local actions={' + ','.join(f'[{k}]="{v}"' for k,v in actions.items()) + '}\n'
     script += 'local captures={' + ','.join(f'[{k}]="{v}"' for k,v in captures.items()) + '}\n'
@@ -48,11 +44,6 @@ local function readfile(name)
  local f=assert(io.open(C.base..'/'..name,'rb'));local b=f:read('*a');f:close();return b
 end
 local chr=readfile('background.chr');local map=readfile('background.map')
-local scenechr,scenemap,cues,palettes
-if C.main then
- scenechr=readfile('main_vfx_chr'..C.main..'.bin');scenemap=readfile('main_vfx_map'..C.main..'.bin')
- cues=readfile('main_vfx_cues'..C.main..'.bin');palettes=readfile('main_vfx_pal'..C.main..'.bin')
-end
 local font=readfile('font.chr');local frame=0;local errors=0
 local log=assert(io.open(C.out..'/result.txt','w'))
 emu.addEventCallback(function()
@@ -69,31 +60,11 @@ emu.addEventCallback(function()
   local selected=emu.read(C.selected,W)+256*emu.read(C.selected+1,W)
   if name:find('gameplay') and (state~=1 or selected~=C.index) then wrong=wrong+1 end
   if (name=='boot' or name=='return') and state~=0 then wrong=wrong+1 end
-  local sc=C.main and name:find('gameplay')
-  local checkchr=sc and scenechr or chr;local checkmap=sc and scenemap or map
-  for i=1,#checkchr do if emu.read(0xaa00+i-1,V)~=checkchr:byte(i) then wrong=wrong+1 end end
-  for i=1,#checkmap,2 do
-   local expected=checkmap:byte(i)+256*checkmap:byte(i+1)+(sc and 0 or 80)
+  for i=1,#chr do if emu.read(0xaa00+i-1,V)~=chr:byte(i) then wrong=wrong+1 end end
+  for i=1,#map,2 do
+   local expected=map:byte(i)+256*map:byte(i+1)+80
    local a=0xb800+i-1
    if emu.read(a,V)+256*emu.read(a+1,V)~=expected then wrong=wrong+1 end
-  end
-  if sc then
-   local t=emu.read(C.clock,W)+256*emu.read(C.clock+1,W)
-   if t>=32768 then t=0 end;t=math.min(t,#cues/4-1)
-   if C.static then t=0 end
-   -- Long track DMA can cover the controller-idle window. Scenery may
-   -- retain a recent cue; it must never delay that gameplay publication.
-   local matched=false
-   for age=0,3 do
-    local at=math.max(0,t-age)*4;local offset=cues:byte(at+3)+256*cues:byte(at+4)
-    local equal=true
-    for i=0,31 do
-     if emu.read(i,emu.memType.snesCgRam)~=palettes:byte(offset+i+1) then equal=false end
-    end
-    if equal then matched=true end
-   end
-   if not matched then wrong=wrong+1 end
-   if emu.read(0x563,W)&2==0 or emu.read(0x565,W)&2==0 then wrong=wrong+1 end
   end
   for i=1,#font,2 do
    local ink=font:byte(i)|font:byte(i+1)

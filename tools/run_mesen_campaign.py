@@ -15,7 +15,6 @@ def main():
     ap.add_argument('--prepare-only',action='store_true');ap.add_argument('--levels',type=int,nargs='+');ap.add_argument('--pack',default='main');ap.add_argument('--all',action='store_true');ap.add_argument('--checkpoints',action='store_true')
     ap.add_argument('--speed',type=float,default=1.0);ap.add_argument('--time-attack',action='store_true');ap.add_argument('--resume',action='store_true')
     ap.add_argument('--vfx-off',action='store_true',help='Disable optional scenery through the real options menu')
-    ap.add_argument('--paired-vfx',action='store_true',help='Use identical menu timing for ON/OFF performance comparisons')
     ap.add_argument('--trace-frame',type=int);ap.add_argument('--graphics-dumps',action='store_true');ap.add_argument('--sampled-graphics',action='store_true',help='Sample hardware pixels every 240 commits; full DMA-byte checks remain a separate stress test');ap.add_argument('--capture-steps',type=int,nargs='+');ap.add_argument('--capture-times',type=int,nargs='+',help='Also verify PPU output at these presented chart-clock frames');ap.add_argument('--autoplay',action='store_true');args=ap.parse_args()
     if args.sampled_graphics:args.graphics_dumps=True
     speed=round(args.speed*10);assert 5<=speed<=40 and abs(speed-args.speed*10)<1e-6
@@ -30,7 +29,6 @@ def main():
         suffix=f'-speed-{speed:02d}'+('-attack' if args.time_attack else '') if speed!=10 or args.time_attack else ''
         if args.autoplay:suffix+='-autoplay'
         if args.vfx_off:suffix+='-vfx-off'
-        if args.paired_vfx:suffix+='-paired-vfx'
         if args.prepare_only:suffix+='-prepared'
         out=base/f'verification/mesen-{"checkpoints-" if args.checkpoints else ""}{level}{suffix}';out.mkdir(parents=True,exist_ok=True)
         global_id=levels[level-1]
@@ -54,7 +52,7 @@ def main():
         if args.graphics_dumps:
             for pattern in ('ppu-*.bin','screen-*.png','step-*.png'):
                 for capture in out.glob(pattern):capture.unlink()
-            for name in ('hold-orbits.txt','hold-planets.txt','screen-registers.txt','screen-capture-times.csv','mode1-icon-jobs.txt','ppu-verification.json','main-vfx-budget.txt'):
+            for name in ('hold-orbits.txt','hold-planets.txt','screen-registers.txt','screen-capture-times.csv','mode1-icon-jobs.txt','ppu-verification.json'):
                 (out/name).unlink(missing_ok=True)
         names=('state','step','elapsed','combo','perfects','misses','selected_level','speed_tenths','time_attack','judgment_counts','score_lo','score_hi','finish_cs','nmi_audio_ticks','audio_ticks','speed_offset','joy')
         if 'pattern_vblank_overruns' in labels:names+=('pattern_vblank_overruns',)
@@ -75,10 +73,9 @@ def main():
             if args.time_attack:seq[f]='right';f+=4
             seq[f]='down';f+=4
             for _ in range(abs(speed-10)):seq[f]='right' if speed>10 else 'left';f+=4
-            if args.vfx_off or args.paired_vfx:
+            if args.vfx_off:
                 for _ in range(5):seq[f]='down';f+=4
-                if args.vfx_off:seq[f]='right'
-                f+=4
+                seq[f]='right';f+=4
             seq[f]='start';f+=8
             if 'menu_depth' in labels:
                 from menu_sets import groups_for_pack
@@ -99,9 +96,6 @@ def main():
         scheduled=',pitch='+str(pitch)+',manual_times={'+','.join(str(n['frame']) for n in manual_notes)+'},manual_steps={'+','.join(str(n['step']) for n in manual_notes)+'}'
         if 'vfx_enabled' in labels:
             scheduled+=',vfx={address='+str(labels['vfx_enabled'])+',expected='+str(0 if args.vfx_off else 1)+'}'
-        if 'main_vfx_idle_complete' in labels:
-            vfx_bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
-            scheduled+=',main_vfx_budget={complete='+str(labels['main_vfx_idle_complete']+vfx_bank)+',script='+json.dumps((ROOT/'tools/verify_main_vfx_budget_mesen.lua').as_posix())+'}'
         if args.autoplay:scheduled+=',autoplay=true'
         if chart.get('neo_cosmos') and not args.autoplay:
             # Full manual replay uses down/up edges, not an autoplay toggle.
