@@ -8,6 +8,7 @@ def main():
     ap=argparse.ArgumentParser();ap.add_argument('--out',type=Path,default=ROOT/'build/packs/sa1-master')
     ap.add_argument('--source',type=Path,default=ROOT/'build/packs/master')
     ap.add_argument('--no-pcm',action='store_true',help='Build ROM/data without regenerating unchanged PCM music')
+    ap.add_argument('--main-vfx',action='store_true',help='Enable separately budgeted main-world BG2 scenery')
     ap.add_argument('--stream-levels',nargs='+',type=int,default=[],
                     help='Compile canonical per-frame charts into SA-1 animation packets')
     args=ap.parse_args()
@@ -17,7 +18,14 @@ def main():
             if not p.is_file():continue
             if p.suffix=='.pcm':os.link(p,out/p.name)
             else:shutil.copyfile(p,out/p.name)
-    pack=json.loads((out/'pack.json').read_text());charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
+    pack=json.loads((out/'pack.json').read_text())
+    if args.main_vfx:
+        pack['main_vfx']=True;(out/'pack.json').write_text(json.dumps(pack,indent=2))
+    if pack.get('main_vfx'):
+        missing=[f'main-{n}.{ext}' for n in pack['levels'] if 1<=n<=12 for ext in ('png','json')
+                 if not (ROOT/'assets/private/main-vfx'/f'main-{n}.{ext}').exists()]
+        if missing:raise SystemExit('Missing private main-world scenery. Run python tools/import_main_vfx.py first: '+', '.join(missing))
+    charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
     assert all(not c.get('projection_source_only') or (c.get('mode1_snapshot') and not c.get('snapshot_preview')) for c in charts), 'Offline projection sources must be compiled to full snapshots before building a ROM'
     assert not any(c.get('decoration_tracks_preview') for c in charts), 'Decoration previews still require live-planet transforms and full effect coverage'
     if args.stream_levels:
@@ -59,6 +67,12 @@ def main():
     if any(c.get('neo_cosmos') for c in charts):
         from neo_runtime_assets import binary_tables
         blobs['neo_tables']=binary_tables(out,[c['id'] for c in charts])[0]
+    if pack.get('main_vfx'):
+        assert any(c.get('wide_snapshot_atlas') for c in charts),'Main VFX requires the shared wide-atlas VRAM layout'
+        assert all(c.get('mode1_snapshot') for c in charts if 1<=c['id']<=12),'BG2 scenery requires screen-space main-world tracks'
+        from main_vfx_assets import assets as vfx_assets,STATIC_LEVELS
+        for c in charts:c['main_vfx_static']=c['id'] in STATIC_LEVELS
+        blobs.update(vfx_assets(out,charts))
     assets.pack_payload(blobs,charts,msu=True,sa1=True);assets.common_tables(charts)
     if any(c.get('camera_rotation_versions') for c in charts):
         with (out/'adofai.msu').open('r+b') as f:

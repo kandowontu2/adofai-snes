@@ -42,6 +42,16 @@ def main():
         ]
         with (folder / f'{level}.log').open('w') as log:
             for command in stages:
+                if Path(command[1]).name=='verify_mesen_ppu.py':
+                    capture=pack/f'verification/mesen-{index}-autoplay'
+                    report=capture/'ppu-verification.json';manifest=capture/'manifest.json'
+                    if report.exists() and manifest.exists():
+                        r=json.loads(report.read_text());m=json.loads(manifest.read_text())
+                        if (r.get('passed') and m.get('passed') and m.get('suite_digest')==suite
+                                and m.get('sampled_graphics') and m.get('graphics_dumps')
+                                and all(r.get(k)==v and m.get(k)==v for k,v in frozen.items())):
+                            log.write('Reused independent PPU verification for this exact ROM, data and replay suite.\n')
+                            continue
                 process = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT)
                 if process.returncode:
                     return dict(id=level, local=index, passed=False, stage=Path(command[1]).name)

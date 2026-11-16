@@ -6,6 +6,7 @@ return function(C)
  local start=nil;local writes=0;local extended=0;local commits=0;local ends=0;local lastEnd=nil;local startLines={}
  local remaining=0;local began=0;local bytes=0;local bounded=false
  local prefetch=false;local prefetches=0;local vramAddress=0;local front=0
+ local scenery=false
  emu.addMemoryCallback(function(a,v)vramAddress=(vramAddress-vramAddress%256)+v end,emu.callbackType.write,0x2116,0x2116,emu.cpuType.snes)
  emu.addMemoryCallback(function(a,v)vramAddress=vramAddress%256+256*v end,emu.callbackType.write,0x2117,0x2117,emu.cpuType.snes)
  if C.dma_prefetch_begin then
@@ -44,7 +45,8 @@ return function(C)
    end
   end end
   if not relevant then return end
-  if prefetch then
+  scenery=C.main_vfx_budget and v==8 and size==32 and emu.read(0x4331,M)==0x22
+  if prefetch and not scenery then
    assert(v==32,'Atlas prefetch touched a different DMA channel')
    local source=emu.read(0x4352,M)+256*emu.read(0x4353,M)
    local stride=C.wide_atlas and 20480 or 16384
@@ -67,7 +69,8 @@ return function(C)
  -- starts. Count the real writes to the PPU ports instead; the last byte
  -- proves completion, without relying on instruction-fetch ordering.
  local function portWrite(a)
-  if prefetch then assert(a==0x2118 or a==0x2119,'Prefetch changed live OAM or palette')end
+  if prefetch and not scenery then assert(a==0x2118 or a==0x2119,'Prefetch changed live OAM or palette')end
+  if scenery then assert(a==0x2122 and remaining>0,'Scenery DMA touched a non-palette port')end
   bytes=bytes+1
   if remaining==0 then
    local p=emu.getState();assert(legal(p),'Direct PPU write outside blanking')
@@ -78,6 +81,7 @@ return function(C)
    local p=emu.getState();assert(legal(p),'PPU DMA byte outside blanking at scanline '..p['ppu.scanline']..' clock='..word(C.addr.chart_time))
   end
   if remaining~=0 then return end
+  scenery=false
   local p=emu.getState();ends=ends+1;lastEnd=p.masterClock
   assert(legal(p),'PPU DMA last byte outside VBlank/forced blank at scanline '..p['ppu.scanline']..' clock='..word(C.addr.chart_time))
   assert(not bounded or p.masterClock-began<54*1364,'Individual PPU DMA crossed a display interval')

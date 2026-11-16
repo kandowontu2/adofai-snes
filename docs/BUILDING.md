@@ -436,6 +436,42 @@ disable gameplay cues or T3-X/EX effects. CHAOS CONTROL keeps its track at full
 resolution while simplifying and dimming decorative scenery behind it.
 Both variants must be built and tested; testing VFX ON alone does not cover OFF.
 
+For main-world scenery in a wide-atlas master, first extract the backgrounds
+from your own installed game, then rebuild the master with the feature enabled:
+
+```powershell
+python tools/import_main_vfx.py
+python tools/build_sa1.py --source build/packs/my-master-dev --out build/packs/my-master-dev --no-pcm --main-vfx
+```
+
+Pass `--game "D:\SteamLibrary\steamapps\common\A Dance of Fire and Ice"`
+to the importer if the game is installed elsewhere. Extracted images stay in
+`assets/private/main-vfx`; do not commit them. The builder remembers this option
+in the pack manifest. Engine-only rebuilds reuse the compiled scenery.
+
+The scenery compiler reserves 112 four-bit BG2 tiles and one 32×32 tilemap.
+These upload only while loading a level. Runtime cues contain scroll values
+and palette offsets, with at most 32 palette bytes transferred per update.
+They never modify track packets, gameplay sprites, or T3-X/EX effects.
+Runtime work uses the controller-poll wait and a separate DMA channel.
+Run `python tools/verify_main_vfx.py --pack my-master-dev` for paired manual
+and Watch comparisons, scenery/track VRAM checks, and menu restoration tests.
+`assets/graphics/main-vfx.json` lists the levels using static scenery because
+animation added missed presentations in those comparisons. Static scenery
+still follows VFX ON/OFF; it uses the unobscured source palette so an opening
+fade cannot leave it permanently black. Rebuild assets after changing this
+policy, then repeat the paired tests before releasing.
+Animation runs only at 1.0×. Other speeds retain the loaded scenery without
+runtime palette or scroll updates, protecting the faster audio transport.
+Run `python tools/verify_main_vfx_speed.py --pack my-master-dev` to compare
+both modes at the 4.0× speed limit as well.
+Also test a separate copy with its matching PCM files installed. Use
+`--pcm-report-for my-master-dev` on `verify_main_vfx.py` to attach that PCM
+report to the identical compressed pack; it verifies both ROM/data hashes.
+The conversion flattens multiple native depths into one dimmed plane and omits
+unsupported foreground shaders and particles. Check both scenery settings in
+MesenCE; do not infer performance from the asset budget alone.
+
 For a faster host-side render, set the worker count before invoking the cache
 builder. This changes build speed, not in-game update frequency or image quality:
 

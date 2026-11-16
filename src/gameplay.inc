@@ -4,6 +4,9 @@ return_title:
     ; The menu mode is a persistent selection, including after a song.
     stz state
     stz music_active
+.ifdef MAIN_VFX_BUILD
+    jsr main_vfx_restore_menu
+.endif
     rts
 
 update_title:

@@ -58,6 +58,28 @@ def verify(base,source):
                 (labels['NOTE_Y'],labels['NOTE_Y']+0x2200),(0x7FC880,0x7FC900)]
         assert all(a[1]<=b[0] for a,b in zip(ranges,ranges[1:])), ranges
     offset=lambda addr:addr-0xc00000 if addr>=0xc00000 else addr
+    if 'main_vfx_descriptors' in loc:
+        table=offset(loc['main_vfx_descriptors'])
+        for index,n in enumerate(pack['levels']):
+            row=rom[table+index*16:table+(index+1)*16]
+            if not 1<=n<=12:
+                assert row==bytes(16),(n,'Unexpected main-world scenery')
+                continue
+            for slot,key in enumerate(('chr','map','cues','pal')):
+                name=f'main_vfx_{key}{n}';address=int.from_bytes(row[slot*3:slot*3+3],'little')
+                data=(base/f'{name}.bin').read_bytes()
+                assert address==loc[name] and (address&65535)+len(data)<=65536,(name,'Bank boundary')
+                assert rom[offset(address):offset(address)+len(data)]==data,name
+            frames,size=struct.unpack_from('<HH',row,12)
+            from main_vfx_assets import STATIC_LEVELS
+            assert bool(frames&0x8000)==(n in STATIC_LEVELS)
+            frames &= 0x7FFF
+            assert size==len((base/f'main_vfx_chr{n}.bin').read_bytes())<=0xE00
+            cues=(base/f'main_vfx_cues{n}.bin').read_bytes()
+            palettes=(base/f'main_vfx_pal{n}.bin').read_bytes()
+            assert len(cues)==frames*4
+            for _,_,p in struct.iter_unpack('<BBH',cues):
+                assert p%32==0 and p+32<=len(palettes)
     checked=0;crossings=[]
     meter={name:int(value,16) for name,value in re.findall(r'(METER_\w+)=\$([0-9A-Fa-f]+)',(base/'game.lst').read_text())}
     if 'METER_HISTORY' in meter:

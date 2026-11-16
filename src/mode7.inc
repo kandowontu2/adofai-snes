@@ -402,9 +402,17 @@ mode7_prepare_view:
     sta m7_vbottom
     lda #$0620
     sta M7_HDMA_STAGE
+.ifdef MAIN_VFX_BUILD
+    lda main_vfx_layer_top
+.else
     lda #$117F
+.endif
     sta M7_HDMA_STAGE+2
+.ifdef MAIN_VFX_BUILD
+    lda main_vfx_layer_tail
+.else
     lda #$1111
+.endif
     sta M7_HDMA_STAGE+4
     lda #$0630
     sta M7_HDMA_STAGE+6

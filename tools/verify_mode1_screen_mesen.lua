@@ -8,6 +8,13 @@ return function(C)
  local frame=0
  local previous=nil
  local max_gap=0
+ local missed=0
+ local settled_missed=0
+ local function report()
+  local f=io.open(C.out..'/screen-registers.txt','w')
+  f:write('PASS samples='..samples..' max_frame_gap='..max_gap..' missed_presentations='..missed..' settled_missed='..settled_missed)
+  f:close()
+ end
  emu.addMemoryCallback(function()
   local mode=word(0x3ef0c,S)
   if mode==0 or word(C.addr.display_state,W)~=1 then return end
@@ -28,13 +35,21 @@ return function(C)
    end
   end
   samples=samples+1
-  if previous then max_gap=math.max(max_gap,frame-previous) end
+  if previous then
+   local gap=frame-previous
+   max_gap=math.max(max_gap,gap)
+   missed=missed+math.max(0,gap-1)
+   if samples>120 then settled_missed=settled_missed+math.max(0,gap-1) end
+  end
   previous=frame
-  if samples==1 or samples%100==0 then local f=io.open(C.out..'/screen-registers.txt','w');f:write('PASS samples='..samples..' max_frame_gap='..max_gap);f:close() end
+  if samples==1 or samples%100==0 then report() end
  end,emu.callbackType.write,C.addr.commits,C.addr.commits,emu.cpuType.snes)
  emu.addEventCallback(function()
   frame=frame+1
-  if word(0x3ef0c,S)==0 or word(C.addr.display_state,W)~=1 then return end
+  if word(0x3ef0c,S)==0 or word(C.addr.display_state,W)~=1 then
+   if samples>0 then report() end
+   return
+  end
   local time=word(C.addr.display_chart_time,W)
   for _,at in ipairs(C.screen_captures or {})do
    -- Capture the first presented frame after each requested time. A narrow
