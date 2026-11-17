@@ -4,6 +4,7 @@ This compiler retains every source frame and uses the same fixed-point
 sampler as the Mode 7 PPU verifier. Planets and input remain live objects.
 """
 import argparse,bisect,collections,json,struct,pickle,tempfile,os,shutil
+from functools import lru_cache
 from pathlib import Path
 import numpy as np
 from mode1_tracks import encode_tile,decode_tile,pack_palettes,schedule
@@ -92,6 +93,8 @@ class Source:
         self.native_palette=None
         from neo_fog import Fog
         self.fog=Fog(c) if c.get('mawaru_fog') else None
+        from neo_headings import Headings
+        self.headings=Headings(c) if c.get('mawaru_headings') else None
         from decoration_hitboxes import Overlay
         self.hazards=Overlay(c)
         self.decorations=None
@@ -122,7 +125,7 @@ class Source:
         if self.rotation==(0,0):return np.zeros((184,256),dtype=np.uint8)
         if self.copies and self.copies.first<=frame<self.copies.last:
             self.native_palette=self.palette.copy()
-            return self.copies.screen(frame,self.camera,self.rotation,self.palette,c)
+            return self.finish(self.copies.screen(frame,self.camera,self.rotation,self.palette,c),frame)
         px,py=sampled_pixels(*self.camera,*self.rotation,c.get('viewport_center_y',104),bottom,top)
         valid=(px>=0)&(py>=0)&(px//8<self.world.shape[1])&(py//8<self.world.shape[0])
         output=np.zeros(px.shape,dtype=np.uint8)
@@ -147,6 +150,12 @@ class Source:
             self.native_palette=self.palette.copy()
             image=self.decorations.draw(image,frame,px,py,top,self.palette,
                 (self.camera[0]+128,self.camera[1]+c.get('viewport_center_y',104)))
+        return self.finish(image,frame)
+
+    def finish(self,image,frame):
+        if self.headings:
+            if self.native_palette is None:self.native_palette=self.palette.copy()
+            image=self.headings.draw(frame,image,self.palette)
         # Alias equal hardware colors before palette packing. Numeric source
         # indices are not distinct colors, and retaining those aliases makes
         # a 4-bpp atlas churn as hidden source materials enter and leave.
@@ -185,14 +194,25 @@ def encode_screen(image,palettes,glyphs,lookup,encodings,anchors=(),exact=True):
     return refs,tuple(tuple(p) for p in palettes)
 
 
+@lru_cache(maxsize=262144)
+def indexed_canonical(raw):
+    rows=[raw[y:y+8] for y in range(0,64,8)]
+    variants=(raw,b''.join(row[::-1] for row in rows),b''.join(reversed(rows)),
+              b''.join(row[::-1] for row in reversed(rows)))
+    best=min(range(4),key=lambda i:variants[i])
+    return variants[best],(16 if best&1 else 0)|(32 if best&2 else 0)
+
+
 def encode_indexed_screen(image,glyphs,lookup):
     """Exact Mode 3 fallback: preserve source indices in eight bitplanes."""
     blocks=image[32:184].reshape(19,8,32,8).transpose(0,2,1,3).reshape(608,64)
     unique,inverse=np.unique(np.ascontiguousarray(blocks).view('V64').ravel(),return_inverse=True)
     surfaces={i:bytes(p) for i,p in enumerate(unique) if any(bytes(p))}
-    if len(surfaces)>255:raise ValueError(('Indexed snapshot atlas capacity',len(surfaces)))
+    canonical={i:indexed_canonical(raw) for i,raw in surfaces.items()}
+    count=len({raw for raw,flags in canonical.values()})
+    if count>319:raise ValueError(('Indexed snapshot atlas capacity',count))
     encoded={}
-    for i,raw in surfaces.items():
+    for i,(raw,flags) in canonical.items():
         glyph=bytearray(64)
         for y in range(8):
             for x in range(8):
@@ -200,8 +220,8 @@ def encode_indexed_screen(image,glyphs,lookup):
                     glyph[(plane//2)*16+y*2+plane%2]|=((raw[y*8+x]>>plane)&1)<<(7-x)
         glyph=bytes(glyph)
         if glyph not in lookup:lookup[glyph]=len(glyphs);glyphs.append(glyph)
-        encoded[i]=lookup[glyph]
-    return {i:(encoded[n],64) for i,n in enumerate(inverse) if n in encoded},()
+        encoded[i]=(lookup[glyph],64|flags)
+    return {i:encoded[n] for i,n in enumerate(inverse) if n in encoded},()
 
 
 def render_spool_chunk(job):
@@ -366,7 +386,9 @@ def raw_seeds(index,data,*,snapshot=False,clone_state=False,wide=False):
                         tilemap[dest:dest+length]=packet[at:at+length];at+=length
             cursor+=1
         struct.pack_into('<I',result,seed*4,len(result))
-        result+=struct.pack('<H',cursor)+(struct.pack('<H',glyph_bytes|(0x8000 if clone_state else 0)|(0x4000 if indexed else 0)) if snapshot else b'')+(clones if clone_state else b'')+palette+tilemap+atlas+struct.pack('<H',len(symbols))+symbols
+        # Wide atlases can use byte-count bit 14. Their byte count is always
+        # 32-aligned, so bit 0 carries the indexed-format flag instead.
+        result+=struct.pack('<H',cursor)+(struct.pack('<H',glyph_bytes|(0x8000 if clone_state else 0)|((1 if wide else 0x4000) if indexed else 0)) if snapshot else b'')+(clones if clone_state else b'')+palette+tilemap+atlas+struct.pack('<H',len(symbols))+symbols
     return bytes(result)
 
 
@@ -473,7 +495,7 @@ def share_flipped_glyphs(glyphs,frames):
         aliases.append((lookup[canonical],(16 if best&1 else 0)+(32 if best&2 else 0)))
     mapped=[]
     for refs,palettes in frames:
-        mapped.append(({i:(aliases[g][0],bank+aliases[g][1]) for i,(g,bank) in refs.items()},palettes))
+        mapped.append(({i:(aliases[g][0],bank^aliases[g][1]) for i,(g,bank) in refs.items()},palettes))
     return unique,mapped
 
 

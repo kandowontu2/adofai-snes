@@ -4,6 +4,19 @@ sys.path.insert(0,'tools')
 from projected_snapshots import write
 from animation_bulk import HEADER
 class WideAtlasTests(unittest.TestCase):
+ def test_wide_indexed_pose_keeps_its_format_and_entire_atlas_in_restart_seed(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   p=Path(tmp);(p/'level1.json').write_text(json.dumps(dict(code='INDEXED',notes=[dict(frame=64)],pattern_initial=[0]*256)))
+   (p/'animation1.bin').write_bytes(HEADER.pack(65535,255,0,0))
+   glyphs=[bytes(32)]+[struct.pack('<H',i)*32 for i in range(1,304)]
+   frame=({i:(i+1,64) for i in range(303)},())
+   write(p,p,1,glyphs,[frame]*65,postroll=0)
+   chart=json.loads((p/'level1.json').read_text());self.assertTrue(chart['wide_snapshot_atlas'])
+   seeds=(p/'mode1_seeds1.bin').read_bytes();start=struct.unpack_from('<I',seeds,4)[0]
+   self.assertEqual(struct.unpack_from('<H',seeds,start+2)[0],(1+303*2)*32|1)
+   atlas=start+4+96+4096
+   self.assertEqual(seeds[atlas+64:atlas+64+303*64],b''.join(glyphs[1:]))
+   self.assertEqual(struct.unpack_from('<H',seeds,atlas+40960)[0],0)
  def test_complete_viewport_and_checkpoint(self):
   with tempfile.TemporaryDirectory() as tmp:
    p=Path(tmp);(p/'level1.json').write_text(json.dumps(dict(code='WIDE',notes=[dict(frame=64)],pattern_initial=[0]*256)))

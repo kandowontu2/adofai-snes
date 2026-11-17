@@ -630,11 +630,11 @@ stream_seed_inline_far:
     phb
     ldx #.loword(M7_CHR_LOW)
     ldy #.loword(STREAM_CHR)
-    lda #224*64-1
+    lda #M7_CHR_LOW_BYTES-1
     mvn #.bankbyte(M7_CHR_LOW),#.bankbyte(STREAM_CHR)
     ldx #.loword(M7_CHR_HIGH)
-    ldy #.loword(STREAM_CHR)+224*64
-    lda #32*64-1
+    ldy #.loword(STREAM_CHR)+M7_CHR_LOW_BYTES
+    lda #M7_CHR_HIGH_BYTES-1
     mvn #.bankbyte(M7_CHR_HIGH),#.bankbyte(STREAM_CHR)
     plb
     rtl

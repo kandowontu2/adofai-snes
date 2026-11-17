@@ -1399,13 +1399,13 @@ mode7_finish_snapshot:
     lda m7_snapshot_chr+2
     sta msu_seek_offset+2
     jsr msu_seek_data
-    lda #14336
+    lda #M7_CHR_LOW_BYTES
     sta transfer_len
     lda #.loword(CHR_RAM)
     sta transfer_dest
     stz transfer_wbank
     jsr animation_dma
-    lda #2048
+    lda #M7_CHR_HIGH_BYTES
     sta transfer_len
     lda #.loword(M7_CHR_HIGH)
     sta transfer_dest

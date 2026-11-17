@@ -626,6 +626,9 @@ render_inner:
     jsr neo_free_orbit
 .endif
     jsr sine_cosine
+.ifdef NEO_BUILD
+    jsl neo_far_twirl_orbit
+.endif
     lda step
 .ifdef NEO_BUILD
     eor neo_free_hops
@@ -712,6 +715,9 @@ render_inner:
     eor neo_free_reversed
 :
 .endif
+    ; CPY above changes Z even outside free roam. Branch on the direction
+    ; value in A, not on whether the current mode happens to equal one.
+    cmp #0
     beq @third_cw
     lda angle
     clc
@@ -725,6 +731,9 @@ render_inner:
     and #255
     sta angle
     jsr sine_cosine
+.ifdef NEO_BUILD
+    jsl neo_far_twirl_orbit
+.endif
     jsr mode7_orbit_position
     lda #6
     sta sprite_tile
@@ -767,14 +776,27 @@ render_symbols:
 .ifdef SA1_MODE1_BUILD
     lda f:STREAM_MODE1
     cmp #1
+    beq @batch_icons
+.ifdef EXTENDED_CHART_BUILD
+    cmp #3
     bne :+
+@batch_icons:
+    jsr mode1_render_symbols
+    bcs @projected_symbols
+    jsl snapshot_icon_previews
+    jmp @portal
+.else
+    bne :+
+@batch_icons:
     jsr mode1_render_symbols
     jmp @portal
+.endif
 :
 .endif
     stz object_small
     jsr symbol_world_bounds
     jsr sa1_symbols
+@projected_symbols:
     stz event_cursor
     lda f:SYMBOL_VISIBLE_COUNT
     sta event_end
@@ -942,6 +964,7 @@ render_symbols:
     lda f:NOTE_CCW,x
     and #2
     beq @two_planet_icon
+    jsl neo_far_planet_preview
     lda #110
     bra @special_icon
 @two_planet_icon:
@@ -1002,6 +1025,8 @@ render_symbols:
 .endif
     jmp @symbol
 @portal:
+.export snapshot_sparse_complete
+snapshot_sparse_complete = *
     lda state
     cmp #1
     bne @frozen_trails

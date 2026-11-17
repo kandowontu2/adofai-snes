@@ -109,7 +109,7 @@ native_animation_receive:
     lda f:NATIVE_ALPHA_END
     sec
     sbc f:NATIVE_ALPHA_BEGIN
-    jsr native_receive_span
+    jsr native_receive_alpha_span
 @palette:
     lda f:NATIVE_PALETTE_DIRTY
     beq @done
@@ -150,7 +150,7 @@ native_animation_seed:
     ldy #.loword(NATIVE_ALPHA)
     lda last_note
     inc a
-    jsr native_seed_span
+    jsr native_seed_alpha_span
     lda #1
     sta transfer_wbank
     ldx #.loword(TRACK_PALETTE)
@@ -171,6 +171,19 @@ native_animation_seed:
 
 ; X=WRAM offset, Y=BW-RAM offset, A=count, transfer_wbank=WRAM bank bit.
 native_seed_span:
+    pha
+    lda #$42
+    bra native_seed_bank
+native_seed_alpha_span:
+    pha
+    lda #.bankbyte(NATIVE_ALPHA)
+native_seed_bank:
+    sep #$20
+    .a8
+    sta $4304
+    rep #$20
+    .a16
+    pla
     sta $4305
     stx $2181
     sty $4302
@@ -178,8 +191,6 @@ native_seed_span:
     .a8
     lda transfer_wbank
     sta $2183
-    lda #$42
-    sta $4304
     lda #$80
     sta $4300
     sta $4301
@@ -193,6 +204,10 @@ native_seed_span:
 native_receive_span:
     pha
     lda #$42
+    bra native_receive_bank
+native_receive_alpha_span:
+    pha
+    lda #.bankbyte(NATIVE_ALPHA)
     bra native_receive_bank
 native_receive_coordinate_span:
     pha

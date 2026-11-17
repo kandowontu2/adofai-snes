@@ -6,6 +6,25 @@ from make_assets import FPS
 ROOT=Path(__file__).resolve().parents[1]
 
 def schedule(data,chart):
+    # A hidden core planet can have a separate, visible author-created
+    # planet proxy. The cartridge's live sprite represents that proxy.
+    if data.get('live_planet_proxies'):
+        from decoration_tracks import expanded_moves,Tween
+        proxies={d['relativeTo']:d for d in data.get('featured_decorations',[])
+                 if d.get('relativeTo') in ('RedPlanet','BluePlanet')}
+        if not proxies:return []
+        moves=expanded_moves(data,chart);tracks=[]
+        for key in ('RedPlanet','BluePlanet'):
+            dec=proxies[key];tags=set(dec.get('tag','').split())
+            commands=[(start,duration,e['opacity'],e.get('ease','Linear'))
+                      for start,_,duration,e in moves if 'opacity' in e
+                      and tags.intersection(e.get('tag','').split())]
+            tracks.append(Tween(dec.get('opacity',100),commands))
+        rows=[]
+        for frame in range(chart['notes'][-1]['frame']+121):
+            values=[256 if t.at(frame)>0 else 0 for t in tracks]+[256]
+            if not rows or values!=rows[-1][1:]:rows.append([frame,*values])
+        return rows if any(0 in r[1:] for r in rows) else []
     commands=[[],[],[]]
     for order,a in enumerate(data.get('featured_actions',[])):
         if a['eventType']!='ScalePlanets' or not enabled(a.get('active',True)):continue

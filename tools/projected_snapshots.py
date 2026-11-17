@@ -37,7 +37,9 @@ def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,post
         from projected_copies import actor_events,palette_events
         chart['mawaru_copy_world']=copy_world
         events.extend(actor_events(chart,copy_world))
-        extra_colors=palette_events(source,level,copy_world)
+        # The Source sampler already includes copies and their heading.
+        # A second copy-only pass would overwrite the heading's colors.
+        extra_colors=[] if chart.get('mawaru_headings') else palette_events(source,level,copy_world)
         events.extend(extra_colors)
         chart['track_palette_versions']=sorted(chart['track_palette_versions']+[[t,i,v] for t,k,i,v,p in extra_colors],key=lambda r:r[0])
     if any(r.get('decoration_hitboxes') for r in chart.get('freeroam_regions',[])):
@@ -45,17 +47,23 @@ def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,post
         colors=palette_events(source,level)
         events.extend(colors)
         chart['track_palette_versions']=sorted(chart['track_palette_versions']+[[t,i,v] for t,k,i,v,p in colors],key=lambda r:r[0])
+    # Source caches can contain additional copy/foreground palette records
+    # beyond their canonical animation file. Compile the complete palette
+    # timeline, rather than assuming every metadata change is in that file.
+    if 'track_palette_versions' in chart:
+        events=[e for e in events if e[1]!=7]
+        events.extend((t,7,i,v,b'') for t,i,v in chart['track_palette_versions'])
     from neo_fog import Fog
     fog=Fog(chart) if chart.get('mawaru_fog') else None
-    wide=any(len({g for g,b in refs.values()}-{0})>511 for refs,palettes in frames)
-    if wide:assert not any(b&64 for refs,palettes in frames for g,b in refs.values()),'Wide atlas cannot mix 8-bpp frames'
+    wide=any(len({g for g,b in refs.values()}-{0})>(255 if any(b&64 for g,b in refs.values()) else 511)
+             for refs,palettes in frames)
     peak=0;previous=None;snapshots=bytearray();indexed_frames=[];local_source=None
     for t,(refs,palettes) in enumerate(frames):
         visible=sorted({g for g,b in refs.values()}-{0});peak=max(peak,len(visible))
         assert len(visible)<(640 if wide else 512),('Snapshot atlas capacity',level,t,len(visible))
         indexed=any(bank&64 for _,bank in refs.values())
         if indexed:
-            assert len(visible)<=255,('Indexed snapshot atlas capacity',level,t,len(visible))
+            assert len(visible)<=(319 if wide else 255),('Indexed snapshot atlas capacity',level,t,len(visible))
             indexed_frames.append(t)
         slots={g:i+1 for i,g in enumerate(visible)};words=[0]*608
         for i,(g,bank) in refs.items():
@@ -146,12 +154,20 @@ def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,post
 def compile(source,output,level):
     from projected_tracks import compile_section,share_flipped_glyphs
     chart=json.loads((Path(source)/f'level{level}.json').read_text())
+    actors=[]
+    if chart.get('live_planet_proxies'):
+        from decoration_tracks import actor_camera_events
+        root=Path(__file__).resolve().parents[1]
+        data=json.loads((root/f'assets/private/level{level}.json').read_text())
+        actors,versions=actor_camera_events(data,chart,chart['notes'][-1]['frame']+120)
+        chart['actor_projection_versions']=versions
+        (Path(source)/f'level{level}.json').write_text(json.dumps(chart,indent=2))
     from projected_copies import capture_world
     world=capture_world(source,level)
-    colors=[] if chart.get('maze_decoration_tracks') or chart.get('decoration_tracks') else None
+    colors=[] if chart.get('maze_decoration_tracks') or chart.get('decoration_tracks') or chart.get('mawaru_headings') else None
     glyphs,frames=compile_section(source,level,0,chart['notes'][-1]['frame']+120,world,extra_colors=colors)
     glyphs,frames=share_flipped_glyphs(glyphs,frames)
-    try:write(source,output,level,glyphs,frames,copy_world=world,extra_colors=colors or ())
+    try:write(source,output,level,glyphs,frames,copy_world=world,extra_colors=colors or (),actor_events=actors)
     except Exception:
         # A failed encoder must not require repeating expensive geometry
         # rendering just to diagnose its packet. Retained only on failure.

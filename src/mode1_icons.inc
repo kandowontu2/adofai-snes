@@ -102,20 +102,20 @@ worker_mode1_place:
 worker_mode1_icon_sprite:
     lda view_x
     cmp #$FFF1
-    bcs @x_inside
+    bcs worker_icon_x_inside
     cmp #256
-    jcs @done
-@x_inside:
+    jcs worker_icon_done
+worker_icon_x_inside:
     lda view_y
     cmp #32
-    jcc @done
+    jcc worker_icon_done
     cmp #177
-    jcs @done
+    jcs worker_icon_done
     lda f:SPILL_OAM_BYTES
     clc
     adc f:SPILL_OAM_PREFIX
     cmp #512
-    jcs @done
+    jcs worker_icon_done
     sta map_left
     lda view_y
     lsr a
@@ -130,29 +130,31 @@ worker_mode1_icon_sprite:
     lsr a
     lsr a
     sta scratch2
-@check:
+worker_icon_check:
     lda f:SPILL_OAM_BUDGET,x
     and #255
     cmp #32
-    jcs @done
+    jcs worker_icon_done
     inx
     cpx scratch2
-    bcc @check
-    beq @check
+    bcc worker_icon_check
+    beq worker_icon_check
     ldx scratch
+worker_mode1_icon_charge:
     sep #$20
     .a8
-@charge:
+worker_icon_charge:
     lda f:SPILL_OAM_BUDGET,x
     inc a
     inc a
     sta f:SPILL_OAM_BUDGET,x
     inx
     cpx scratch2
-    bcc @charge
-    beq @charge
+    bcc worker_icon_charge
+    beq worker_icon_charge
     rep #$20
     .a16
+worker_mode1_icon_append:
     lda f:SPILL_OAM_BYTES
     tax
     lda view_y
@@ -169,15 +171,15 @@ worker_mode1_icon_sprite:
     and #12
     lsr a
     tax
-    lda f:$010000+@size,x
+    lda f:$010000+mode1_icon_sizes,x
     sta scratch
     lda view_x
-    bpl @high
+    bpl worker_icon_high
     lda scratch
     lsr a
     ora scratch
     sta scratch
-@high:
+worker_icon_high:
     lda map_left
     .repeat 4
     lsr a
@@ -194,8 +196,8 @@ worker_mode1_icon_sprite:
     clc
     adc #4
     sta f:SPILL_OAM_BYTES
-@done:
+worker_icon_done:
     rts
-@size:
+mode1_icon_sizes:
     .word 2,8,32,128
 .endif

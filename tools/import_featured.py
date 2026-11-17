@@ -135,6 +135,10 @@ def import_chart(meta,folder,out):
         hidden=hides.get(i,hidden);data['hidden_icons'].append(hidden)
     if has_neo:neo_fields(raw,data)
     data['planet_scale_import']=True
+    if meta.get('live_planet_proxies'):
+        data['live_planet_proxies']=True
+    if meta.get('local_decoration_pivots'):
+        data['local_decoration_pivots']=True
     if meta.get('perfect_only_tag'):data['perfect_only_tag']=meta['perfect_only_tag']
     n=meta['id'];out.mkdir(exist_ok=True,parents=True)
     (out/f'level{n}.json').write_text(json.dumps(data,indent=2))

@@ -8,6 +8,15 @@ FILES = {'objects': 'objects.chr', 'palette': 'palette.bin',
          'font': 'font.chr'}
 
 
+def neo_objects():
+    data=bytearray((ROOT/'mode7/freeroam.chr').read_bytes())
+    dash=(ROOT/'mode7/planet-preview-dash.chr').read_bytes()
+    assert len(data)==2048 and len(dash)==32
+    # Secondary OBJ 216 is unused by the maze, meteor, and math font.
+    data[24*32:25*32]=dash
+    return bytes(data)
+
+
 def read_graphics(variant):
     folder = ROOT / variant
     manifest = json.loads((ROOT / 'manifest.json').read_text())
@@ -33,7 +42,7 @@ def patch_sa1_pack(out):
     graphics = write_graphics(out, 'mode7')
     placements = json.loads((out / 'placements.json').read_text())
     if 'neo_objects' in placements:
-        graphics['neo_objects']=(ROOT/'mode7/freeroam.chr').read_bytes()
+        graphics['neo_objects']=neo_objects()
         if len(graphics['neo_objects'])!=2048:raise ValueError('freeroam.chr must contain 64 tiles')
     if 'neo_math_font' in placements:
         graphics['neo_math_font']=(ROOT/'mode7/math-font.chr').read_bytes()

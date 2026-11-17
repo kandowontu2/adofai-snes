@@ -287,7 +287,15 @@ update_game:
     lda autoplay
     bne :+
     lda f:NOTE_PAUSE-2,x
-    bmi @manual
+    bpl :+
+    ; Authored AutoPlayTiles holds have no initiating player key. Their
+    ; automatic release must not enter the manual release-only branch.
+    phx
+    ldx step
+    lda f:NOTE_FLAGS,x
+    plx
+    and #8
+    beq @manual
 :
 .endif
     lda step
@@ -320,7 +328,7 @@ update_game:
     jsr activate_checkpoint
     lda step
     cmp last_note
-    bcc @next_note
+    jcc @next_note
     jmp finish_run
 @manual:
     lda autoplay

@@ -1,11 +1,27 @@
-"""MSU-1 data and 44.1 kHz signed stereo PCM, with checkpoint entry tracks."""
+"""MSU-1 data and optional song-start PCM for the hybrid edition."""
 import hashlib,json,math,struct,subprocess
 from pathlib import Path
 import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
 RATE=44100
 
+def checkpoint_track_base(level):
+    # Preserve released track numbers. Overclocked has 34 checkpoints and
+    # extends past its old 32-track slot; new charts use a separate 64-slot area.
+    base=1000+level*32 if level<=284 else 12000+(level-285)*64
+    assert base<=65535,'MSU track number capacity'
+    return base
+
+def validate_track_numbers(charts):
+    used={}
+    for chart in charts:
+        n=chart['id'];base=checkpoint_track_base(n)
+        for track in [n,*range(base,base+len(chart['checkpoints']))]:
+            assert 0<track<=65535 and track not in used,('Overlapping MSU tracks',track,used.get(track),n)
+            used[track]=n
+
 def generate(out,charts,music,*,generate_pcm=True):
+    validate_track_numbers(charts)
     descriptors=bytearray();manifest=[];stem=out/'adofai'
     with stem.with_suffix('.msu').open('wb') as data:
         data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',21 if len(charts)>=200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
@@ -21,7 +37,7 @@ def generate(out,charts,music,*,generate_pcm=True):
                 snapshots.append(data.tell());data.write((out/f'animation{n}-checkpoint-{i}.bin').read_bytes())
             end=data.tell();data.seek(table_offset)
             data.write(b''.join(struct.pack('<I',s) for s in snapshots));data.seek(end)
-            descriptors+=struct.pack('<IHHIIHHI',offset,track,1000+n*32,animation_offset,table_offset,c.get('visibility_cells',0),int(bool(c.get('pattern_versions'))),timeline_offset)
+            descriptors+=struct.pack('<IHHIIHHI',offset,track,checkpoint_track_base(n),animation_offset,table_offset,c.get('visibility_cells',0),int(bool(c.get('pattern_versions'))),timeline_offset)
             if c.get('sa1_stream_format'):
                 c['stream_msu_base']=data.tell()
                 data.write((out/f'stream_data{n}.bin').read_bytes())
@@ -50,13 +66,13 @@ def generate(out,charts,music,*,generate_pcm=True):
     (out/'msu-manifest.json').write_text(json.dumps(dict(format='MSU1 44100 Hz signed 16-bit stereo',normal_speed='PCM',other_speeds='12 kHz BRR from MSU data',levels=manifest),indent=2))
 
 def generate_pcm_tracks(out, c):
-    """Generate music/checkpoint PCM without rewriting a verified MSU data file."""
+    """Generate hybrid song-start PCM; checkpoint retries use BRR."""
     n=c['id'];track=n
     from embedded_hit_audio import mix_hits, fingerprint
     wav=ROOT/f'assets/private/{n}-X.wav'
     prefix=c['countdown']*60/c['bpm'] if c['separate_countdown'] else 0
     settings=dict(source=hashlib.sha256(wav.read_bytes()).hexdigest(),percussion_mix=fingerprint(c),prefix=prefix,end=c['duration'],offset=c['offset'],checkpoints=c['checkpoints'],format=1)
-    stamp=out/f'msu-{n}.json';targets=[(track,0)]+[(1000+n*32+i,cp['block']*16/12000) for i,cp in enumerate(c['checkpoints'])]
+    stamp=out/f'msu-{n}.json';targets=[(track,0)]
     if not(stamp.exists() and json.loads(stamp.read_text())==settings and all((out/f'adofai-{t}.pcm').exists() for t,_ in targets)):
         raw=out/f'msu-{n}.raw'
         subprocess.run(['ffmpeg','-v','error','-y','-i',str(wav),'-af','volume=0.78','-ac','2','-ar',str(RATE),'-f','s16le',str(raw)],check=True)

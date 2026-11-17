@@ -18,6 +18,9 @@ def regressions(frozen,ids):
     run('verify_msu_header_mesen.py','--pack',BASE.name)
     sequence=[65,70,67,94,144,1]
     pairs=list(zip(sequence,sequence[1:]))
+    for first,second in ((286,68),(287,1),(288,289)):
+        if first in ids and second in ids:
+            pairs.append((ids.index(first)+1,ids.index(second)+1))
     # Keep both charts in the same emulator session for each transition,
     # without registering six simultaneous copies of the hardware probes.
     for first,second in pairs:
@@ -39,8 +42,9 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pack',default='stock-refresh-master')
     parser.add_argument('--regressions-only',action='store_true')
+    parser.add_argument('--catalog-only',action='store_true',help='Validate all exact-build replay evidence before running independent release features')
     args=parser.parse_args();BASE=ROOT/'build/packs'/args.pack;V=BASE/'verification'
-    frozen=identity(BASE/'adofai.sfc');ids=read(BASE/'pack.json')['levels'];rows=[]
+    frozen=identity(BASE/'adofai.sfc',fresh=True);ids=read(BASE/'pack.json')['levels'];rows=[]
     assert len(ids)==len(set(ids)) and ids
     if args.regressions_only:
         regressions(frozen,ids)
@@ -51,6 +55,20 @@ def main():
         m=bound(folder/'manifest.json',frozen)
         assert (folder/'result.txt').read_text().endswith('PASS\n')
         assert m['suite_digest']==suite_digest(),f'Replay oracle stale: {n}'
+        chart=read(BASE/f'level{n}.json')
+        if chart.get('mode1_tracks')==3 and 'EXTENDED_CHART_BUILD = 1' in (BASE/'addresses.inc').read_text():
+            jobs=folder/'snapshot-icon-jobs.txt'
+            assert jobs.exists() and int(jobs.read_text())>=100,('Missing independent snapshot icon coverage',n)
+        if 253<=n<=283:
+            import re
+            geometry=(folder/'triplet-geometry.txt').read_text()
+            count=re.search(r'oriented_triangles=(\d+)',geometry)
+            assert geometry.startswith('PASS ') and count and int(count[1])>0,('Missing live triplet geometry coverage',n)
+            memory=(folder/'twirl-stream-memory.txt').read_text()
+            assert memory.startswith('PASS checks=') and int(memory.split('=')[1])>0,('Missing twirl/stream isolation coverage',n)
+            if n==256:
+                handoffs=re.search(r'twirl_handoffs=(\d+)',geometry)
+                assert handoffs and int(handoffs[1])>=7,'Missing live twirl handoff coverage'
         pp=folder/'ppu-verification.json'
         if not pp.exists():run('verify_mesen_ppu.py','--pack',BASE.name,'--level',local,'--folder',folder)
         bound(pp,frozen)
@@ -58,12 +76,46 @@ def main():
     report=dict(**frozen,passed=True,complete=True,suite_digest=suite_digest(),results=rows)
     (V/'catalog/results.json').write_text(json.dumps(report,indent=2))
     print(f'CATALOG {len(ids)} PASS',flush=True)
+    if args.catalog_only:
+        assert identity(BASE/'adofai.sfc',fresh=True)==frozen
+        return
+    import re
+    for n in (69,74,253):
+        if n not in ids:continue
+        p=V/f'mesen-{ids.index(n)+1}-autoplay/planet-previews.txt'
+        match=re.search(r'PASS circles=(\d+) dashes=(\d+)',p.read_text())
+        assert match and int(match[1])>0 and int(match[2])==9*int(match[1]),('Missing three-planet guide coverage',n)
     path=V/'release-regressions.json'
     previous=read(path) if path.exists() else {}
     if not (previous.get('passed') and previous.get('suite_digest')==suite_digest()
             and all(previous.get(k)==v for k,v in frozen.items())):
         previous=regressions(frozen,ids)
     features=[]
+    if 256 in ids:
+        path=V/'twirl-memory-negative.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('verify_twirl_memory_negative.py','--pack',BASE.name)
+        bound(path,frozen);features.append('twirl-memory-negative.json')
+    if 285 in ids:
+        bound(V/'symbol-performance.json',frozen);features.append('symbol-performance.json')
+        path=V/'snapshot-icon-negative.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('verify_snapshot_icons_negative.py','--pack',BASE.name)
+        bound(path,frozen);features.append('snapshot-icon-negative.json')
+    if 288 in ids:
+        path=V/'four-orb-visibility.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('verify_four_orb_release.py','--pack',BASE.name)
+        bound(path,frozen);features.append('four-orb-visibility.json')
+    if any(read(BASE/f'level{n}.json').get('mawaru_headings') for n in ids if n in (68,73)):
+        path=V/'neo-headings.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('verify_neo_headings_release.py','--pack',BASE.name)
+        bound(path,frozen);features.append('neo-headings.json')
     for level,tool,report in (
             (140,'verify_coordinate_dma_mesen.py','coordinate-dma/verification.json'),
             (284,'verify_overclocked_rules.py','overclocked-rules.json'),
@@ -82,7 +134,32 @@ def main():
                 and all(prior.get(k)==v for k,v in frozen.items())):
             run('run_mesen_campaign.py','--pack',BASE.name,'--levels',local,'--checkpoints','--sampled-graphics')
         bound(path,frozen);features.append(str(path.relative_to(V)))
-    assert identity(BASE/'adofai.sfc')==frozen
+    for n in (285,287,288,289,290):
+        if n not in ids:continue
+        local=ids.index(n)+1
+        path=V/f'mesen-{local}/manifest.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('run_mesen_campaign.py','--pack',BASE.name,'--levels',local,'--sampled-graphics')
+        bound(path,frozen)
+        run('verify_mesen_ppu.py','--pack',BASE.name,'--level',local,'--folder',path.parent)
+        features.append(str(path.relative_to(V)))
+        if not read(BASE/f'level{n}.json')['checkpoints']:continue
+        path=V/f'mesen-checkpoints-{local}/manifest.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('run_mesen_campaign.py','--pack',BASE.name,'--levels',local,'--checkpoints','--sampled-graphics')
+        bound(path,frozen);features.append(str(path.relative_to(V)))
+    if 62 in ids:
+        local=ids.index(62)+1;path=V/f'mesen-checkpoints-{local}/manifest.json'
+        prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('run_mesen_campaign.py','--pack',BASE.name,'--levels',local,'--checkpoints','--sampled-graphics')
+        bound(path,frozen)
+        run('verify_mesen_ppu.py','--pack',BASE.name,'--level',local,'--folder',path.parent)
+        features.append(str(path.relative_to(V)))
+    assert identity(BASE/'adofai.sfc',fresh=True)==frozen
     (V/'release-gates.json').write_text(json.dumps(dict(previous,catalog=len(ids),features=features),indent=2))
     print('RELEASE GATES PASS',flush=True)
 if __name__=='__main__':main()

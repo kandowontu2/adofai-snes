@@ -1,6 +1,7 @@
 -- Check the live hold translation and angle against the rendered curve.
 return function(C)
   local H=C.holds
+  local sources=C.coordinates or {source_x=0x410000,source_y=0x412200}
   local W=emu.memType.snesWorkRam
   local M=emu.memType.snesMemory
   local S=emu.memType.snesSaveRam
@@ -53,7 +54,7 @@ return function(C)
       -- SYMBOL coordinates can already contain the next prefetched pose.
       local anchor=word(base+step*2,mem)
       if C.stream_runtime and word(0x3ef00,S)==1 and word(0x2b200,S)~=0 then
-        base=axis=='x' and 0x10000 or 0x12200;mem=S
+        base=(axis=='x' and sources.source_x or sources.source_y)-0x400000;mem=S
         if H.native_anchor then anchor=word(base+step*2,mem) end
       end
       local start=word(base+step*2,mem)
@@ -112,7 +113,7 @@ return function(C)
       local base=H.addr['NOTE_'..string.upper(axis)]
       local mem=M
       if C.stream_runtime and word(0x3ef00,S)==1 and word(0x2b200,S)~=0 then
-        base=axis=='x' and 0x10000 or 0x12200;mem=S
+        base=(axis=='x' and sources.source_x or sources.source_y)-0x400000;mem=S
       end
       local delta=signed((word(base+(step+1)*2,mem)-word(base+step*2,mem)+h[axis])%65536)
       local offset=math.floor(math.abs(delta)*phase/256)*(delta<0 and -1 or 1)

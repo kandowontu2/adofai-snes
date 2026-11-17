@@ -1,5 +1,5 @@
 """Ensure native coordinate copies own DMA before programming its source bank."""
-import argparse,json,os,re,subprocess
+import argparse,json,os,re,subprocess,sys
 from pathlib import Path
 from verification_data import identity
 ROOT=Path(__file__).resolve().parents[1]
@@ -8,7 +8,9 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--pack',required=True)
     pack=ROOT/'build/packs'/parser.parse_args().pack;frozen=identity(pack/'adofai.sfc')
     local=json.loads((pack/'pack.json').read_text())['levels'].index(140)+1
-    template=pack/f'verification/mesen-{local}-autoplay/config.lua';assert template.exists()
+    subprocess.run([sys.executable,str(ROOT/'tools/run_mesen_campaign.py'),'--pack',pack.name,
+                    '--levels',str(local),'--autoplay','--sampled-graphics','--prepare-only'],cwd=ROOT,check=True)
+    template=pack/f'verification/mesen-{local}-autoplay-prepared/config.lua';assert template.exists()
     labels={n:int(a,16) for a,n in re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)',(pack/'adofai.lbl').read_text())}
     address=labels['native_receive_bank']
     if 'SA1_FASTROM_MIRROR = 1' in (pack/'addresses.inc').read_text():address+=0x800000

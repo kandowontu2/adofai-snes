@@ -8,6 +8,16 @@ return function(C)
  local frame=0
  local previous=nil
  local max_gap=0
+ if C.indexed_color_support then
+  -- Check the real raster mode, rather than trusting the software atlas
+  -- flag used by the independent VRAM pixel decoder.
+  emu.addMemoryCallback(function(a,v)
+   local line=emu.getState()['ppu.scanline']
+   if line<40 or line>=160 or word(C.addr.display_state,W)~=1 or word(0x3ef0c,S)==0 then return end
+   local expected=word(0x3efb8,S)%2==1 and 3 or 1
+   assert(v%8==expected,'Actual PPU bit depth differs from the published snapshot format at chart '..word(C.addr.display_chart_time,W)..' line='..line..' mode='..v..' expected='..expected..' front='..word(0x3ef80,S))
+  end,emu.callbackType.write,0x2105,0x2105,emu.cpuType.snes)
+ end
  emu.addMemoryCallback(function()
   local mode=word(0x3ef0c,S)
   if mode==0 or word(C.addr.display_state,W)~=1 then return end

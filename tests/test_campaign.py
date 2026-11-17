@@ -6,10 +6,29 @@ import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
 from emulate import Emulator
-from campaign_assets import connected_track,compile_chart,OUT
+from campaign_assets import connected_track,compile_chart,compress_map,OUT
 from official_catalog import WORLDS,PACKS,RETIRED_LEVEL_IDS,load_game_json
 
 class Campaign(unittest.TestCase):
+    def test_blank_projection_world_does_not_need_a_legacy_row_width_limit(self):
+        from verify_render import map_reader
+        blob=compress_map([0]*16384*2,16384,2)
+        self.assertEqual(map_reader(blob,2,2)(16383,1),0)
+
+    def test_occupied_legacy_rows_still_enforce_their_encoded_span_limit(self):
+        row=[0]*16384;row[8192]=1
+        with self.assertRaisesRegex(AssertionError,'Occupied sparse row'):
+            compress_map(row,16384,1)
+
+    def test_long_chart_compiles_all_notes_above_the_previous_limit(self):
+        import math
+        floors=[dict(seqID=i,entryangle=math.pi*1.5,exitangle=math.pi*.5,speed=1.,
+                     isCCW=0,extraBeats=0.,midSpin=0,holdLength=-1,numPlanets=2) for i in range(4771)]
+        c,_=compile_chart(dict(id='long',title='LONG',bpm=600,offset=0,countdown=4,
+                               separate_countdown=True,floors=floors))
+        self.assertEqual(len(c['notes']),4771)
+        self.assertEqual(c['notes'][-1]['step'],4770)
+
     def test_catalog_coverage(self):
         self.assertEqual(len(WORLDS),39)
         self.assertEqual(sorted(n for p in PACKS.values() for n in p['levels']),

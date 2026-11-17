@@ -4,6 +4,17 @@ from pathlib import Path
 from verification_data import identity
 ROOT=Path(__file__).resolve().parents[1]
 
+def verify_cpu_scratch(twirl_begin,twirl_end):
+    ranges=[('palette/roles',0x0580,0x05A2),('stream',0x05A2,0x0600),
+            ('sprite bins',0x0600,0x0620),('exact budgets',0x0620,0x0760),
+            ('exact temporaries',0x0768,0x0778),('DMA commands',0x0778,0x077E),
+            ('math labels',0x0780,0x0794),('planet preview',0x07A0,0x07C8),
+            ('twirl',twirl_begin,twirl_end)]
+    ranges.sort(key=lambda r:r[1])
+    assert all(a<b for _,a,b in ranges) and max(b for _,a,b in ranges)<=0x0800
+    for left,right in zip(ranges,ranges[1:]):
+        assert left[2]<=right[1],('CPU scratch overlap',left,right)
+
 def verify(base,source):
     rom=(base/'adofai.sfc').read_bytes();pack=json.loads((base/'pack.json').read_text())
     loc=json.loads((base/'placements.json').read_text())
@@ -12,6 +23,9 @@ def verify(base,source):
     compressed_times='COMPRESSED_STREAM_INDEX = 1' in build_flags
     msu_descriptors=(base/'msu_descriptors.bin').read_bytes() if msu_charts else b''
     labels={name:int(value,16) for value,name in re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)',(base/'adofai.lbl').read_text())}
+    if 'neo_twirl_state_begin' in labels:
+        verify_cpu_scratch(labels['neo_twirl_state_begin'],labels['neo_twirl_state_end'])
+        assert labels['neo_twirl_state_end']<=labels['__FASTNMI_RUN__']
     assert len(rom)==0x800000
     assert rom[0x7fd5:0x7fd8]==bytes([0x23,0x35,0x0d]) and rom[0x7fd8] in (7,8),rom[0x7fd5:0x7fd9]
     inverse,checksum=struct.unpack_from('<HH',rom,0x7fdc)
@@ -52,11 +66,42 @@ def verify(base,source):
     assert 0x0e00<=labels['__FASTWRAM_RUN__'] and labels['__FASTWRAM_RUN__']+labels['__FASTWRAM_SIZE__']<=0x1800
     assert 0x01F000<=unmirror(labels['__FASTWRAM_LOAD__']) and unmirror(labels['__FASTWRAM_LOAD__'])+labels['__FASTWRAM_SIZE__']<=0x020000
     if labels.get('NOTE_X') == 0x7F8000:
-        assert labels['NOTE_Y'] == 0x7FA200 and labels['M7_CHR_HIGH'] == 0x7F6800
-        ranges=[(0x7F0000,0x7F6600),(0x7F6800,0x7F7000),(0x7F7C00,0x7F8000),
-                (labels['NOTE_X'],labels['NOTE_X']+0x2200),
-                (labels['NOTE_Y'],labels['NOTE_Y']+0x2200),(0x7FC880,0x7FC900)]
+        extended=labels.get('MAX_NOTE_CAPACITY',4352)>4352
+        size=labels.get('MAX_NOTE_CAPACITY',4352)*2
+        assert labels['NOTE_Y'] == (0x7FA800 if extended else 0x7FA200) and labels['M7_CHR_HIGH'] == 0x7F6800
+        run=labels.get('M7_RUN_VALUES',0x7FC880)
+        low_bytes=labels['M7_CHR_LOW_BYTES'];high_bytes=labels['M7_CHR_HIGH_BYTES']
+        assert low_bytes+high_bytes==16384 and low_bytes==64*labels['M7_CHR_LOW_SLOTS']
+        assert (labels['M7_CHR_LOW']&65535)+low_bytes<=65536,'Legacy CHR DMA wraps into CPU state'
+        assert labels['M7_CHR_HIGH']+high_bytes<=0x7F7C00,'Legacy CHR shadow overlaps audio FIFO'
+        ranges=[(0x7F0000,0x7F6600),(0x7F6800,0x7F6800+high_bytes),(0x7F7C00,0x7F8000),
+                (labels['NOTE_X'],labels['NOTE_X']+size),
+                (labels['NOTE_Y'],labels['NOTE_Y']+size),(run,run+128),(0x7FD800,0x7FDC00)]
         assert all(a[1]<=b[0] for a,b in zip(ranges,ranges[1:])), ranges
+        if extended:
+            count=labels['MAX_NOTE_CAPACITY'];symbols=labels['MAX_SYMBOL_CAPACITY']
+            ram=[(labels[name],labels[name]+count*stride) for name,stride in
+                 [('NOTE_TIME',2),('NOTE_ANGLE',1),('NOTE_FLAGS',1),('NOTE_RATE',2),
+                  ('NOTE_PROGRESS',1),('NOTE_CCW',1),('FLOOR_ALPHA',1)]]
+            ram += [(labels[name],labels[name]+span) for name,span in
+                    [('M7_CHR_LOW',2048),('CELL_HASH_HEAD',2048),('CELL_HASH_NEXT',2048),('PATTERN_QUEUE_LOOKUP',1024)]]
+            assert all(a[1]<=b[0] for a,b in zip(ram,ram[1:])) and ram[-1][1]<=0x7F0000,ram
+            assert labels['TRACK_SYMBOL_FLOORS']+symbols*2<=labels['NOTE_PAUSE']
+            assert labels['NOTE_PAUSE']+count*2<=labels['NOTE_JUDGMENTS']
+            assert labels['NOTE_JUDGMENTS']+count<=0x410000
+            assert labels['SYMBOL_X']+count*2<=labels['SYMBOL_Y']
+            assert labels['SYMBOL_Y']+count*2<=labels['SYMBOL_VISIBLE']
+            assert labels['SYMBOL_VISIBLE']+symbols*2<=0x416600
+            assert labels['SYMBOL_SCREEN_X']+symbols*2<=labels['SYMBOL_SCREEN_Y']
+            assert labels['SYMBOL_SCREEN_Y']+symbols*2<=0x43EF00
+            if 'SNAPSHOT_ICON_INFO' in labels:
+                assert labels['SYMBOL_SCREEN_Y']+symbols*2<=labels['SNAPSHOT_ICON_INFO']
+                assert labels['SNAPSHOT_ICON_INFO']+count<=0x43E800
+                # Largest independent LZ4 pose: header + 640 CHR chunks.
+                assert 0x422000+1312+640*32<=labels['SNAPSHOT_ICON_PREFIX']
+                assert labels['SNAPSHOT_ICON_PREFIX']+544<=0x428000
+            assert 0x408200<=labels['NATIVE_ALPHA'] and labels['NATIVE_ALPHA']+count<=labels['TRACK_SYMBOL_FLOORS']
+            assert labels['NATIVE_READY']==0x42B200
     offset=lambda addr:addr-0xc00000 if addr>=0xc00000 else addr
     checked=0;crossings=[]
     meter={name:int(value,16) for name,value in re.findall(r'(METER_\w+)=\$([0-9A-Fa-f]+)',(base/'game.lst').read_text())}
@@ -67,10 +112,18 @@ def verify(base,source):
         assert 0x7FDC82<=meter['METER_BITMAP'] and meter['METER_BITMAP']+272<=0x7FE000
     for n in pack['levels']:
         chart=json.loads((base/f'level{n}.json').read_text())
+        if labels.get('MAX_NOTE_CAPACITY',4352)>4352:
+            assert len(chart['notes'])<=labels['MAX_NOTE_CAPACITY']
+            assert sum(not(q['flags']&128) and bool(q['flags']&119) for q in chart['notes'])<=labels['MAX_SYMBOL_CAPACITY']
         if 'stream_vfx_off_descriptors' in loc:
             row=pack['levels'].index(n)*32
             on=offset(loc['stream_descriptors'])+row
             off=offset(loc['stream_vfx_off_descriptors'])+row
+            if chart.get('sa1_stream_format'):
+                count,index,stream=struct.unpack_from('<HII',rom,on+2)
+                assert (count,index,stream)==(chart['stream_packets'],loc[f'stream_index{n}'],chart['stream_msu_base'])
+                seed=struct.unpack_from('<H',rom,on+14)[0]+(struct.unpack_from('<H',rom,on+18)[0]<<16)
+                assert seed==chart.get('mode1_seed_base',0)
             if not chart.get('vfx_off'):
                 assert rom[on:on+32]==rom[off:off+32],(n,'VFX toggle changed gameplay-only chart')
             else:

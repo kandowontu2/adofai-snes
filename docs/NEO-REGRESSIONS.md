@@ -149,3 +149,85 @@ Snapshot-only masters omit unused sparse coordinate tables from ROM, retaining
 the canonical files for pixel verification. Test a native-rendered chart followed
 by a snapshot chart without resetting (for example 23, 94, 75 in the 94-chart
 master), as well as checkpoint reloads, whenever changing this path.
+
+Three-planet graphics replays also write `triplet-geometry.txt`. This probe
+checks the orientation of the three live planet positions against the chart's
+rotation direction, including reversed free-roam turns. An equilateral
+triangle alone is insufficient: the third planet can be mirrored to the wrong
+side while all three distances remain correct. The renderer's `$F000/$F000`
+offscreen sentinel is excluded and counted separately, as it is not a projected
+position; 3PXH-X's blind camera section exercises this case. Ordinary two-to-three
+transitions also check that the existing planets retain their landing roles.
+The release gate requires nonzero orientation coverage for all 31 Triple
+Planet charts. The pre-fix renderer fails this probe on 3P1-X's first change.
+
+Three-planet twirls use the native OutSine reflection blend over half an
+interval. Their formations flatten and change orientation during that blend;
+the probe accounts for this instead of requiring a rigid triangle. 3P4-X also
+checks each planet's world-coordinate continuity at its first seven twirls.
+The release gate requires all seven handoffs, which failed before the blend.
+
+Extended charts reserve 5,120 notes and a separate compact list of at most
+2,816 icon-bearing floors. Every imported chart must fit both bounds. The
+SA-1 layout check proves that the expanded coordinate, timing, opacity and
+judgment arrays remain separate from graphics shadows, the audio FIFO and
+shared worker state. Coordinate publication checks use the build's actual
+array addresses and capacity, including Galaxy Collapse's final floors.
+
+T3-X/EX import all 19 native Mawaru section headings from the installed
+NeoCosmos English localization. Their native beat schedule, EX soccer wording,
+entrance, upward movement and fade are rendered into full-detail snapshots.
+Headings are applied after the track-copy compositor and remain active with
+VFX off. The stage punctuation CHR is external and editable.
+
+Galaxy Collapse retains all 4,771 floors. Extended charts use a non-overlapping
+5,120-note memory layout inside the existing 256 KiB SA-1 BW-RAM. Dense indexed
+frames share flipped glyphs losslessly and may use a 640-chunk double atlas,
+with 319 8bpp glyphs per bank. Restart seeds preserve the indexed flag without
+overlapping byte-count bit 14. The PPU oracle checks both banks and bit depths.
+
+Compact restart seed format 3 removes final DMA block padding and the proven
+zero tail of each screen map globally, including VFX-off alternates. The
+loader restores those zero bytes and reads an exact final atlas chunk.
+Palette, visible atlas bytes, symbols and clone state are preserved. Data
+version 34 prevents older ROMs from misreading the new layout. Identical
+immutable snapshot packets share storage while retaining every timestamped
+event. This does not remove any rendered updates.
+
+The white third-planet preview and dashed triangle are attached to the live
+entry floor, use the track's camera projection, and scale with zoom. They
+disappear when the planet joins. `planet-previews.txt` independently checks
+their positions against native entry vectors; ordinary pause floors and
+transitions back to two planets must never show an insertion guide. This
+applies to all charts, including T4, endless.reality and Main EX.
+
+Primrose replaces hidden core planets with live proxies. Its PNG and native
+Planet objects may describe the same actor and must be deduplicated by tag
+and transform. Shared proxy translation affects actors without translating
+the pre-rendered track. The Noteblock Cover hides those live proxies during
+its authored four-orb decoration sequence, then restores them at the exit.
+Test both charts manually as well as in Watch, plus Primrose's checkpoints.
+
+The 5,120-note layout also changes the legacy Mode 7 CHR shadow split.
+It stores 176 tiles in $7ED400..$7EFFFF and the remaining 80 in
+$7F6800..$7F7BFF. Uploads, checkpoints, worker destinations and delta seeding
+must use that same boundary. The full 16 KiB image is retained. A WRAM DMA
+using the old 224-tile boundary wraps into CPU state; the layout gate now
+proves both complete spans fit their banks. Replay all four legacy charts
+62, 63, 64 and 65 whenever changing the shared note layout.
+
+
+### Dense symbols and scripted four-orb artwork (2026-11-16)
+
+Full snapshot charts in the extended master use a one-byte icon schedule at $43D000, after both projected-coordinate arrays. Command 4 projects the live symbols; dense screens dispatch command 12 to emit essential OAM on SA-1. Sparse screens reuse those projected positions in the existing CPU sprite loop, avoiding batch setup. The CPU transfers its immutable OAM prefix on DMA channel 0; channel 4 belongs to brightness HDMA. Packed OBJ/sliver counters use SA-1 IRAM $0100. Separate IRAM overlays hold projection, scan and emission kernels, with shared code-tag invalidation. No tile detail, authored updates or visible symbols are removed.
+
+verify_snapshot_icons_mesen.lua independently reconstructs glyphs, palettes, order, clipping, checkpoint activation and exact hardware budgets from each chart, then compares actual returned OAM and high bits byte for byte. The release gate requires coverage for every full-snapshot chart. profile_symbols_mesen.py measures emulated master clocks. Dense C9-X steps 700-850 improved from 27 frames worst gap to 6; 131 common timestamps had identical essential symbols. This is a measured improvement, not a locked-60-fps guarantee.
+
+B4-X uses an authored four-planet image rotated around a local pivot. The native transform scales that pivot with the image. local_decoration_pivots enables this transform for the chart. The raster centroid unit test covers four quarter turns. verify_four_orb_release.py separately checks actual MesenCE screenshots for four colors, the native orbit size, and proximity to the landing area after the authored entry transition.
+
+
+### Twirl scratch and stream isolation
+
+Three-planet twirl matrices use CPU WRAM $07C8..$07DD. The previous aliases at $05A2 overlapped the stream cursor and caused old packets to replay, delayed completion and long pauses. The layout gate proves that twirl, preview, math, OAM and stream scratch regions are disjoint. verify_twirl_stream_mesen.lua compares all 94 stream bytes before and after every live twirl blend. Its negative control restores the old aliases and must fail at $05A2. The original completion and hold-coverage thresholds remain unchanged.
+
+Release transition replays use the compiled VFX default and assert that option in gameplay. This matches real menu navigation after reset and prevents comparing VFX-off output against VFX-on captures.

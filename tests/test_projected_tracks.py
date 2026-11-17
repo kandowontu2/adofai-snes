@@ -2,7 +2,7 @@ import sys,unittest,struct,random
 from pathlib import Path
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from projected_tracks import encode_screen,exact_palettes
+from projected_tracks import encode_screen,encode_indexed_screen,exact_palettes
 from projected_tracks import raw_seeds,share_flipped_glyphs,inline_pixels,pack_inline_pixels
 from animation_bulk import HEADER
 from sa1_stream import indexed_packets
@@ -10,6 +10,25 @@ from mode1_tracks import decode_tile,schedule
 
 
 class ProjectedTrackTests(unittest.TestCase):
+    def test_indexed_atlas_reuses_flipped_tiles_before_applying_its_limit(self):
+        rng=np.random.default_rng(286)
+        tiles=rng.integers(1,16,size=(256,8,8),dtype=np.uint8)
+        tiles[-1]=tiles[0][:,::-1]
+        image=np.zeros((184,256),dtype=np.uint8)
+        for i,tile in enumerate(tiles):
+            y,x=divmod(i,32);image[32+y*8:40+y*8,x*8:x*8+8]=tile
+        glyphs=[bytes(32)];refs,palettes=encode_indexed_screen(image,glyphs,{bytes(32):0})
+        self.assertEqual(len(glyphs),256)
+        self.assertEqual(refs[0][0],refs[255][0])
+        self.assertEqual(refs[0][1]^refs[255][1],16)
+        # Running the shared atlas pass a second time composes the flips.
+        shared,frames=share_flipped_glyphs(glyphs,[(refs,palettes)])
+        for i,(glyph,bank) in frames[0][0].items():
+            actual=np.frombuffer(decode_tile(shared[glyph][:32],tuple(range(1,16))),dtype=np.uint8).reshape(8,8)
+            if bank&16:actual=actual[:,::-1]
+            if bank&32:actual=actual[::-1]
+            np.testing.assert_array_equal(actual,tiles[i])
+
     def test_exact_palette_packing_preserves_all_six_banks(self):
         wanted={frozenset(range(32+b*15,47+b*15)) for b in range(6)}
         banks=exact_palettes(wanted)

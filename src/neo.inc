@@ -56,6 +56,13 @@ neo_call_upload_vram:
 neo_call_sine_cosine:
     jsr sine_cosine
     rtl
+neo_call_preview_orb:
+.ifdef PLANET_SCALE_BUILD
+    jsr mode7_draw_scaled_orb
+.else
+    jsr mode7_draw_orb
+.endif
+    rtl
 
 .segment "NEOCODE"
 ; Optional per-note scales. Ordinary charts retain the original fast path.
@@ -206,6 +213,7 @@ neo_far_apply_ease:
     jsr neo_impl_apply_ease
     rtl
 neo_far_reset_free:
+    stz neo_twirl_cache_step
     jsr neo_impl_reset_free
     rtl
 neo_far_prepare_free:

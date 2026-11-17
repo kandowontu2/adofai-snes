@@ -7,6 +7,7 @@ import argparse,concurrent.futures,hashlib,json,os,shutil,subprocess,sys
 from pathlib import Path
 from track_camera import rotation_schedule
 from animation_assets import generate
+from msu_assets import checkpoint_track_base
 ROOT=Path(__file__).resolve().parents[1]
 SOURCE=ROOT/'build/packs/master'
 
@@ -41,7 +42,7 @@ def main():
         if stamp.exists() and json.loads(stamp.read_text()).get('fingerprint')==fingerprint:return dict(level=n,passed=True,cached=True)
         # Audio/checkpoint PCM settings are unchanged by camera compilation.
         for p in SOURCE.iterdir():
-            if p.is_file() and (p.name in (f'level{n}.brr',f'level{n}-audio.json',f'msu-{n}.json') or p.suffix=='.pcm' and (p.stem==f'adofai-{n}' or any(p.stem==f'adofai-{1000+n*32+i}' for i in range(len(c['checkpoints']))))):copy_file(p,job/p.name)
+            if p.is_file() and (p.name in (f'level{n}.brr',f'level{n}-audio.json',f'msu-{n}.json') or p.suffix=='.pcm' and (p.stem==f'adofai-{n}' or any(p.stem==f'adofai-{checkpoint_track_base(n)+i}' for i in range(len(c['checkpoints']))))):copy_file(p,job/p.name)
         command=[sys.executable,str(ROOT/'tools/campaign_assets.py'),'--pack','master','--out',str(job),'--levels',str(n),'--camera-rotation','--material-capacity',str(c.get('authored_material_capacity',48))]
         # R's sparse moving geometry supports 30-Hz authored motion without
         # exceeding the pattern budget; dense charts retain their cadence.

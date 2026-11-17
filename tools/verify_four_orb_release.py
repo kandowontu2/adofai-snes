@@ -1,0 +1,56 @@
+"""Check all four scripted planets in actual MesenCE screenshots."""
+import argparse,csv,json,math,subprocess,sys
+from pathlib import Path
+from PIL import Image
+from verification_data import identity
+from run_mesen_campaign import suite_digest
+
+ROOT=Path(__file__).resolve().parents[1]
+
+def inspect(path):
+    image=Image.open(path).convert('RGB')
+    assert image.size==(256,224),image.size
+    points={c:[] for c in ('red','green','blue','yellow')}
+    for y in range(32,176):
+        for x in range(256):
+            r,g,b=image.getpixel((x,y))
+            c=('red' if r>180 and g<100 and b<100 else
+               'green' if g>180 and r<100 and b<100 else
+               'blue' if b>160 and g<200 and r<100 else
+               'yellow' if r>180 and g>140 and b<100 else None)
+            if c:points[c].append((x,y))
+    centers={}
+    for color,pixels in points.items():
+        assert len(pixels)>=30,(path,color,'planet missing/clipped',len(pixels))
+        centers[color]=[sum(p[i] for p in pixels)/len(pixels) for i in (0,1)]
+    values=list(centers.values())
+    diameter=max(math.dist(a,b) for a in values for b in values)
+    nearest=min(math.dist(a,(128,104)) for a in values)
+    # Native 12% scale: ~24px sides, ~34px diagonal, around the
+    # current landing tile. Unscaled pivots put the group ~100px away.
+    assert 25<=diameter<=45,(path,'four-orb orbit radius',diameter,centers)
+    assert nearest<=36,(path,'four-orb group detached from playfield',nearest,centers)
+    return dict(centers=centers,diameter=diameter,nearest=nearest)
+
+def main():
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--pack',required=True)
+    args=ap.parse_args();base=ROOT/'build/packs'/args.pack
+    ids=json.loads((base/'pack.json').read_text())['levels'];local=ids.index(288)+1
+    chart=json.loads((base/'level288.json').read_text());frozen=identity(base/'adofai.sfc')
+    # The authored entry first shows two planets, then a black-to-blue
+    # insertion. Check all four colors after that transition.
+    steps=(53,54,55,60,81,101,121,161,201,241,257)
+    times=[chart['notes'][n]['frame'] for n in steps]
+    subprocess.run([sys.executable,str(ROOT/'tools/run_mesen_campaign.py'),'--pack',args.pack,
+                    '--levels',str(local),'--autoplay','--sampled-graphics',
+                    '--capture-times',*map(str,times)],check=True)
+    folder=base/f'verification/mesen-{local}-autoplay'
+    presented={int(row[0]):int(row[1]) for row in csv.reader((folder/'screen-capture-times.csv').open())}
+    samples=[dict(step=n,requested=t,presented=presented[t],**inspect(folder/f'screen-{t}.png'))
+             for n,t in zip(steps,times)]
+    assert identity(base/'adofai.sfc')==frozen
+    result=dict(passed=True,**frozen,suite_digest=suite_digest(),samples=samples)
+    (base/'verification/four-orb-visibility.json').write_text(json.dumps(result,indent=2))
+    print('FOUR-ORB VISIBILITY PASS',len(samples),flush=True)
+
+if __name__=='__main__':main()

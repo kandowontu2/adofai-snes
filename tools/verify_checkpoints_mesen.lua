@@ -11,6 +11,10 @@ if C.midspin then dofile(C.midspin.script)(C) end
 if C.screen_script then dofile(C.screen_script)(C) end
 if C.palette_script then dofile(C.palette_script)(C) end
 if C.icons then dofile(C.icons.script)(C) end
+if C.snapshot_icons then dofile(C.snapshot_icons.script)(C) end
+if C.twirl_stream then dofile(C.twirl_stream.script)(C) end
+if C.triplet then dofile(C.triplet.script)(C) end
+if C.preview then dofile(C.preview.script)(C) end
 local W=emu.memType.snesWorkRam
 local function word(name) local a=C.addr[name];return emu.read(a,W)+256*emu.read(a+1,W) end
 if C.addr.pattern_vblank_overruns then
@@ -47,7 +51,7 @@ local function capture_ppu()
     for a=0,511 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesCgRam)) end
     for a=0,543 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesSpriteRam)) end
     if C.mode1_runtime and sw(0x3ef0c)~=0 then
-      bytes[#bytes+1]=string.char(C.wide_atlas and (sw(0x3ef80)==512 and 6 or 5) or C.indexed_color_support and sw(0x3efb8)==1 and 4 or sw(0x3ef0c))
+      bytes[#bytes+1]=string.char(C.indexed_color_support and sw(0x3efb8)%2==1 and (C.wide_atlas and sw(0x3ef80)==512 and 8 or 4) or C.wide_atlas and (sw(0x3ef80)==512 and 6 or 5) or sw(0x3ef0c))
       for a=0x29400,0x2945f do bytes[#bytes+1]=string.char(emu.read(a,S)) end
       for a=0x2a000,0x2a0bf do bytes[#bytes+1]=string.char(emu.read(a,S)) end
     end
@@ -102,8 +106,19 @@ emu.addEventCallback(function()
           -offset-word('speed_offset_frac')/65536+delta*word('speed_scale')/65536
         lead=1.5
       end
+      local requests=0;local consumed=false
       while stage~='die' and word('checkpoint_preroll')==0 and C.neo_events[neoInput] and current+lead>=C.neo_events[neoInput][1] do
-        neoHeld=C.neo_events[neoInput][2];neoInput=neoInput+1
+        local mask=C.neo_events[neoInput][2]
+        for bit=0,5 do if math.floor(mask/2^bit)%2==1 then requests=requests+1 end end
+        consumed=true;neoInput=neoInput+1
+      end
+      if consumed then
+        local nextMask=0
+        for bit=0,5 do
+          if requests>0 and math.floor(neoHeld/2^bit)%2==0 then nextMask=nextMask+2^bit;requests=requests-1 end
+        end
+        assert(requests==0,'Checkpoint replay requires more fresh taps than one controller poll can supply')
+        neoHeld=nextMask
       end
       if stage~='die' and word('checkpoint_preroll')==0 then
         for i,key in ipairs({'a','b','x','y','l','r'}) do

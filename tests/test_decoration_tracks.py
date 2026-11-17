@@ -12,6 +12,45 @@ from make_assets import FPS
 
 
 class DecorationTrackTests(unittest.TestCase):
+    def test_native_pivot_offset_scales_and_rotates_with_the_sprite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)
+            Image.new('RGBA',(100,100),(255,255,255,255)).save(path/'tile.png')
+            chart=dict(notes=[dict(x=32,y=32,time=0,speed=1)],local_decoration_pivots=True)
+            py,px=np.mgrid[:64,:64]
+            for rotation,expected in [(0,(44,32)),(90,(32,20)),(180,(20,32)),(270,(32,44))]:
+                data=dict(source=str(path/'main.adofai'),bpm=120,featured_actions=[],
+                          featured_decorations=[dict(floor=0,eventType='AddDecoration',
+                          decorationImage='tile.png',scale=[50,50],pivotOffset=[1,0],rotation=rotation)])
+                palette=np.zeros(256,dtype=np.uint16)
+                image=DecorationTracks(data,chart).draw(np.zeros((66,64),dtype=np.uint8),0,px,py,0,palette)
+                yy,xx=np.nonzero(palette[image[1:65]])
+                self.assertGreater(len(xx),4)
+                self.assertLessEqual(abs(float(xx.mean())-expected[0]),1)
+                self.assertLessEqual(abs(float(yy.mean())-expected[1]),1)
+
+    def test_legacy_uniform_decoration_scale_applies_to_both_axes(self):
+        chart=dict(notes=[dict(x=0,y=0,time=i,speed=1) for i in (0,1)])
+        data=dict(source='unused.adofai',bpm=120,
+                  featured_decorations=[dict(eventType='AddText',decText='A',tag='legacy',scale=100)],
+                  featured_actions=[dict(floor=1,eventType='MoveDecorations',tag='legacy',scale=50,duration=0)])
+        obj=DecorationTracks(data,chart).objects[0]
+        self.assertEqual([obj['tracks'][i].at(0) for i in (3,4)],[100,100])
+        self.assertEqual([obj['tracks'][i].at(FPS+1) for i in (3,4)],[50,50])
+
+    def test_next_beat_opacity_reset_wins_over_previous_angle_offset(self):
+        # Overclocked 619's angle-offset fade and 620's new heading share
+        # one beat, but separate float expressions differ by 2e-12 frames.
+        chart=dict(notes=[dict(x=0,y=0,time=175.7512185987022,speed=2),
+                          dict(x=0,y=0,time=175.91975792454488,speed=1)])
+        data=dict(source='unused.adofai',bpm=178,
+                  featured_decorations=[dict(eventType='AddText',decText='13.',tag='header')],
+                  featured_actions=[
+                      dict(floor=0,eventType='MoveDecorations',tag='header',angleOffset=180,duration=1,opacity=0),
+                      dict(floor=1,eventType='MoveDecorations',tag='header',duration=0,opacity=100)])
+        renderer=DecorationTracks(data,chart)
+        self.assertEqual(renderer.objects[0]['tracks'][5].at(chart['notes'][1]['time']*FPS+1),100)
+
     def test_dark_instruction_is_readable_on_port_playfield(self):
         chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)],decoration_text_contrast=True)
         data=dict(source='unused.adofai',bpm=120,featured_actions=[],featured_decorations=[
@@ -134,6 +173,18 @@ class DecorationTrackTests(unittest.TestCase):
         self.assertEqual(versions,[[0,52,128,128,0,512,128]])
         self.assertEqual([e[1] for e in events],[10,15,6])
         proxies[1]['position']=[0,0]
+        with self.assertRaises(ValueError):actor_camera_events(data,chart,4)
+
+    def test_legacy_png_and_native_planet_replacement_are_one_live_actor(self):
+        proxies=[dict(relativeTo=p,position=[0,0],parallax=[0,0],tag=p)
+                 for p in ('RedPlanet','BluePlanet')]
+        replacements=[dict(p,eventType='AddObject',objectType='Planet') for p in proxies]
+        data=dict(bpm=120,featured_decorations=proxies+replacements,featured_actions=[])
+        chart=dict(notes=[dict(time=0,speed=1)],camera_follow_versions=[[0,100,200]],
+                   camera_projection_versions=[[0,256,0]],camera_zoom_versions=[[0,256,256]])
+        _,versions=actor_camera_events(data,chart,4)
+        self.assertEqual(versions,[[0,100,200,256,0,256,256]])
+        replacements[0]['position']=[1,0]
         with self.assertRaises(ValueError):actor_camera_events(data,chart,4)
 
     def test_screen_decoration_visibility_and_color_alpha(self):

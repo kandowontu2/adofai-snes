@@ -10,12 +10,20 @@ for i,stage in ipairs(Q.stages) do
  local memory,event=emu.addMemoryCallback,emu.addEventCallback
  emu.addMemoryCallback=function(fn,...) return memory(function(...) if active==i then return fn(...) end end,...) end
  emu.addEventCallback=function(fn,...) return event(function(...) if active==i then return fn(...) end end,...) end
+ if C.vfx then
+  emu.addEventCallback(function()
+   if word(C.addr.state)==1 then assert(word(C.vfx.address)==C.vfx.expected,'Sequence VFX differs from expected pixels')end
+  end,emu.eventType.startFrame)
+ end
  if C.dma_script then dofile(C.dma_script)(C) end
  if C.input_script then dofile(C.input_script)(C) end
  if C.screen_script then dofile(C.screen_script)(C) end
+ if C.snapshot_icons then dofile(C.snapshot_icons.script)(C) end
+ if C.twirl_stream then dofile(C.twirl_stream.script)(C) end
  if C.palette_script then dofile(C.palette_script)(C) end
  if C.coordinates then dofile(C.coordinates.script)(C) end
- for _,key in ipairs({'icons','arc','objects','holds','copies','math','midspin','sparse'}) do if C[key] then dofile(C[key].script)(C) end end
+ if C.triplet then dofile(C.triplet.script)(C) end
+ for _,key in ipairs({'icons','arc','objects','holds','copies','math','midspin','sparse','preview'}) do if C[key] then dofile(C[key].script)(C) end end
 local function capture_ppu()
   local step=word(C.addr.step)
   if C.graphics_dumps and word(C.addr.commits)%30==0 and word(C.addr.display_state)==1 then
@@ -41,7 +49,7 @@ local function capture_ppu()
     for a=0,511 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesCgRam)) end
     for a=0,543 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesSpriteRam)) end
     if C.mode1_runtime and sw(0x3ef0c)~=0 then
-      bytes[#bytes+1]=string.char(C.wide_atlas and (sw(0x3ef80)==512 and 6 or 5) or C.indexed_color_support and sw(0x3efb8)==1 and 4 or sw(0x3ef0c))
+      bytes[#bytes+1]=string.char(C.indexed_color_support and sw(0x3efb8)%2==1 and (C.wide_atlas and sw(0x3ef80)==512 and 8 or 4) or C.wide_atlas and (sw(0x3ef80)==512 and 6 or 5) or sw(0x3ef0c))
       for a=0x29400,0x2945f do bytes[#bytes+1]=string.char(emu.read(a,S)) end
       for a=0x2a000,0x2a0bf do bytes[#bytes+1]=string.char(emu.read(a,S)) end
     end

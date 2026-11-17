@@ -7,7 +7,8 @@ worker_snapshot_lz4:
     lda f:M1_GLYPH_COUNT
     cmp #640
     bne :+
-    lda #2
+    lda f:M1_BUILD_FORMAT
+    ora #2
     sta f:M1_BUILD_FORMAT
 :
 .endif
@@ -55,7 +56,8 @@ worker_snapshot_lz4_split:
     lda f:M1_GLYPH_COUNT
     cmp #640
     bne :+
-    lda #2
+    lda f:M1_BUILD_FORMAT
+    ora #2
     sta f:M1_BUILD_FORMAT
 :
 .endif
@@ -416,6 +418,13 @@ worker_snapshot_map:
     cmp #2
     bne :+
     lda #$0080
+    sta scratch
+    bra :++
+:
+    lda f:M1_BUILD_FORMAT
+    cmp #3
+    bne :+
+    lda #$0040
     sta scratch
 .endif
 :

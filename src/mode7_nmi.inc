@@ -49,7 +49,7 @@ mode7_prime_hdma:
     ldx #.loword(hdma_mode7_inset)
 :
 .ifdef SA1_MODE1_BUILD
-    jsl mode1_hdma_select
+    jsl mode1_prime_hdma_select
 .endif
     stx $4362
     ldx #M7_HDMA_DISPLAY

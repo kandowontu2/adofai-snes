@@ -10,20 +10,49 @@ class OverclockedReadabilityTests(unittest.TestCase):
     def test_previous_title_does_not_return_during_section_six(self):
         data=dict(id=284,bpm=120,source='unused.adofai',featured_decorations=[
             dict(eventType='AddText',decText='5. SPEEDY LANES',tag='game')],
-            featured_actions=[dict(floor=231,eventType='MoveDecorations',tag='game',
-                                   positionOffset=[-2,6],duration=1)])
+            featured_actions=[dict(floor=227,eventType='SetText',tag='game2',decText='6. Flip'),
+                              dict(floor=231,eventType='MoveDecorations',tag='game',
+                                   positionOffset=[-2,6],duration=1,opacity=100)])
         chart=dict(notes=[dict(time=i,speed=1,x=0,y=0) for i in range(232)])
         renderer=DecorationTracks(data,chart)
         self.assertEqual(renderer.objects[0]['tracks'][5].at(224*60.0988118623),100)
-        self.assertEqual(renderer.objects[0]['tracks'][5].at(232*60.0988118623),0)
+        self.assertEqual(renderer.objects[0]['images'][-1][1],'@text:')
 
     def test_section_six_title_is_centered_without_append_marker(self):
         actions=[dict(floor=231,eventType='SetText',tag='game2',decText='+ 6. Flip-Flop Tiles'),
                  dict(floor=231,eventType='MoveDecorations',tag='game2',positionOffset=[2,6])]
         result=title_actions(actions)
         self.assertEqual(result[0]['decText'],'6. Flip-Flop Tiles')
-        self.assertEqual(result[1]['positionOffset'],[0,6])
+        move=next(a for a in result if a['eventType']=='MoveDecorations')
+        self.assertEqual(move['positionOffset'],[0,6])
         self.assertEqual(actions[1]['positionOffset'],[2,6])
+
+    def test_all_main_header_tags_retire_other_headings(self):
+        for tag in ('game','game2','game3'):
+            events=title_actions([dict(floor=1,eventType='SetText',tag=tag,decText='21. Lag Tiles')])
+            self.assertEqual({a['tag'] for a in events if a.get('decText')==''},
+                             {'game','game2','game3'}-{tag})
+
+    def test_inactive_new_heading_does_not_clear_current_heading(self):
+        chart=dict(notes=[dict(time=0,speed=1,x=0,y=0)])
+        data=dict(id=284,bpm=120,source='unused.adofai',
+                  featured_decorations=[dict(eventType='AddText',decText='OLD',tag='game')],
+                  featured_actions=[dict(floor=0,eventType='SetText',tag='game2',decText='NEW',active=False)])
+        renderer=DecorationTracks(data,chart)
+        self.assertEqual(renderer.objects[0]['images'][-1][1],'@text:OLD')
+
+    def test_long_heading_fits_inside_viewport(self):
+        chart=dict(notes=[dict(time=0,speed=1,x=0,y=0)])
+        data=dict(id=284,bpm=120,source='unused.adofai',featured_actions=[],
+                  featured_decorations=[dict(eventType='AddText',tag='game',
+                      relativeTo='Camera',decText='9. RED TILES ARE DISTRACTIONS!',scale=[100,100])])
+        py,px=np.mgrid[:32,:256];palette=np.zeros(256,dtype=np.uint16)
+        result=DecorationTracks(data,chart).draw(np.zeros((34,256),dtype=np.uint8),
+                                                0,px,py,0,palette,(128,16))
+        columns=np.nonzero(result)[1]
+        self.assertGreater(len(columns),20)
+        self.assertGreaterEqual(int(columns.min()),7)
+        self.assertLessEqual(int(columns.max()),248)
 
     def test_shortcut_symbols_remain_distinct_at_native_tile_size(self):
         from PIL import Image

@@ -8,6 +8,14 @@ SA1_WORKER=1
 .import __HOTMODE1_LOAD__, __HOTMODE1_RUN__, __HOTMODE1_SIZE__
 .import __HOTPROJECTED_LOAD__, __HOTPROJECTED_RUN__, __HOTPROJECTED_SIZE__
 .import __HOTSNAPSHOT_LOAD__, __HOTSNAPSHOT_RUN__, __HOTSNAPSHOT_SIZE__
+.ifdef EXTENDED_CHART_BUILD
+.import __HOTICONS_LOAD__, __HOTICONS_RUN__, __HOTICONS_SIZE__
+.import __HOTICONSCAN_LOAD__, __HOTICONSCAN_RUN__, __HOTICONSCAN_SIZE__
+.import __HOTSYMBOLS_LOAD__, __HOTSYMBOLS_RUN__, __HOTSYMBOLS_SIZE__
+.assert __HOTICONSCAN_SIZE__ <= $260, lderror, "Symbol scan overlaps copy-parent cache"
+.assert __HOTSYMBOLS_SIZE__ <= $200, lderror, "Symbol projection exceeds its IRAM overlay"
+.assert __HOTICONS_SIZE__ <= $200, lderror, "Symbol kernel exceeds its IRAM overlay"
+.endif
 .import __HOTCOPIES_LOAD__, __HOTCOPIES_RUN__, __HOTCOPIES_SIZE__
 .assert __HOTMODE1_SIZE__ <= $200, lderror, "Mode 1 decoder exceeds its IRAM overlay"
 .assert __HOTPROJECTED_SIZE__ <= $200, lderror, "Projected scheduler exceeds its IRAM overlay"
@@ -99,6 +107,13 @@ worker_irq:
     .a16
     pla
 .ifdef SA1_MODE1_BUILD
+.ifdef EXTENDED_CHART_BUILD
+    cmp #12
+    bne :+
+    jsr worker_snapshot_icons
+    jmp @complete
+:
+.endif
     cmp #11
     bne :+
     jsr worker_camera_copies
@@ -204,7 +219,7 @@ mode7_floor8:
     .endrepeat
     rts
 mode7_pattern_destination:
-    cmp #224
+    cmp #M7_CHR_LOW_SLOTS
     bcs @high
     .repeat 6
     asl a
@@ -216,7 +231,7 @@ mode7_pattern_destination:
     rts
 @high:
     sec
-    sbc #224
+    sbc #M7_CHR_LOW_SLOTS
     .repeat 6
     asl a
     .endrepeat
@@ -235,6 +250,9 @@ mode7_pattern_destination:
 .include "projected_worker.inc"
 .endif
 .include "mode1_icons.inc"
+.ifdef EXTENDED_CHART_BUILD
+.include "snapshot_icons_worker.inc"
+.endif
 .include "sa1_arc.inc"
 .include "sa1_objects.inc"
 
@@ -409,6 +427,31 @@ worker_multiply:
     rts
 
 worker_symbols:
+.ifdef EXTENDED_CHART_BUILD
+    lda M7_CACHE_CODE_VALID
+    cmp #7
+    beq @hot
+    phb
+    ldx #__HOTSYMBOLS_LOAD__
+    ldy #__HOTSYMBOLS_RUN__
+    lda #__HOTSYMBOLS_SIZE__-1
+    mvn #$01,#$00
+    plb
+    lda #0
+    sta M7_ROW_CODE_VALID
+    lda #7
+    sta M7_CACHE_CODE_VALID
+@hot:
+    jmp worker_symbols_hot
+.segment "HOTSYMBOLS"
+worker_symbols_hot:
+.endif
+    lda f:STREAM_MODE1
+    cmp #3
+    beq :+
+    lda #0
+:
+    sta map_run
     lda #0
     sta f:SYMBOL_VISIBLE_COUNT
     ldy #0
@@ -428,6 +471,13 @@ worker_symbols:
     sbc f:SYMBOL_MIN_Y
     cmp f:SYMBOL_WIDTH_Y
     jcs @next
+    lda map_run
+    beq @alpha_ready
+    ldx scratch
+    lda f:NATIVE_ALPHA,x
+    and #255
+    jeq @next
+@alpha_ready:
     lda f:SYMBOL_VISIBLE_COUNT
     sta scratch2
     tax
@@ -459,7 +509,11 @@ worker_symbols:
     sta f:SYMBOL_SCREEN_Y,x
     bra @projected
 @project:
+ .ifdef EXTENDED_CHART_BUILD
+    jsr worker_symbol_project
+ .else
     jsr worker_project
+ .endif
     ldx scratch2
     lda f:$40002C
     clc
@@ -492,6 +546,54 @@ worker_symbols:
     cpy event_count
     jcc @symbol
     rts
+
+.ifdef EXTENDED_CHART_BUILD
+worker_symbol_project:
+    lda f:M7_PROJECT_COS
+    tax
+    lda f:ROT_X
+    jsr worker_symbol_multiply
+    sta f:ROT_SUM
+    lda f:M7_PROJECT_SIN
+    tax
+    lda f:ROT_Y
+    jsr worker_symbol_multiply
+    eor #$FFFF
+    inc a
+    clc
+    adc f:ROT_SUM
+    sta f:$40002C
+    lda f:ROT_X
+    jsr worker_symbol_multiply
+    sta f:ROT_SUM
+    lda f:M7_PROJECT_COS
+    tax
+    lda f:ROT_Y
+    jsr worker_symbol_multiply
+    clc
+    adc f:ROT_SUM
+    sta f:$40002E
+    rts
+worker_symbol_multiply:
+    sta f:$002251
+    txa
+    sta f:$002253
+    nop
+    nop
+    sep #$20
+    .a8
+    lda f:$002306
+    clc
+    adc #128
+    rep #$20
+    .a16
+    lda f:$002307
+    adc #0
+    rts
+
+
+.segment "CODE"
+.endif
 
 worker_sparse_cells:
     ldy #0

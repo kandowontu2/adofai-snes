@@ -15,11 +15,12 @@ return function(C)
    front=emu.read(0x3ef80,S)+256*emu.read(0x3ef81,S)
    assert(front==0 or front==512,'Invalid front atlas bank')
    -- Check the real map's references in bytes for either pixel depth.
-   local tilesPerBank=C.indexed_color_support and emu.read(0x3efb8,S)==1 and 256 or 512
+   local indexed=C.indexed_color_support and emu.read(0x3efb8,S)%2==1
+   local tilesPerBank=indexed and 256 or 512
    for i=0,607 do
     local a=0xe100+i*2;local entry=emu.read(a,V)+256*emu.read(a+1,V);local glyph=entry%1024
     if C.wide_atlas then
-     local addr=(front==512 and 16384 or 0)+glyph*32
+     local addr=(front==512 and 16384 or 0)+glyph*(indexed and 64 or 32)
      assert(glyph==0 or (addr>=(front==512 and 20480 or 0) and addr<(front==512 and 40960 or 20480)),'Wide front map points outside its atlas')
     else
      assert(glyph==0 or (glyph>=tilesPerBank and 512 or 0)==front,'Prefetch front bank differs from hardware map')

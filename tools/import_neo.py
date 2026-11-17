@@ -25,7 +25,7 @@ TRACK_EFFECTS = {'ffxChangeTrack', 'ffxFloorAppearPlus', 'ffxFloorDisappearPlus'
 CHAPTER_TYPES = {'Mawaru','Mawaru2','Mawaru_Coin','DivineIntervention','LaserSpawner','SingSing','SingSing_Notefield'}
 
 
-def import_scene(objects, meta, out, all_clips):
+def import_scene(objects, meta, out, all_clips, game=DEFAULT_GAME):
     transforms, by_object, game_objects, floors, effects = {}, {}, {}, [], {}
     controllers, conductors, cameras, clips, renderers = [], [], [], {}, {}
     song_clip = None
@@ -144,6 +144,8 @@ def import_scene(objects, meta, out, all_clips):
     from neo_warps import extract,extract_math
     chapter=next((d for _,cls,d in chapter_entities if cls=='Mawaru'),None)
     if chapter is not None:
+        from neo_headings import extract as extract_headings, commands as heading_commands
+        chart['native_mawaru_headings']=heading_commands(extract_headings(game),meta['code']=='T3EX-X')
         chart['native_warps']=extract({o.path_id:o for o,_ in objects},chapter,world,by_object)
         chart['native_math']=extract_math({o.path_id:o for o,_ in objects},chapter,world,by_object,meta['code']=='T3EX-X')
         from neo_fog import extract as extract_fog
@@ -217,7 +219,7 @@ def main():
     audit = []
     for key, meta in sorted(scenes.items(), key=lambda row: row[1]['id']):
         if args.levels and meta['id'] not in args.levels:continue
-        chart, hitdata, classes = import_scene(groups[key], meta, args.out, all_clips)
+        chart, hitdata, classes = import_scene(groups[key], meta, args.out, all_clips,args.game)
         hits[str(meta['id'])] = hitdata
         row = dict(meta, floors=len(chart['floors']), holds=sum(f['holdLength'] >= 0 for f in chart['floors']),
                    freeroam_regions=sum(bool(f['freeroam']) for f in chart['floors']),

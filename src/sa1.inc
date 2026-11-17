@@ -355,10 +355,18 @@ sa1_symbols:
     sta f:SYMBOL_DIRTY_BEGIN
 @dispatch:
     lda a:SA1_LOCAL_EVENTS
-    jeq @empty
+    jeq sa1_symbols_empty
+    lda #4
+    bra sa1_dispatch_symbol_job
+.ifdef EXTENDED_CHART_BUILD
+sa1_snapshot_icons:
+    lda #12
+.endif
+sa1_dispatch_symbol_job:
+    pha
     lda #0
     sta f:SA1_DONE
-    lda #4
+    pla
     sta f:SA1_COMMAND
     sep #$20
     .a8
@@ -373,7 +381,7 @@ sa1_symbols:
     and #$80
     beq @wait
     rts
-@empty:
+sa1_symbols_empty:
     sta f:SYMBOL_VISIBLE_COUNT
     rts
 

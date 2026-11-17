@@ -5,17 +5,21 @@ from PIL import Image
 
 
 def title_actions(actions):
-    result=[]
+    result=[];headings={'game','game2','game3'}
     for event in actions:
         event=dict(event)
-        if event['floor']==231 and event.get('tag')=='game2':
+        if event.get('tag') in headings:
             if event['eventType']=='SetText':event['decText']=event['decText'].removeprefix('+ ')
             if event['eventType']=='MoveDecorations' and 'positionOffset' in event:
-                event['positionOffset']=[0,event['positionOffset'][1]]
+                x,y=event['positionOffset'];event['positionOffset']=[0 if x is not None else None,y]
         result.append(event)
-    # The original places both long names side by side. At SNES resolution
-    # their glyphs overlap; retain the current section's centered title.
-    result.append(dict(floor=225,eventType='MoveDecorations',tag='game',duration=0,opacity=0))
+        if event['eventType']=='SetText' and event.get('tag') in headings and event.get('decText'):
+            # Clear the images rather than merely fading them: later paired
+            # opacity/position effects must not resurrect the retired title.
+            for tag in sorted(headings-{event['tag']}):
+                result.append(dict(floor=event['floor'],eventType='SetText',tag=tag,
+                                   decText='',angleOffset=event.get('angleOffset',0),
+                                   active=event.get('active',True),eventTag=event.get('eventTag','')))
     return result
 
 

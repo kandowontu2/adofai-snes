@@ -32,13 +32,16 @@ PRIVATE_BASE=HOT_BASE+2*len(HOT_NAMES)
 
 def worker_config():
     return '''MEMORY {
- ROM: start=$8000,size=$6000,type=ro,file=%O,fill=yes;
- HOTROM: start=$E000,size=$1000,type=ro,file=%O,fill=yes;
+ ROM: start=$8000,size=$5000,type=ro,file=%O,fill=yes;
+ HOTROM: start=$D000,size=$2000,type=ro,file=%O,fill=yes;
  HOTRAM: start=$0500,size=$0200,type=rw;
  CACHEIRAM: start=$0500,size=$0200,type=rw;
  FIXEDIRAM: start=$0500,size=$0180,type=rw;
  MODE1IRAM: start=$0500,size=$0200,type=rw;
  PROJECTEDIRAM: start=$0500,size=$0200,type=rw;
+ ICONSCANIRAM: start=$0220,size=$0260,type=rw;
+ SYMBOLIRAM: start=$0500,size=$0200,type=rw;
+ ICONIRAM: start=$0500,size=$0200,type=rw;
  SNAPSHOTIRAM: start=$0500,size=$0200,type=rw;
  COPYIRAM: start=$0100,size=$0400,type=rw;
  ROWIRAM: start=$0680,size=$0080,type=rw;
@@ -51,6 +54,9 @@ SEGMENTS {
  HOTFIXED: load=HOTROM,run=FIXEDIRAM,type=ro,define=yes,optional=yes;
  HOTMODE1: load=HOTROM,run=MODE1IRAM,type=ro,define=yes,optional=yes;
  HOTPROJECTED: load=HOTROM,run=PROJECTEDIRAM,type=ro,define=yes,optional=yes;
+ HOTICONSCAN: load=HOTROM,run=ICONSCANIRAM,type=ro,define=yes,optional=yes;
+ HOTSYMBOLS: load=HOTROM,run=SYMBOLIRAM,type=ro,define=yes,optional=yes;
+ HOTICONS: load=HOTROM,run=ICONIRAM,type=ro,define=yes,optional=yes;
  HOTSNAPSHOT: load=HOTROM,run=SNAPSHOTIRAM,type=ro,define=yes,optional=yes;
  HOTCOPIES: load=HOTROM,run=COPYIRAM,type=ro,define=yes,optional=yes;
  HOTROWS: load=HOTROM,run=ROWIRAM,type=ro,define=yes,optional=yes;
@@ -67,7 +73,8 @@ def worker_symbols(label_text):
     assert HOT_BASE + 2*len(HOT_NAMES) <= 0x780
     tables={'orbit_arc_x','orbit_arc_y','orbit_arc_tiles','orbit_arc_flips'}
     return '\n'.join(f'{name} = ${relocated.get(value, value):04X}'
-                     for name, value in rows if value < 0x100 or 0x1800 <= value < 0x2000 or name in tables)
+                     for name, value in rows if name!='M7_CHR_LOW_SLOTS' and
+                     (value < 0x100 or 0x1800 <= value < 0x2000 or name in tables))
 
 
 def worker_layout(source):

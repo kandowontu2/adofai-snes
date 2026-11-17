@@ -80,23 +80,36 @@ snapshot_seed_header:
 .ifdef WIDE_SNAPSHOT_SUPPORT
     lda f:M1_GLYPH_COUNT
     cmp #640
-    bne :+
+    bne @ordinary_seed
     lda #2
     sta f:M1_BUILD_FORMAT
     sta f:M1_FRONT_FORMAT
-    bra @done
+    lda f:M1_SNAPSHOT_BYTES
+    bit #1
+    beq :+
+    lda #3
+    sta f:M1_BUILD_FORMAT
+    sta f:M1_FRONT_FORMAT
 :
+    lda f:M1_SNAPSHOT_BYTES
+    and #$FFFE
+    sta f:M1_SNAPSHOT_BYTES
+    bra @clone_flags
+@ordinary_seed:
 .endif
     lda f:M1_SNAPSHOT_BYTES
     bit #$4000
     beq :+
-    lda #1
+    lda f:M1_BUILD_FORMAT
+    ora #1
     sta f:M1_BUILD_FORMAT
     sta f:M1_FRONT_FORMAT
 :
     lda f:M1_SNAPSHOT_BYTES
     and #$BFFF
     sta f:M1_SNAPSHOT_BYTES
+@clone_flags:
+    lda f:M1_SNAPSHOT_BYTES
     bpl @done
     and #$7FFF
     sta f:M1_SNAPSHOT_BYTES

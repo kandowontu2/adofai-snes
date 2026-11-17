@@ -16,10 +16,11 @@ from make_assets import FPS
 from track_motion import enabled, easing
 
 
-def text_image(text):
+def text_image(text, *, stage_punctuation=False):
     """Keep instructional text readable with the project's editable CHR font."""
     font=(Path(__file__).resolve().parents[1]/'assets/graphics/campaign/font.chr').read_bytes()
     mathfont=(Path(__file__).resolve().parents[1]/'assets/graphics/campaign/math-font.chr').read_bytes()
+    punctuation=(Path(__file__).resolve().parents[1]/'assets/graphics/campaign/stage-punctuation.chr').read_bytes() if stage_punctuation else b''
     # Color is part of instructions such as "blue tiles are twirls".
     # Parse the supported TMP color spans without drawing markup as glyphs.
     lines=[[]];colors=[(255,255,255,255)]
@@ -47,7 +48,8 @@ def text_image(text):
             elif ord(char)<128 or char in '√×Π':
                 glyph='√×Π'.index(char) if char in '√×Π' else ord(char)
                 sheet=mathfont if char in '√×Π' else font
-                raw=sheet[glyph*16:glyph*16+16]
+                raw=(punctuation["&'".index(char)*16: ("&'".index(char)+1)*16]
+                     if stage_punctuation and char in "&'" else sheet[glyph*16:glyph*16+16])
                 pixels=np.array([[bool((raw[y*2]|raw[y*2+1])&(128>>x)) for x in range(8)] for y in range(8)])
             else:
                 raise ValueError(('Unsupported instructional text character',char))
@@ -108,7 +110,7 @@ def expanded_moves(data, chart):
             continue
         floor = move['floor']
         start = chart['notes'][floor]['time'] * FPS + move.get('angleOffset', 0) / 180 * beat(floor)
-        result.append((start, order, move.get('duration', 0) * beat(floor), move))
+        result.append((round(start,8), order, move.get('duration', 0) * beat(floor), move))
     for repeat in actions:
         if repeat['eventType'] != 'RepeatEvents' or not enabled(repeat.get('active', True)):
             continue
@@ -128,7 +130,7 @@ def expanded_moves(data, chart):
                 start = chart['notes'][current]['time'] * FPS + move.get('angleOffset', 0)/180*beat(origin)
                 if mode == 'Beat':
                     start += k*repeat.get('interval', 1)*beat(floor)
-                result.append((start, order, move.get('duration', 0)*beat(origin), move))
+                result.append((round(start,8), order, move.get('duration', 0)*beat(origin), move))
     return sorted(result, key=lambda row: row[:2])
 
 
@@ -161,6 +163,20 @@ def actor_camera_events(data, chart, end):
     """
     proxies = [d for d in data.get('featured_decorations', [])
                if d.get('relativeTo') in ('RedPlanet','BluePlanet') and d.get('opacity',100)==100]
+    # Converted charts can retain a legacy PNG and its native Planet
+    # replacement under the same tag. They are one logical actor.
+    selected={}
+    for proxy in sorted(proxies,key=lambda d:d.get('objectType')!='Planet'):
+        key=proxy['relativeTo']
+        if key in selected:
+            previous=selected[key]
+            for field,default in (('position',[0,0]),('parallax',[0,0]),('parallaxOffset',[0,0])):
+                if proxy.get(field,default)!=previous.get(field,default):
+                    raise ValueError(('Independent duplicate planet proxy',key,field))
+            if set(proxy.get('tag','').split())!=set(previous.get('tag','').split()):
+                raise ValueError(('Independent duplicate planet proxy tags',key))
+        else:selected[key]=proxy
+    proxies=list(selected.values())
     if len(proxies)!=2 or {d['relativeTo'] for d in proxies}!={'RedPlanet','BluePlanet'}:
         raise ValueError('A replacement track needs one visible proxy per primary planet')
     moves=expanded_moves(data,chart);tracks=[]
@@ -169,8 +185,8 @@ def actor_camera_events(data, chart, end):
         commands=[[] for _ in initial];tags=set(dec.get('tag','').split())
         for start,_,duration,event in moves:
             if not tags.intersection(event.get('tag','').split()):continue
-            if 'opacity' in event and event['opacity']!=100:
-                raise ValueError('Planet-proxy visibility needs live sprite support')
+            if 'opacity' in event and event['opacity'] not in (0,100):
+                raise ValueError('Partial planet-proxy opacity needs live sprite support')
             for key,axes in [('positionOffset',(0,1)),('parallaxOffset',(2,3))]:
                 for axis,value in zip(axes,event.get(key,(None,None))):
                     if value is not None:
@@ -218,6 +234,7 @@ class DecorationTracks:
         self.background_resolution=chart.get('decoration_background_resolution',1)
         self.background_only=chart.get('decoration_background_only',False)
         self.background_brightness=chart.get('decoration_background_brightness',1.)
+        self.local_pivots=chart.get('local_decoration_pivots',False)
         self.camera_samples = chart.get('camera_sampling_versions', chart.get('camera_rotation_versions', [[0,256,0]]))
         self.camera_sample_times = [r[0] for r in self.camera_samples]
         self.initial_camera_scale = max(.001, math.hypot(*self.camera_samples[0][1:])/256)
@@ -285,8 +302,10 @@ class DecorationTracks:
                         (self.world_origin[1]-oy)/16+py*1.5]
             base_position=placement_base(placement)
             placements=[(float('-inf'),placement)]
+            scale=dec.get('scale',(100,100))
+            if isinstance(scale,(int,float)):scale=[scale,scale]
             initial = [*base_position, dec.get('rotation', 0),
-                       *dec.get('scale', (100, 100)), dec.get('opacity', 100),
+                       *scale, dec.get('opacity', 100),
                        *dec.get('parallaxOffset', (0, 0)),
                        *[int(dec.get('color', 'ffffff')[i:i+2],16) for i in (0,2,4)],
                        int(dec.get('color','ffffff')[6:8] or 'ff',16),
@@ -308,6 +327,7 @@ class DecorationTracks:
                     if key not in move:
                         continue
                     values = move[key] if len(axes) == 2 else [move[key]]
+                    if key=='scale' and isinstance(values,(int,float)):values=[values,values]
                     for axis, value in zip(axes, values):
                         if value is not None:
                             if axis<2:
@@ -327,6 +347,7 @@ class DecorationTracks:
                 if name and name not in self.images:
                     self.images[name] = np.asarray(Image.open(directory/name).convert('RGBA'))
             self.objects.append(dict(origin=origin, gameplay_floor=gameplay_floor, text=dec.get('decorationImage','').startswith('@text:'), tracks=[Tween(v, c) for v, c in zip(initial, commands)],
+                                     header=data.get('id')==284 and dec.get('tag') in ('game','game2','game3'),
                                      images=images, image_times=[r[0] for r in images],
                                      pivot=dec.get('pivotOffset', [0, 0]), color=dec.get('color', 'ffffff')[:6],
                                      parallax=dec.get('parallax', [0, 0]),
@@ -382,6 +403,10 @@ class DecorationTracks:
             if obj['lock_scale']:
                 factor=math.hypot(camera_co,camera_si)/self.initial_camera_scale
                 sx*=factor;sy*=factor
+            if obj['header']:
+                width=rgba.shape[1]*.0016*abs(sx)/max(.001,math.hypot(camera_co,camera_si))
+                fit=min(1,(px.shape[1]-16)/max(1,width))
+                sx*=fit;sy*=fit
             co, si = math.cos(math.radians(rotation)), math.sin(math.radians(rotation))
             placement=obj['placements'][bisect.bisect_right(obj['placement_times'],frame)-1][1]
             world_x, world_y = self.world_origin[0]+16*x, self.world_origin[1]-16*y
@@ -397,9 +422,19 @@ class DecorationTracks:
                     raise ValueError('Parallax decorations require the authored camera center')
                 world_x += (camera[0]-world_x)*obj['parallax'][0]/100+24*parallax_x
                 world_y += (camera[1]-world_y)*obj['parallax'][1]/100-24*parallax_y
+            local_pivot=self.local_pivots and placement not in ('Camera','CameraAspect')
+            if local_pivot:
+                # scrDecoration.SetPosition offsets the child sprite, then
+                # pivotTrans applies scale and rotation to that offset.
+                # The four-orb chart uses +/-4 tile units at 12% scale.
+                pivot_x=24*obj['pivot'][0]*sx/100
+                pivot_y=24*obj['pivot'][1]*sy/100
+                world_x+=co*pivot_x-si*pivot_y
+                world_y-=si*pivot_x+co*pivot_y
             hw,hh = abs(rgba.shape[1]*.0008*sx),abs(rgba.shape[0]*.0008*sy)
-            extent_x = abs(co)*hw+abs(si)*hh+24*sum(map(abs,obj['pivot']))
-            extent_y = abs(si)*hw+abs(co)*hh+24*sum(map(abs,obj['pivot']))
+            pivot_extent=0 if local_pivot else 24*sum(map(abs,obj['pivot']))
+            extent_x = abs(co)*hw+abs(si)*hh+pivot_extent
+            extent_y = abs(si)*hw+abs(co)*hh+pivot_extent
             if world_x+extent_x<left or world_x-extent_x>right or world_y+extent_y<bottom or world_y-extent_y>upper:
                 continue
             # Restrict inverse projection to pixels inside the conservative world
@@ -410,8 +445,10 @@ class DecorationTracks:
             yy, xx = np.nonzero(bounds)
             dx, dy = px[yy, xx]-world_x, py[yy, xx]-world_y
             # Source images use 100 pixels/Unity unit, and 16 world pixels/unit.
-            u = (dx*co-dy*si-24*obj['pivot'][0])/(.0016*sx)+rgba.shape[1]/2
-            v = (dx*si+dy*co+24*obj['pivot'][1])/(.0016*sy)+rgba.shape[0]/2
+            offset_x=0 if local_pivot else 24*obj['pivot'][0]
+            offset_y=0 if local_pivot else 24*obj['pivot'][1]
+            u = (dx*co-dy*si-offset_x)/(.0016*sx)+rgba.shape[1]/2
+            v = (dx*si+dy*co+offset_y)/(.0016*sy)+rgba.shape[0]/2
             mask = (u >= 0) & (v >= 0) & (u < rgba.shape[1]) & (v < rgba.shape[0])
             yy, xx = yy[mask], xx[mask]
             uu=(u[mask]*obj['tile'][0])%rgba.shape[1]

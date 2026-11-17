@@ -73,6 +73,8 @@ def configure(data, chart):
                         dict(floor=i,time=chapter_time(chart,start+.666),duration=.666*beat,
                              offset=[0,0],ease='InCubic')]
     if data['code'] in ('T3-X','T3EX-X'):
+        if data.get('native_mawaru_headings'):
+            chart['mawaru_headings']=data['native_mawaru_headings']
         from neo_warps import compile_math
         compile_math(data,chart)
         if data.get('native_fog'):chart['mawaru_fog']=data['native_fog']

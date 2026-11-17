@@ -26,7 +26,9 @@ def main():
         for n in args.stream_levels:prepare(out,n)
     from compact_snapshot_seeds import patch_pack as compact_seeds
     saved=compact_seeds(out)
-    if args.stream_levels or saved:
+    from snapshot_sharing import patch_pack as share_snapshots
+    shared=share_snapshots(out)
+    if args.stream_levels or saved or shared:
         charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
         from msu_assets import generate
         generate(out,charts,{c['id']:(out/f"level{c['id']}.brr").read_bytes() for c in charts},generate_pcm=not args.no_pcm)

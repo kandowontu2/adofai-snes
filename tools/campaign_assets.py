@@ -20,7 +20,7 @@ OUT=ROOT/'build/campaign'
 FPS=common.FPS
 RATE=12000
 RING=32760
-MAX_NOTES=4352
+MAX_NOTES=5120
 
 def note_control(note):
     return (int(note['ccw']) | (2 if note['planets']==3 else 0)
@@ -141,8 +141,12 @@ def compile_chart(data):
         result.update(decoration_tracks=True,decoration_depth_order=True,
                       decoration_background_resolution=2,
                       decoration_background_only=True,decoration_background_brightness=.35)
-    if data['id']==284 or data.get('triple_planet') and data.get('featured_decorations'):
+    if data['id'] in (284,285,287,288) or data.get('triple_planet') and data.get('featured_decorations'):
         result.update(decoration_tracks=True,decoration_depth_order=True)
+    if data.get('live_planet_proxies'):
+        result['live_planet_proxies']=True
+    if data.get('local_decoration_pivots'):
+        result['local_decoration_pivots']=True
     if data['id']==284:
         result['decoration_text_contrast']=True
     if data['id']==115:
@@ -218,12 +222,12 @@ def compress_map(tilemap,width,height):
     # Sparse row headers index only occupied 32-tile spans. Identical spans
     # and identical row headers share storage, including blank space.
     rows=[];spans={};chunks=width//32
-    assert chunks<256
     for y in range(height):
         row=tilemap[y*width:(y+1)*width]
         occupied=[k for k in range(chunks) if any(t&0x2000 or t&1023 for t in row[k*32:k*32+32])]
         if not occupied:rows.append((0,()));continue
         first,last=occupied[0],occupied[-1];keys=[]
+        assert first<256 and last-first+1<256,('Occupied sparse row exceeds byte-sized span fields',y,first,last)
         for chunk in range(first,last+1):
             span=row[chunk*32:chunk*32+32];encoded=bytearray();start=0
             while start<32:
@@ -397,7 +401,7 @@ def ui_assets(pack_title='MAIN WORLDS 1-12',mode7=False):
 
 def title_text(chart):
     from neo_catalog import display_code
-    return f'{display_code(chart.get("code",str(chart["id"])+"-X"))} {chart["title"]}'[:28]
+    return f'{display_code(chart.get("code",str(chart["id"])+"-X"))} {chart["title"]}'.upper()[:28]
 
 
 def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
@@ -417,7 +421,8 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         # Keep a growing catalog out of the CPU's executable 32 KiB bank.
         assets['level_titles']=b''.join(title_text(c).encode('ascii').ljust(29,b'\0') for c in charts)
     if any(c.get('neo_cosmos') for c in charts):
-        assets['neo_objects']=(ROOT/'assets/graphics/mode7/freeroam.chr').read_bytes()
+        from graphics_sources import neo_objects
+        assets['neo_objects']=neo_objects()
         assert len(assets['neo_objects'])==2048
         assets['neo_math_font']=(ROOT/'assets/graphics/mode7/math-font.chr').read_bytes()
         assert len(assets['neo_math_font'])==704
@@ -597,17 +602,21 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     defs += [f'LEVEL_COUNT = {len(charts)}']
     if any(c.get('wide_snapshot_atlas') for c in charts):defs+=['WIDE_SNAPSHOT_SUPPORT = 1']
     if any(c.get('compact_snapshot_seeds') for c in charts):
-        assert all(c.get('compact_snapshot_seeds') for c in charts if c.get('mode1_snapshot'))
-        defs+=['COMPACT_SNAPSHOT_SEEDS = 1']
+        assert all(c.get('compact_snapshot_seeds')==3 and (not c.get('vfx_off') or c['vfx_off'].get('compact_snapshot_seeds')==3) for c in charts if c.get('mode1_snapshot'))
+        defs+=['COMPACT_SNAPSHOT_SEEDS = 3']
     if msu_charts:defs+=['MSU_CHART_TABLES = 1','COMPRESSED_STREAM_INDEX = 1']
     if zero_pauses:defs+=['ZERO_PAUSE_TABLES = 1']
     if hit_banks:defs+=['HIT_SOUND_BANKS = 1',f'HIT_SOUND_DESCRIPTORS_ADDR = ${loc["hitdescriptors"]:06X}']
     if all(c.get('compiled_reference_sets') for c in charts):defs+=['COMPILED_REFERENCE_SETS = 1']
     large=msu and any(len(c['notes'])>3072 for c in charts)
+    extended=msu and any(len(c['notes'])>4352 for c in charts)
     if large:
         assert sa1,'Large charts require the SA-1 cartridge RAM layout'
         defs+=['LARGE_CHART_BUILD = 1']
-    defs += [f'MAX_NOTE_CAPACITY = {4352 if large else 3072 if msu else 2048}']
+    if extended:
+        defs+=['EXTENDED_CHART_BUILD = 1','MAX_SYMBOL_CAPACITY = 2816']
+        assert all(sum(not(n['flags']&128) and bool(n['flags']&119) for n in c['notes'])<=2816 for c in charts),'Compact symbol index capacity'
+    defs += [f'MAX_NOTE_CAPACITY = {5120 if extended else 4352 if large else 3072 if msu else 2048}']
     defs += [f'MAP_OFFSET_SHIFT = {charts[0].get("map_offset_shift",0)}']
     if msu:defs+=['MSU_BUILD = 1',f'MSU_DATA_VERSION = {21 if msu_charts else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get("adaptive_raster") for c in charts) else 18 if any(c.get("mode7_zoom_enabled") for c in charts) else 17 if any(c.get("camera_position_events",0) for c in charts) else 16 if any(c.get("native_layout_version",0)>=2 for c in charts) else 15 if any(c.get("track_separators_version") for c in charts) else 14 if any(c.get("opacity_curve_version") for c in charts) else 13 if any(c.get("camera_rotation_versions") for c in charts) else 12}']
     if rom_data:defs+=['ROM_DATA_BUILD = 1']
@@ -935,7 +944,7 @@ def main():
         if msu:(OUT/f'patterns{n}.bin').write_bytes(pattern_data)
         blob=common.word_data([v['x']+(v.get('position_track_offset',[0,0])[0] if not v.get('stick_to_floor',True) else 0) for v in c['notes']])+common.word_data([v['y']+(v.get('position_track_offset',[0,0])[1] if not v.get('stick_to_floor',True) else 0) for v in c['notes']])+blob[4*len(c['notes']):]
         if msu:
-            size=len(c['notes']);assert size<=4352
+            size=len(c['notes']);assert size<=MAX_NOTES
             blob=blob[:11*size]+bytes(note_control(v) for v in c['notes'])+blob[12*size:]
         c['map_offset_shift']=2
         assets[f'timeline{n}']=timeline

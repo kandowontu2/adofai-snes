@@ -11,7 +11,8 @@
     "background.map": 2048,
     "font.chr": 2048,
     "objects.chr": 8192,
-    "palette.bin": 512
+    "palette.bin": 512,
+    "stage-punctuation.chr": 32
   },
   "mode7": {
     "background.chr": 3264,
@@ -19,6 +20,7 @@
     "font.chr": 2048,
     "objects.chr": 8192,
     "palette.bin": 512,
-    "freeroam.chr": 2048
+    "freeroam.chr": 2048,
+    "planet-preview-dash.chr": 32
   }
 }

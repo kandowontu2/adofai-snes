@@ -474,3 +474,89 @@ These import commands prepare private source assets; they do not update an
 installed ROM by themselves. Use the full snapshot/master build workflow above.
 Overclocked's instructional text, perfect-only conditions and planet scaling
 are part of its gameplay. The beta does not contain the video's finished VFX.
+
+### Additional Community charts and T3 stage names
+
+Milky Ways (C9-X, BluPen & Lemon1415) is Workshop item 2189119879:
+
+```powershell
+.\.venv\Scripts\python.exe tools/download_tech.py --ids 2189119879
+.\.venv\Scripts\python.exe tools/import_community.py --levels 285
+```
+
+Galaxy Collapse (GC-X, pinball & Toht) uses the original unnerfed chart.
+Extract your privately obtained galaxy_collapse_ADOFAI.rar so that
+assets/private/community/galaxy-collapse/galaxy_collapse_fullpack/unnerfed.adofai
+exists, keeping its music and images beside it. Import with:
+
+```powershell
+.\.venv\Scripts\python.exe tools/import_community.py --levels 286
+```
+
+Use --chart-cache-only when compiling canonical assets for this long chart,
+then tools/projected_snapshots.py and the SA-1 master build. Its 4,771 floors
+require the extended 5,120-note layout; a legacy non-SA-1 ROM cannot hold it.
+
+Reimport T3-X/EX with tools/import_neo.py --levels 68 73 to include the native
+stage headings. The importer reads their English strings from your installed
+Neo Cosmos localization asset. Rerender both charts after importing. These
+headings remain enabled with VFX off. Run tools/verify_neo_headings_release.py
+--pack YOUR_PACK to capture every stage heading in MesenCE.
+
+Current master builds upgrade restart seeds to compact format 3 and data
+version 34. They retain every visible atlas byte without 4 KiB padding,
+omit proven zero map tails, and share identical immutable screen packets.
+All timestamps and rendered updates remain present. Replace the ROM and MSU
+data together; an older ROM cannot read this restart layout.
+Always distribute the rebuilt ROM and MSU data together.
+
+For the additional Community charts, download Workshop items 2929378489
+(Noteblock Cover) and 2818364450 (Heracles EX), then import them:
+
+```powershell
+.\.venv\Scripts\python.exe tools/download_tech.py --ids 2929378489 2818364450
+.\.venv\Scripts\python.exe tools/import_community.py --levels 288 289
+```
+
+For updated Primrose, download the files from the
+[creator folder](https://drive.google.com/drive/folders/11ZVwBwGM3rzb3hRshdc2vrhwqMH6HZGK)
+into `assets/private/community/primrose/`, keeping the chart, music and images
+together. `Primrose.adofai` must be directly inside that folder. Then run:
+
+```powershell
+.\.venv\Scripts\python.exe tools/import_community.py --levels 287
+```
+
+These are imports only. Continue with the full snapshot/master workflow above
+to render and build the charts. Preserve the creator's asset filenames.
+
+
+### Sky Blue
+
+SB-X is GrivR.'s **Sky Blue**, mapped by FluffyYoshi (Workshop item
+3371317110). Download and import the selected main chart with Steam running:
+
+```powershell
+.\.venv\Scripts\python.exe tools/download_tech.py --ids 3371317110
+.\.venv\Scripts\python.exe tools/import_community.py --levels 290
+```
+
+The main chart includes five authored checkpoints. Its short tutorials are not
+separate menu entries. Use full snapshots with camera position, rotation and
+zoom, at motion step 1. Enable decoration tracks and depth order for the native
+floor objects and jump/pause artwork. This performance-oriented port omits decorative backgrounds and retains native
+floor objects plus these images: `jumptile.png`, `jumptile_outline.png`, `pausetile.png`,
+`pausetile_outline.png`, `jungsanghwa_tile.png`, `bigoribit_tile.png`,
+`hyperorbit_tile.png`, and `snail_indicator.png`. Include `null` in that image
+allowlist to retain native AddObject floors. The same gameplay-only rendering
+is used for both positions of the VFX option.
+
+
+### Release editions
+
+The full PCM edition is retired. `install_stock_release.py` updates only
+`dist/adofai-msu-hybrid` and `dist/adofai-msu-compressed`, then verifies their
+ZIPs and the tester-update ZIP. It does not create a full PCM folder/archive
+or distribute checkpoint PCM. Hybrid checkpoint retries use compressed audio.
+Song-start PCM needed by the hybrid edition must remain available in the build
+pack or the existing hybrid folder.

@@ -125,7 +125,10 @@ def patch_pack(out, *, generate_pcm=True):
     assets.OUT = out
     data_version=31 if len(levels)>=200 and not pack.get("standalone") else 30 if any(n>=66 for n in levels) else 26
     if not pack.get('standalone') and any(json.loads((out/f'level{n}.json').read_text()).get('compact_snapshot_seeds') for n in levels):
-        data_version=32
+        compact_version=min(c.get('compact_snapshot_seeds',0) for n in levels
+                            for c in [json.loads((out/f'level{n}.json').read_text())]
+                            if c.get('mode1_snapshot'))
+        data_version=34 if compact_version>=3 else 33 if compact_version>=2 else 32
     try:
         descriptors = (out/'msu_descriptors.bin').read_bytes()
         placements = json.loads((out/'placements.json').read_text())
@@ -161,7 +164,7 @@ def patch_pack(out, *, generate_pcm=True):
                 # Rebuild only this PCM track, preserving every other song.
                 pcm_root = out/'sample-clock-pcm'
                 pcm_root.mkdir(exist_ok=True)
-                targets = [(n,0)]+[(1000+n*32+i,cp['block']*16/12000) for i,cp in enumerate(chart['checkpoints'])]
+                targets = [(n,0)]
                 pcm_stamp = out/f'level{n}-pcm-mix-cache.json'
                 pcm_key = dict(fingerprint=fingerprint(chart),duration=chart['duration'],
                                prefix=chart['countdown']*60/chart['bpm'] if chart['separate_countdown'] else 0,
@@ -189,7 +192,7 @@ def patch_pack(out, *, generate_pcm=True):
                 report = mix_hits(pcm, chart, 44100)
                 (out/f'level{n}-pcm-hit-mix.json').write_text(json.dumps(report,indent=2))
                 pcm = np.clip(pcm[:length],-32768,32767).astype('<i2')
-                targets = [(n,0)]+[(1000+n*32+i,cp['block']*16/12000) for i,cp in enumerate(chart['checkpoints'])]
+                targets = [(n,0)]
                 for track, start in targets:
                     target = pcm_root/f'adofai-{track}.pcm'
                     temp = target.with_suffix('.pcm.new')

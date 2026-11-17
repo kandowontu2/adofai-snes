@@ -8,6 +8,25 @@ from hold_path import sweep
 ROOT=Path(__file__).resolve().parents[1]
 
 
+def planet_roles(notes):
+    """Follow native insertion order; a twirl changes motion, not the list."""
+    roles=(0,1,2);previous=None;result=[]
+    for i,note in enumerate(notes):
+        if note['planets']==3:
+            if previous is None or previous['planets']!=3:
+                pivot=i&1
+                # SetNumPlanets inserts the new orb immediately before the
+                # old chosen orb. After landing, it is next to move; the
+                # old chosen orb stays behind on the tile it already held.
+                roles=(pivot,2,pivot^1) if i else (0,1,2)
+            else:
+                pivot,active,trailing=roles
+                roles=(trailing,pivot,active) if note.get('flags',0)&16 else (active,trailing,pivot)
+        else:roles=(i&1,(i&1)^1,2)
+        result.append(roles);previous=note
+    return result
+
+
 def phase(ease, value, parts=1, mirror=True):
     if parts<=0 or ease==1:return value
     scaled=value*parts
@@ -15,6 +34,37 @@ def phase(ease, value, parts=1, mirror=True):
     local=scaled-cycle
     eased=1-easing(ease,1-local) if mirror and cycle%2 else easing(ease,local)
     return (cycle+eased)/parts
+
+
+def twirl_curve(note, following, bpm):
+    """Native OutSine reflection back to the ordinary orbit over half an arc."""
+    duration=following['frame']-note['frame']
+    if duration<=0:return []
+    free=note.get('freeroam',False)
+    tween=60/bpm*note['speed']*.375*60.0988118623 if free else duration/2
+    initial=.5 if free else 1
+    entry=note['entry_angle'];exit=note['exit_angle'];tau=math.tau
+    if abs(entry-exit)>tau:exit+=tau if exit<entry else -tau
+    aligned=min(abs(entry-exit)%tau,tau-abs(entry-exit)%tau)<.0001
+    result=[]
+    for frame in range(min(duration,math.ceil(tween))+1):
+        normal=entry if aligned else entry+(exit+(math.pi if entry>exit else -math.pi)-entry)*frame/duration
+        weight=initial*(1-math.sin(min(1,frame/tween)*math.pi/2))
+        co=math.cos(2*normal);si=math.sin(2*normal)
+        result.append(tuple(round(v*256) for v in (1-weight+weight*co,weight*si,1-weight-weight*co)))
+    return result
+
+
+def planet_previews(notes, floors):
+    """Two-to-three insertion guide, in the entry tile's world coordinates."""
+    rows=[]
+    for i,n in enumerate(notes):
+        if not i or n['planets']!=3 or notes[i-1]['planets']==3:continue
+        radius=24*floors[i].get('radiusScale',1)
+        entry=n['entry_angle']
+        apex=entry+(-math.pi/3 if n['ccw'] else math.pi/3)
+        rows.append((i,*(round(radius*f(a)) for a in (entry,apex) for f in (math.cos,math.sin))))
+    return rows
 
 
 def table_source(out,levels):
@@ -57,6 +107,7 @@ def table_source(out,levels):
                           round(-24*next_radius*math.sin(n['exit_angle']))))
             count+=1
         counts.append(count)
+    assert len(samples)*2<65536,'Native orbit curve lookup address capacity'
     lines=['; NEO_TABLES', 'neo_ease_starts: .word '+','.join(map(str,starts)),
            'neo_ease_counts: .word '+','.join(map(str,counts)), 'neo_ease_records:']
     lines+=['.word '+','.join(map(str,row)) for row in records]
@@ -78,27 +129,14 @@ def table_source(out,levels):
         scaled=any(f.get('radiusScale',1)!=1 or n.get('margin',100)!=(800 if n.get('margin',100)>100 else 100)
                    for f,n in zip(raw['floors'],chart['notes']))
         motion_starts.append(len(radii)*2 if scaled else 65535)
-        roles = (0, 1, 2)
-        previous = None
+        role_schedule=planet_roles(chart['notes'])
         for i, note in enumerate(chart['notes']):
             if scaled:
                 radii.append(round(raw['floors'][i].get('radiusScale',1)*256))
                 margins.append(round(note.get('margin',100)))
-            if note['planets'] == 3:
-                if previous is None or previous['planets'] != 3:
-                    roles = (i & 1, (i & 1) ^ 1, 2)
-                else:
-                    pivot, active, trailing = roles
-                    if note['ccw'] == previous['ccw']:
-                        roles = (active, trailing, pivot)
-                    else:
-                        roles = (active, pivot, trailing)
-            else:
-                roles = (i & 1, (i & 1) ^ 1, 2)
-            pivot, active, trailing = roles
+            pivot, active, trailing = role_schedule[i]
             hold_styles.append(int(note.get('hold_length', -1) > 0)
                                | pivot << 1 | active << 3 | trailing << 5)
-            previous = note
     lines+=['neo_hold_starts: .word '+','.join(map(str,hold_starts)),'neo_hold_styles:']
     lines+=['.byte '+','.join(map(str,hold_styles[i:i+32])) for i in range(0,len(hold_styles),32)]
     for name,values in [('neo_motion_starts',motion_starts),('neo_orbit_radii',radii),('neo_note_margins',margins)]:
@@ -168,6 +206,37 @@ def table_source(out,levels):
     lines+=['neo_meteor_starts: .word '+','.join(map(str,meteor_starts)),
             'neo_meteor_counts: .word '+','.join(map(str,meteor_counts)), 'neo_meteor_records:']
     lines+=['.word '+','.join(str(v&65535) for v in row) for row in meteors]
+    swirl_starts=[];swirl_counts=[];swirl_records=[];swirl_samples=[];swirl_shared={}
+    for level in levels:
+        chart=json.loads((out/f'level{level}.json').read_text());notes=chart['notes']
+        swirl_starts.append(len(swirl_records)*8);count=0
+        for i in range(1,len(notes)-1):
+            note=notes[i]
+            if note['planets']!=3 or notes[i-1]['planets']!=3 or not note['flags']&4:continue
+            curve=twirl_curve(note,notes[i+1],chart['bpm'])
+            if not curve:continue
+            key=tuple(curve)
+            if key not in swirl_shared:
+                swirl_shared[key]=len(swirl_samples);swirl_samples.extend(curve)
+            swirl_records.append((i,note['frame'],len(curve)-1,swirl_shared[key]));count+=1
+        swirl_counts.append(count)
+    assert len(swirl_records)*8<65536 and len(swirl_samples)*2<65536,'Twirl lookup address capacity'
+    lines+=['neo_twirl_starts: .word '+','.join(map(str,swirl_starts)),
+            'neo_twirl_counts: .word '+','.join(map(str,swirl_counts)),'neo_twirl_records:']
+    lines+=['.word '+','.join(map(str,row)) for row in swirl_records]
+    for j,name in enumerate(('a','b','d')):
+        values=[row[j]&65535 for row in swirl_samples]
+        lines+=['neo_twirl_'+name+':']+['.word '+','.join(map(str,values[i:i+16])) for i in range(0,len(values),16)]
+    preview_rows=[];preview_starts=[];preview_counts=[]
+    for level in levels:
+        chart=json.loads((out/f'level{level}.json').read_text())
+        raw=json.loads((ROOT/f'assets/private/level{level}.json').read_text())
+        rows=planet_previews(chart['notes'],raw['floors'])
+        preview_starts.append(len(preview_rows)*10);preview_counts.append(len(rows));preview_rows.extend(rows)
+    assert len(preview_rows)*10<65536,'Planet preview record capacity'
+    lines+=['neo_preview_starts: .word '+','.join(map(str,preview_starts)),
+            'neo_preview_counts: .word '+','.join(map(str,preview_counts)),'neo_preview_records:']
+    lines+=['.word '+','.join(str(v&65535) for v in row) for row in preview_rows]
     from neo_math import table_source as math_tables
     from decoration_hitboxes import table_source as decoration_tables
     return '\n'.join(lines)+'\n'+math_tables(out,levels)+decoration_tables(json.loads((out/f'level{n}.json').read_text()) for n in levels)

@@ -47,12 +47,12 @@ mode7_unpack_chr:
 
 ; The persistent 16 KiB pattern image is split around the note arrays.
 mode7_store_chr_byte:
-    cpx #14336
+    cpx #M7_CHR_LOW_BYTES
     bcs @high
     sta f:M7_CHR_LOW,x
     rts
 @high:
-    sta f:M7_CHR_HIGH-14336,x
+    sta f:M7_CHR_HIGH-M7_CHR_LOW_BYTES,x
     rts
 
 mode7_upload_chr:
@@ -67,7 +67,7 @@ mode7_upload_chr:
     stz $2116
     lda #.loword(CHR_RAM)
     sta $4302
-    lda #14336
+    lda #M7_CHR_LOW_BYTES
     sta $4305
     sep #$20
     .a8
@@ -84,7 +84,7 @@ mode7_upload_chr:
     .a16
     lda #.loword(M7_CHR_HIGH)
     sta $4302
-    lda #2048
+    lda #M7_CHR_HIGH_BYTES
     sta $4305
     sep #$20
     .a8
@@ -1032,7 +1032,7 @@ mode7_next_rle:
 ; Pattern downloads never block floor motion or zoom events. A persistent
 ; image and a deadline heap let VBlank drain prefetched slots safely.
 mode7_pattern_destination:
-    cmp #224
+    cmp #M7_CHR_LOW_SLOTS
     bcs @high
     .repeat 6
     asl a
@@ -1044,7 +1044,7 @@ mode7_pattern_destination:
     rts
 @high:
     sec
-    sbc #224
+    sbc #M7_CHR_LOW_SLOTS
     .repeat 6
     asl a
     .endrepeat
@@ -1339,7 +1339,7 @@ mode7_prepare_patterns:
     lda pattern_queue_count
     beq @new_run
     lda pattern_hi
-    cmp #224
+    cmp #M7_CHR_LOW_SLOTS
     beq @new_run
     lda pattern_queue_count
     dec a

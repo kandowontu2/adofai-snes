@@ -14,6 +14,10 @@ if C.midspin then dofile(C.midspin.script)(C) end
 if C.dma_script then dofile(C.dma_script)(C) end
 if C.input_script then dofile(C.input_script)(C) end
 if C.holds then dofile(C.holds.script)(C) end
+if C.triplet then dofile(C.triplet.script)(C) end
+if C.preview then dofile(C.preview.script)(C) end
+if C.snapshot_icons then dofile(C.snapshot_icons.script)(C) end
+if C.twirl_stream then dofile(C.twirl_stream.script)(C) end
 local W=emu.memType.snesWorkRam
 local function word(address) return emu.read(address,W)+emu.read(address+1,W)*256 end
 if C.vfx then
@@ -96,7 +100,10 @@ local function capture_ppu()
       local count=word(C.addr.oam_pos)
       assert(count<=512 and count%4==0,'Invalid OAM length')
       for a=0,count-1 do
-        assert(emu.read(a,emu.memType.snesSpriteRam)==emu.read(0x200+a,W),'Published OAM differs from sprite buffer')
+        if emu.read(a,emu.memType.snesSpriteRam)~=emu.read(0x200+a,W) then
+          local h=io.open(C.out..'/oam-failure.bin','wb');for _,m in ipairs({W,emu.memType.snesSpriteRam}) do for i=0,543 do h:write(string.char(emu.read((m==W and 0x200 or 0)+i,m))) end end;h:close()
+        end
+        assert(emu.read(a,emu.memType.snesSpriteRam)==emu.read(0x200+a,W),'Published OAM differs at '..a..' time='..word(C.addr.display_chart_time)..' ppu='..emu.read(a,emu.memType.snesSpriteRam)..' cpu='..emu.read(0x200+a,W))
       end
       for a=512,543 do
         assert(emu.read(a,emu.memType.snesSpriteRam)==emu.read(0x200+a,W),'Published OAM high table differs')
@@ -112,7 +119,7 @@ local function capture_ppu()
     for a=0,511 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesCgRam)) end
     for a=0,543 do bytes[#bytes+1]=string.char(emu.read(a,emu.memType.snesSpriteRam)) end
     if C.mode1_runtime and sw(0x3ef0c)~=0 then
-      bytes[#bytes+1]=string.char(C.wide_atlas and (sw(0x3ef80)==512 and 6 or 5) or C.indexed_color_support and sw(0x3efb8)==1 and 4 or sw(0x3ef0c))
+      bytes[#bytes+1]=string.char(C.indexed_color_support and sw(0x3efb8)%2==1 and (C.wide_atlas and sw(0x3ef80)==512 and 8 or 4) or C.wide_atlas and (sw(0x3ef80)==512 and 6 or 5) or sw(0x3ef0c))
       for a=0x29400,0x2945f do bytes[#bytes+1]=string.char(emu.read(a,S)) end
       for a=0x2a000,0x2a0bf do bytes[#bytes+1]=string.char(emu.read(a,S)) end
     end
@@ -149,8 +156,22 @@ emu.addEventCallback(function()
         -- later. Center that discrete poll inside the perfect window.
         lead=1.5
       end
+      local requests=0;local consumed=false
       while C.neo_events[neoInput] and current+lead>=C.neo_events[neoInput][1] do
-        neoHeld=C.neo_events[neoInput][2];neoInput=neoInput+1
+        local mask=C.neo_events[neoInput][2]
+        for bit=0,5 do if math.floor(mask/2^bit)%2==1 then requests=requests+1 end end
+        consumed=true;neoInput=neoInput+1
+      end
+      if consumed then
+        -- A video poll can contain several distinct musical timestamps.
+        -- Deliver all of their fresh physical edges rather than retaining
+        -- only the last mask (which silently dropped fast chart taps).
+        local nextMask=0
+        for bit=0,5 do
+          if requests>0 and math.floor(neoHeld/2^bit)%2==0 then nextMask=nextMask+2^bit;requests=requests-1 end
+        end
+        assert(requests==0,'Chart requires more fresh taps than one controller poll can supply')
+        neoHeld=nextMask
       end
       for i,key in ipairs({'a','b','x','y','l','r'}) do
         if math.floor(neoHeld/2^(i-1))%2==1 then buttons[key]=true end

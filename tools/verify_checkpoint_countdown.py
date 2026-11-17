@@ -23,7 +23,8 @@ def run(base,speed,muted,level_id=None):
         wait(em,lambda:em.read('state')==2,2000)
         press(em,3);wait(em,lambda:em.read('state')==1)
         pcm_active=bool(em.read('msu_pcm')) if 'msu_pcm' in em.labels else False
-        expected_pcm=speed==10 and (base/f'adofai-{1000+levels[level]*32}.pcm').exists()
+        from msu_assets import checkpoint_track_base
+        expected_pcm=speed==10 and (base/f'adofai-{checkpoint_track_base(levels[level])}.pcm').exists()
         assert pcm_active==expected_pcm,('Wrong audio backend',levels[level],speed,pcm_active,expected_pcm)
         em.audio.clear();events=[];volumes=[];left=em.read('checkpoint_clicks_left')
         assert left==4,(left,em.snapshot())

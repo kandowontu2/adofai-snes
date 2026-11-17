@@ -29,7 +29,11 @@ def merge(source, target, level, *, preserve_vfx_off=False):
         for prefix in ('patterns','timeline','track_map'):
             shutil.copyfile(target/f'{prefix}{level}.bin',reference/f'{prefix}{level}.bin')
         alternate['verification_source']=reference.name
+        alternate['wide_snapshot_atlas']=bool(old.get('wide_snapshot_atlas'))
         assert old.get('compact_snapshot_seeds')
+        alternate['compact_snapshot_seeds']=old['compact_snapshot_seeds']
+        for key in ('snapshot_packet_sharing','snapshot_shared_bytes'):
+            if key in old:alternate[key]=old[key]
         for prefix in ('stream_index', 'stream_data', 'mode1_seeds'):
             shutil.copyfile(target / f'{prefix}{level}.bin', target / f'{prefix}_vfx_off{level}.bin')
     for path in source.iterdir():

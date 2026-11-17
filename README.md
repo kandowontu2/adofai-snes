@@ -4,7 +4,7 @@ A native SNES adaptation of A Dance of Fire and Ice, using the SA-1, Mode 7,
 and SPC700. The master also uses MSU-1 for chart data and optional PCM music.
 This is an unofficial project; it is not affiliated with 7th Beat Games.
 
-The selected master catalog contains 234 charts, including the remaining
+The selected master catalog contains 240 charts, including the remaining
 Classic and Tech Featured waves, 20 Yangsy-authored cursed charts, and the
 Team Vega 1-EX through 12-EX remakes. **MAIN EX LEVELS** and **YANGSY CURSED
 LEVELS** have separate menu categories. Main EX charts without authored
@@ -25,6 +25,13 @@ existing renderer and documented limitations.
 variants. Community includes KeqiTheKombuPig's **1234 OVERCLOCKED (BETA)**
 by Cansol, using the author's publicly available playable beta. It is not
 the finished-effects version shown in the work-in-progress video.
+
+Community also includes Milky Ways (BluPen & Lemon1415), the unnerfed Galaxy
+Collapse chart by pinball & Toht, updated Primrose by TeoC, the four-orb
+Noteblock Cover, Trevor Smithy's Heracles EX, and FluffyYoshi's Sky Blue.
+Visible three-planet entries
+have the native white-planet preview and dashed triangle. T3-X/EX display
+their native stage headings, including the ampersand in Holds & Midspins.
 
 Options includes a global **VFX ON/OFF** setting, defaulting to **OFF**. CHAOS CONTROL uses it to
 toggle simplified, dimmed scenery behind the full-detail track. Turn it off
@@ -58,16 +65,20 @@ build guide before attempting a full catalog build.
 
 ## Playback formats
 
-- **Full PCM master:** ROM plus matching MSU data and PCM music files.
 - **Hybrid master:** PCM for normal song starts at 1.0x; compressed audio for
   checkpoints and other speeds.
 - **Compressed master:** ROM plus MSU data, without PCM music files.
 - **Standalone cartridges:** self-contained 8-MiB ROMs in smaller song groups.
 
+The full PCM edition is retired. Release packaging creates only hybrid,
+compressed, and tester-update archives.
+Use [cleanup-full-pcm.ps1](cleanup-full-pcm.ps1) to remove retired PCM copies;
+`-WhatIf` previews the cleanup while keeping hybrid/compressed files and saves.
+
 Keep master files together and extract archives before playing. Revisions may
 change the MSU dataset: replace both `adofai.sfc` and `adofai.msu` when instructed.
 Start a fresh session instead of loading save states from an older build.
-The refreshed master `.msu` is about 3.39 GiB even without PCM files: it contains
+The refreshed master `.msu` is about 3.99 GiB even without PCM files: it contains
 the compiled graphics as well as compressed audio. Removing PCM does not
 remove that graphics data.
 
@@ -113,7 +124,7 @@ tracks retain authored timing with the original sample-specific advances.
 Playback speed changes affect
 the complete mix, including percussion pitch. Input judgments remain separate.
 
-The refreshed master requires dataset 32: replace both the ROM and `.msu` data
+The refreshed master requires dataset 34: replace both the ROM and `.msu` data
 file. The release also supplies new songs, checkpoint tracks, and any music
 mixes changed by the stock-chart refresh.
 `tools/audit_music_hits.py` screens every source song,

@@ -164,6 +164,10 @@ def main():
             fast='SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text()
             bank=0x800000 if fast else 0
             scheduled+=',objects={entry='+str(labels['sa1_draw_spills']+bank)+',complete='+str(labels['sa1_spill_complete']+bank)+',script='+json.dumps((ROOT/'tools/verify_sa1_objects_mesen.lua').as_posix())+'}'
+        if args.graphics_dumps and chart.get('mode1_tracks')==3 and 'EXTENDED_CHART_BUILD = 1' in (base/'addresses.inc').read_text():
+            bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
+            data=','.join('{'+','.join(map(str,(n['flags'],n.get('hold_length',-1),int(n['ccw']),n.get('planets',2))))+'}' for n in chart['notes'])
+            scheduled+=',snapshot_icons={ready='+str(labels['mode1_icons_ready']+bank)+',complete='+str(labels['mode1_icons_complete']+bank)+',sparse_complete='+str(labels['snapshot_sparse_complete']+bank)+',attack='+str(labels['time_attack'])+',checkpoint='+str(labels['checkpoint_record'])+',notes={'+data+'},script='+json.dumps((ROOT/'tools/verify_snapshot_icons_mesen.lua').as_posix())+'}'
         if args.graphics_dumps and chart.get('mode1_tracks')==1:
             from animation_catchup import unpack_events
             import struct
@@ -178,6 +182,33 @@ def main():
             data=','.join('{'+','.join(map(str,(n['flags'],n.get('hold_length',-1),int(n['ccw']),n.get('planets',2))))+'}' for n in chart['notes'])
             scheduled+=',icons={ready='+str(labels['mode1_icons_ready']+bank)+',complete='+str(labels['mode1_icons_complete']+bank)+',attack='+str(labels['time_attack'])+',checkpoint='+str(labels['checkpoint_record'])+',cam_x='+str(labels['cam_x'])+',cam_y='+str(labels['cam_y'])+',world='+json.dumps(worldpath.as_posix())+',notes={'+data+'},script='+json.dumps((ROOT/'tools/verify_mode1_icons_mesen.lua').as_posix())+'}'
         if args.trace_frame:scheduled+=',trace_frame='+str(args.trace_frame)
+        if args.graphics_dumps and chart.get('neo_cosmos') and any(n.get('planets')==3 for n in chart['notes']):
+            if 'neo_twirl_complete' in labels:
+                scheduled+=',twirl_stream={entry='+str(labels['neo_far_twirl_orbit'])+',complete='+str(labels['neo_twirl_complete'])+',script='+json.dumps((ROOT/'tools/verify_twirl_stream_mesen.lua').as_posix())+'}'
+            bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
+            controls=','.join(str(int(n['ccw'])+(2 if n['planets']==3 else 0)) for n in chart['notes'])
+            twirls=[]
+            for i,n in enumerate(chart['notes'][1:-1],1):
+                if n['planets']!=3 or chart['notes'][i-1]['planets']!=3 or not n['flags']&4:continue
+                duration=chart['notes'][i+1]['frame']-n['frame']
+                if duration<=0:continue
+                free=n.get('freeroam',False)
+                tween=60/chart['bpm']*n['speed']*.375*60.0988118623 if free else duration/2
+                twirls.append('['+str(i+1)+']={start='+str(n['frame'])+',tween='+str(tween)+',first='+str(.5 if free else 1)+'}')
+            scheduled+=',triplet={entry='+str(labels['mode7_draw_orb']+bank)+',x='+str(labels['sprite_x'])+',y='+str(labels['sprite_y'])+',attr='+str(labels['sprite_attr'])+',free='+str(labels['neo_free_mode'])+',reversed='+str(labels['neo_free_reversed'])+',now='+str(labels['chart_time'])+',fx='+str(labels['floor_x'])+',fy='+str(labels['floor_y'])+',continuity='+str(global_id==256).lower()+',twirls={'+','.join(twirls)+'},controls={'+controls+'},script='+json.dumps((ROOT/'tools/verify_triplet_mesen.lua').as_posix())+'}'
+            if 'neo_preview_circle' in labels:
+                import math
+                native=json.loads((ROOT/f'assets/private/level{global_id}.json').read_text())
+                rows=[]
+                for i,n in enumerate(chart['notes']):
+                    if not i or n['planets']!=3 or chart['notes'][i-1]['planets']==3:continue
+                    floor=native['floors'][i];angle=floor['entryangle']-math.pi/2
+                    apex=angle+(-math.pi/3 if n['ccw'] else math.pi/3)
+                    radius=24*floor.get('radiusScale',1)
+                    row=[round(radius*f(a)) for a in (angle,apex) for f in (math.cos,math.sin)]
+                    rows.append('['+str(i)+']={'+','.join(map(str,row))+'}')
+                pnames=('render_i','sprite_x','sprite_y','sprite_attr','cam_x','cam_y','project_limit_x','project_limit_y')
+                scheduled+=',preview={circle='+str(labels['neo_preview_circle'])+',dash='+str(labels['neo_preview_dash'])+',source_x='+str(labels['SYMBOL_X'])+',source_y='+str(labels['SYMBOL_Y'])+',addr={'+','.join(n+'='+str(labels[n]) for n in pnames)+'},entries={'+','.join(rows)+'},script='+json.dumps((ROOT/'tools/verify_planet_preview_mesen.lua').as_posix())+'}'
         if args.graphics_dumps and chart.get('neo_cosmos') and not args.checkpoints:
             import math
             from hold_path import sweep
@@ -217,7 +248,7 @@ def main():
         config='return {addr={'+','.join(k+'='+str(labels[k]) for k in names)+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'},out='+json.dumps(out.as_posix())+',level='+str(level)+',steps='+str(chart['steps'])+',hits='+str(chart['hits'])+',speed='+str(speed)+',attack='+str(int(args.time_attack))+',finish_centis='+str(round(chart['notes'][-1]['time']*100*1536/pitch) if 'time' in chart['notes'][-1] else round(chart['notes'][-1]['frame']/60.0988118623*100*1536/pitch))+',frames='+str(round(chart['duration']*60.099*1536/pitch)+600+(len(chart['checkpoints'])*900 if args.checkpoints else 0))+cpconfig+actions+'}\n'
         if 'native_animation_receive_done' in labels:
             coordinate_bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
-            scheduled+=',coordinates={script='+json.dumps((ROOT/'tools/verify_coordinates_mesen.lua').as_posix())+',done='+str(labels['native_animation_receive_done']+coordinate_bank)+',first=0x42B21E,last=0x42B220,x='+str(labels['NOTE_X'])+',y='+str(labels['NOTE_Y'])+'}'
+            scheduled+=',coordinates={script='+json.dumps((ROOT/'tools/verify_coordinates_mesen.lua').as_posix())+',done='+str(labels['native_animation_receive_done']+coordinate_bank)+',first=0x42B21E,last=0x42B220,x='+str(labels['NOTE_X'])+',y='+str(labels['NOTE_Y'])+',source_x='+str(labels.get('SYMBOL_X',0x410000))+',source_y='+str(labels.get('SYMBOL_Y',0x412200))+',limit='+str(labels.get('MAX_NOTE_CAPACITY',4352)*2)+'}'
         config=config.rstrip()[:-1]+scheduled+'}\n'
         path=out/'config.lua';path.write_text(config)
         if args.prepare_only:continue

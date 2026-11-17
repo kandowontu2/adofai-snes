@@ -54,6 +54,13 @@ mode1_clear_buffers:
 .segment "CODE"
 
 mode1_restore_seed:
+.ifdef EXTENDED_CHART_BUILD
+    lda f:STREAM_MODE1
+    cmp #3
+    bne :+
+    jsl snapshot_icons_seed
+:
+.endif
     lda #1
     sta msu_data_busy
     lda f:M7_RENDER_TIME
@@ -104,7 +111,37 @@ mode1_restore_seed:
     jsr mode1_read_seed_block
     ldy #.loword(M1_MAP_STAGE)
     lda #4096
+.ifdef COMPACT_SNAPSHOT_SEEDS
+.if COMPACT_SNAPSHOT_SEEDS >= 3
+    pha
+    lda f:STREAM_MODE1
+    cmp #3
+    bne :+
+    pla
+    lda #1472
+    bra :++
+:
+    pla
+:
+.endif
+.endif
     jsr mode1_read_seed_block
+.ifdef COMPACT_SNAPSHOT_SEEDS
+.if COMPACT_SNAPSHOT_SEEDS >= 3
+    lda f:STREAM_MODE1
+    cmp #3
+    bne @map_ready
+    ldx #1472
+    lda #0
+@zero_map_tail:
+    sta f:M1_MAP_STAGE,x
+    inx
+    inx
+    cpx #4096
+    bcc @zero_map_tail
+@map_ready:
+.endif
+.endif
     lda f:STREAM_MODE1
     cmp #2
     bcc @dictionary_seed
@@ -269,6 +306,22 @@ mode1_seed_block_far:
 .export mode1_icons_ready, mode1_icons_complete
 mode1_render_symbols:
     stz object_small
+.ifdef EXTENDED_CHART_BUILD
+    lda f:STREAM_MODE1
+    cmp #3
+    bne @setup
+    jsr symbol_world_bounds
+    jsr sa1_symbols
+    lda f:SYMBOL_VISIBLE_COUNT
+    cmp #32
+    bcs @setup
+    lda f:SNAPSHOT_ICON_HAS_PREVIEWS
+    bne @setup
+    lda #$FFFF
+    sta f:SPILL_OAM_BYTES
+    jmp mode1_icons_ready
+@setup:
+.endif
     lda oam_pos
     sta f:SPILL_OAM_PREFIX
     lda time_attack
@@ -290,12 +343,54 @@ mode1_render_symbols:
     inx
     cpx #32
     bcc @budget_in
+.ifdef EXTENDED_CHART_BUILD
+    lda f:STREAM_MODE1
+    cmp #3
+    bne :+
+    ; The worker proves exact OBJ/34-sliver limits from the existing
+    ; planets/HUD once, then incrementally charges each accepted icon.
+    lda #1
+    sta msu_data_busy
+    lda #OAM
+    sta $2181
+    sep #$20
+    .a8
+    stz $2183
+    lda #$80
+    sta $4300
+    sta $4301
+    lda #^SNAPSHOT_ICON_PREFIX
+    sta $4304
+    rep #$20
+    .a16
+    lda #.loword(SNAPSHOT_ICON_PREFIX)
+    sta $4302
+    lda #544
+    sta $4305
+    start_dma 1
+    stz msu_data_busy
+:
+.endif
     lda #0
     sta f:SPILL_OAM_BYTES
+.ifdef EXTENDED_CHART_BUILD
+    lda f:STREAM_MODE1
+    cmp #3
+    bne :+
+    jsr sa1_snapshot_icons
+    bra :++
+:
+.endif
     jsr symbol_world_bounds
     jsr sa1_symbols
+.ifdef EXTENDED_CHART_BUILD
+:
+.endif
 mode1_icons_ready = *
     lda f:SPILL_OAM_BYTES
+    cmp #$FFFF
+    jeq mode1_icons_sparse
+    cmp #0
     beq @done
     ldx #0
 @budget_out:
@@ -336,6 +431,10 @@ mode1_icons_ready = *
     sta oam_pos
 @done:
 mode1_icons_complete = *
+    clc
+    rts
+mode1_icons_sparse:
+    sec
     rts
 
 .segment "FASTWRAM"
@@ -444,7 +543,24 @@ mode1_raw_dma:
 mode1_restore_raw_atlas:
     stz stream_destination
 @chunk:
+.ifdef COMPACT_SNAPSHOT_SEEDS
+.if COMPACT_SNAPSHOT_SEEDS >= 2
+    lda f:STREAM_MODE1
+    cmp #3
+    bne @full_chunk
+    lda f:M1_SNAPSHOT_BYTES
+    and #$7FFF
+    clc
+    adc #32
+    sec
+    sbc stream_destination
+    cmp #4097
+    bcc @chunk_size
+@full_chunk:
+.endif
+.endif
     lda #4096
+@chunk_size:
     sta transfer_len
     lda #.loword(M7_CHR_LOW)
     sta transfer_dest
@@ -453,12 +569,13 @@ mode1_restore_raw_atlas:
     phb
     ldx #.loword(M7_CHR_LOW)
     ldy stream_destination
-    lda #4095
+    lda transfer_len
+    dec a
     mvn #$7E,#$43
     plb
     lda stream_destination
     clc
-    adc #4096
+    adc transfer_len
     sta stream_destination
 .ifdef COMPACT_SNAPSHOT_SEEDS
     lda f:STREAM_MODE1
@@ -467,10 +584,14 @@ mode1_restore_raw_atlas:
     lda f:M1_SNAPSHOT_BYTES
     and #$7FFF
     clc
-    adc #4127 ; blank glyph plus round up to a 4096-byte DMA block
+.if COMPACT_SNAPSHOT_SEEDS >= 2
+    adc #32   ; exact visible atlas, including its blank glyph
+.else
+    adc #4127 ; legacy seeds rounded up to a 4096-byte DMA block
     and #$F000
+.endif
     cmp stream_destination
-    bne @chunk
+    jne @chunk
     ; Compact seeds omit unused atlas tails. The back buffer's blank
     ; glyph must still be cleared before that buffer is first displayed.
     ; Wide atlases use $5000; ordinary atlases use $4000. Do not clear
@@ -509,7 +630,7 @@ mode1_restore_raw_atlas:
 .endif
     cmp #32768
 :
-    bcc @chunk
+    jcc @chunk
     rtl
 mode1_commit_map:
     stz pattern_skip_hud
@@ -707,7 +828,25 @@ mode1_commit_patterns:
 .else
 .segment "CODE"
 .endif
+mode1_prime_hdma_select:
+    ; Select the incoming pose before a large DMA can cross scanline zero.
+    ; HDMA latches its base table at frame start, before the final commit.
+    lda f:STREAM_MODE1
+    cmp #3
+    bne mode1_hdma_select
+    lda f:M1_SNAPSHOT_DIRTY
+    beq mode1_hdma_select
+    phy
+    lda f:M1_BUILD_FORMAT
+    tay
+    lda f:M1_BUILD_BANK
+    bra mode1_hdma_choose
 mode1_hdma_select:
+    phy
+    lda f:M1_FRONT_FORMAT
+    tay
+    lda f:M1_FRONT_BANK
+mode1_hdma_choose:
 .ifdef WIDE_SNAPSHOT_SUPPORT
     pha
     sep #$20
@@ -716,10 +855,10 @@ mode1_hdma_select:
     sta $210B
     rep #$20
     .a16
-    lda f:M1_FRONT_FORMAT
-    cmp #2
-    bne :+
-    lda f:M1_FRONT_BANK
+    pla
+    beq :+
+    tya
+    and #2
     beq :+
     sep #$20
     .a8
@@ -728,16 +867,16 @@ mode1_hdma_select:
     rep #$20
     .a16
 :
-    pla
 .endif
     lda f:STREAM_MODE1
     beq @done
     ldx #.loword(hdma_mode1)
-    lda f:M1_FRONT_FORMAT
-    cmp #1
-    bne @done
+    tya
+    and #1
+    beq @done
     ldx #.loword(hdma_mode3)
 @done:
+    ply
     rtl
 .segment "CODE"
 .endif

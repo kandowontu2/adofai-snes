@@ -60,6 +60,10 @@
 .ifndef MAX_NOTE_CAPACITY
 MAX_NOTE_CAPACITY=2048
 .endif
+.ifndef MAX_SYMBOL_CAPACITY
+MAX_SYMBOL_CAPACITY=MAX_NOTE_CAPACITY
+.endif
+.export MAX_NOTE_CAPACITY, MAX_SYMBOL_CAPACITY
 .ifndef MAP_OFFSET_SHIFT
 MAP_OFFSET_SHIFT=0
 .endif
@@ -84,10 +88,28 @@ HUD=$0800
 TRACK=$1000
 .ifdef SA1_BUILD
 TRACK_SYMBOL_FLOORS=$40A000
-.assert TRACK_SYMBOL_FLOORS+4352*2 <= $40C800, error, "Track symbol index overlaps pause data"
+.ifdef EXTENDED_CHART_BUILD
+.assert TRACK_SYMBOL_FLOORS+MAX_SYMBOL_CAPACITY*2 <= $40B800, error, "Track symbol index overlaps pause data"
+.else
+.assert TRACK_SYMBOL_FLOORS+MAX_SYMBOL_CAPACITY*2 <= $40C800, error, "Track symbol index overlaps pause data"
+.endif
 .endif
 .ifdef MSU_BUILD
 .ifdef LARGE_CHART_BUILD
+.ifdef EXTENDED_CHART_BUILD
+; 5120 notes. Compact icon lists retain their separately proven 2816-entry
+; bound; the full track remains in the lossless snapshot renderer.
+NOTE_X=$7F8000
+NOTE_Y=$7FA800
+NOTE_PAUSE=$40B800
+NOTE_JUDGMENTS=$40E000
+NOTE_TIME=$7E2000
+NOTE_ANGLE=$7E4800
+NOTE_FLAGS=$7E5C00
+NOTE_RATE=$7E7000
+NOTE_PROGRESS=$7E9800
+NOTE_CCW=$7EAC00
+.else
 ; Keep moving coordinates in DMA-accessible WRAM. Each array reserves
 ; $2200 bytes for 4352 floors; the high CHR shadow moves into the gap
 ; between cell state and the audio FIFO. Pause/judgments stay in BW-RAM.
@@ -101,6 +123,7 @@ NOTE_FLAGS=$7E5300
 NOTE_RATE=$7E6400
 NOTE_PROGRESS=$7E8600
 NOTE_CCW=$7E9700
+.endif
 .else
 NOTE_X=$7E2000
 NOTE_Y=$7E3800
@@ -114,7 +137,11 @@ NOTE_PAUSE=$7EB000
 NOTE_JUDGMENTS=$7FCC00
 .endif
 CHECKPOINTS=$7FD800
+.ifdef EXTENDED_CHART_BUILD
+DYNAMIC_CACHE=$7ED400
+.else
 DYNAMIC_CACHE=$7EC800
+.endif
 DYNAMIC_NEXT=$7FF000
 .else
 NOTE_X=$7E2000
@@ -137,7 +164,9 @@ POSITION_Y=$7F2000
 POSITION_NEXT_X=$7F4000
 POSITION_NEXT_Y=$7F6000
 CELL_STATE=$7F0000
-.ifdef LARGE_CHART_BUILD
+.ifdef EXTENDED_CHART_BUILD
+FLOOR_ALPHA=$7EC000
+.elseif .defined(LARGE_CHART_BUILD)
 FLOOR_ALPHA=$7EA800
 .else
 FLOOR_ALPHA=$7FE000
@@ -153,15 +182,25 @@ PATTERN_QUEUE=$417C00
 .else
 PATTERN_QUEUE=$7EF000
 .endif
+.ifdef EXTENDED_CHART_BUILD
+CELL_HASH_HEAD=$7EDC00
+CELL_HASH_NEXT=$7EE400
+PATTERN_QUEUE_LOOKUP=$7EEC00
+.else
 CELL_HASH_HEAD=$7ED000
 CELL_HASH_NEXT=$7ED800
 PATTERN_QUEUE_LOOKUP=$7EE000
+.endif
 M7_MAP=M7_SHARED_BASE+$8000
 .ifdef MSU_BUILD
 m7_cell_x=cell_hash_key
 m7_cell_y=cell_hash_slot
 .endif
+.ifdef EXTENDED_CHART_BUILD
+M7_RUN_VALUES=$7FD000
+.else
 M7_RUN_VALUES=$7FC880
+.endif
 M7_DIRTY_BITS=M7_SHARED_BASE+$C800
 .ifdef SA1_BUILD
 M7_DMA_LIST=$408000
@@ -169,13 +208,29 @@ M7_DMA_LIST=$408000
 M7_DMA_LIST=M7_SHARED_BASE+$C900
 .endif
 M7_DIRTY_BOUNDS=M7_SHARED_BASE+$CA00
+.ifdef EXTENDED_CHART_BUILD
+M7_CHR_LOW=$7ED400
+M7_CHR_LOW_BYTES=$2C00
+.else
 M7_CHR_LOW=$7EC800
+M7_CHR_LOW_BYTES=$3800
+.endif
+M7_CHR_LOW_SLOTS=M7_CHR_LOW_BYTES/64
+M7_CHR_HIGH_BYTES=$4000-M7_CHR_LOW_BYTES
 .ifdef LARGE_CHART_BUILD
 M7_CHR_HIGH=$7F6800
 .else
 M7_CHR_HIGH=$7FC000
 .endif
 .export NOTE_X, NOTE_Y, M7_CHR_HIGH
+.export M7_CHR_LOW_BYTES,M7_CHR_HIGH_BYTES,M7_CHR_LOW_SLOTS
+.assert .loword(M7_CHR_LOW)+M7_CHR_LOW_BYTES <= $10000, error, "Mode 7 low shadow crosses a WRAM bank"
+.ifdef LARGE_CHART_BUILD
+.assert M7_CHR_HIGH+M7_CHR_HIGH_BYTES <= $7F7C00, error, "Mode 7 high shadow overlaps audio FIFO"
+.endif
+.export NOTE_TIME,NOTE_ANGLE,NOTE_FLAGS,NOTE_RATE,NOTE_PROGRESS,NOTE_CCW
+.export NOTE_PAUSE,NOTE_JUDGMENTS,FLOOR_ALPHA,M7_CHR_LOW,M7_RUN_VALUES
+.export CELL_HASH_HEAD,CELL_HASH_NEXT,PATTERN_QUEUE_LOOKUP,TRACK_SYMBOL_FLOORS
 M7_PATTERN_HEAP=M7_SHARED_BASE+$F000
 M7_PATTERN_DEADLINE=M7_SHARED_BASE+$F200
 M7_PATTERN_POSITION=M7_SHARED_BASE+$F400
@@ -350,10 +405,18 @@ M7_RAW_TO_PPU=$422000
 SPILL_RUNS=$43A200
 
 SYMBOL_X=$410000
+.ifdef EXTENDED_CHART_BUILD
+SYMBOL_Y=$412800
+SYMBOL_VISIBLE=$415000
+SYMBOL_SCREEN_X=$43A400
+SYMBOL_SCREEN_Y=$43BA00
+.else
 SYMBOL_Y=$412200
 SYMBOL_VISIBLE=$414400
 SYMBOL_SCREEN_X=$43A400
 SYMBOL_SCREEN_Y=$43C600
+.endif
+.export SYMBOL_X,SYMBOL_Y,SYMBOL_VISIBLE,SYMBOL_SCREEN_X,SYMBOL_SCREEN_Y
 SYMBOL_CENTER_X=$416C60
 SYMBOL_CENTER_Y=$416C62
 M7_WRAM_STAGE_REQUIRED=$416C80
@@ -396,7 +459,7 @@ CLONE_PARAMS=$43EF88 ; four (cos,sin,shift-x,shift-y,arc-phase) Q8/Q4 transforms
 CLONE_INPUT_BYTES=$43EFB0
 CLONE_OUTPUT_BYTES=$43EFB2
 M1_PREFETCH_READY=$43EFB4
-M1_BUILD_FORMAT=$43EFB6 ; 0=4-bpp Mode 1, 1=8-bpp Mode 3
+M1_BUILD_FORMAT=$43EFB6 ; bit 0=8-bpp Mode 3, bit 1=640-chunk wide atlas
 M1_FRONT_FORMAT=$43EFB8
 CLONE_INPUT=$429620
 CLONE_OUTPUT=$429840
@@ -511,7 +574,15 @@ STREAM_SPILL_PALETTE_DIRTY=$42BC8A
 .assert STREAM_SPILL_SEED_MASK+2 <= $42C000, error, "Stream prefetch state overlaps animation packet"
 NATIVE_STAGE_UNDO=$42C000
 NATIVE_PALETTE=$42A000
+.ifdef EXTENDED_CHART_BUILD
+NATIVE_ALPHA=$408400
+.assert M7_DMA_LIST+512 <= NATIVE_ALPHA, error, "DMA list overlaps extended alpha"
+.assert NATIVE_ALPHA+MAX_NOTE_CAPACITY <= TRACK_SYMBOL_FLOORS, error, "Extended alpha overlaps symbol index"
+.else
 NATIVE_ALPHA=$42A100
+.assert NATIVE_ALPHA+MAX_NOTE_CAPACITY <= $42B200, error, "Alpha overlaps native worker state"
+.endif
+.export NATIVE_ALPHA,NATIVE_READY
 NATIVE_READY=$42B200
 NATIVE_OFFSET=$42B202
 NATIVE_RESULT=$42B206
@@ -540,6 +611,18 @@ SPILL_OAM_HIGH=$43EE00
 SPILL_OAM_BUDGET=$43EE20
 SPILL_OAM_PREFIX=$43EE40
 SPILL_OAM_BYTES=$43EE42
+.ifdef EXTENDED_CHART_BUILD
+; Snapshot atlases end at $43A000. The extended screen-coordinate arrays
+; end at $43D000; keep persistent icon metadata beyond both, not in the
+; LZ4 decoder's $422000 scratch or the inactive atlas.
+SNAPSHOT_ICON_INFO=$43D000
+SNAPSHOT_ICON_PREFIX=$427600
+SNAPSHOT_ICON_HAS_PREVIEWS=$43EFBA
+.assert SYMBOL_SCREEN_Y+MAX_SYMBOL_CAPACITY*2 <= SNAPSHOT_ICON_INFO, error, "Icon metadata overlaps projected coordinates"
+.assert SNAPSHOT_ICON_INFO+MAX_NOTE_CAPACITY <= M7_SPARSE_BATCH, error, "Icon metadata overlaps sparse jobs"
+.assert SNAPSHOT_ICON_PREFIX+544 <= M1_MAP_STAGE, error, "Icon input overlaps snapshot map"
+.export SNAPSHOT_ICON_INFO, SNAPSHOT_ICON_PREFIX
+.endif
 M7_DIRECT_LIST=M7_SHARED_BASE+$EE00
 M7_REFERENCE_POSITIONS=M7_SHARED_BASE+$FD00
 M7_REFERENCE_COUNTS=M7_SHARED_BASE+$FE00
@@ -780,6 +863,25 @@ orb_palette: .res 64
 ; SA-1's similarly named $0580 is in its separate internal RAM.
 third_palette=$0580
 neo_orb_roles=third_palette+32
+; $05A2..$05FF belongs to the animation stream. Persistent twirl state
+; must survive packet decoding, HUD work, and the symbol jobs separately.
+neo_twirl_state_begin=$07C8
+neo_twirl_cache_step=neo_twirl_state_begin
+neo_twirl_cache_level=neo_twirl_state_begin+2
+neo_twirl_cache_record=neo_twirl_state_begin+4
+neo_twirl_m00=neo_twirl_state_begin+6
+neo_twirl_m01=neo_twirl_state_begin+8
+neo_twirl_m11=neo_twirl_state_begin+10
+neo_twirl_x=neo_twirl_state_begin+12
+neo_twirl_y=neo_twirl_state_begin+14
+neo_twirl_lo=neo_twirl_state_begin+16
+neo_twirl_hi=neo_twirl_state_begin+18
+neo_twirl_mid=neo_twirl_state_begin+20
+neo_twirl_state_end=neo_twirl_state_begin+22
+.assert neo_orb_roles+2 <= stream_cursor, error, "Planet roles overlap stream state"
+.assert neo_twirl_state_begin >= $07C8, error, "Twirl state overlaps preview/math/stream scratch"
+.assert neo_twirl_state_end <= $0800, error, "Twirl state overlaps relocated NMI code"
+.export neo_twirl_state_begin, neo_twirl_state_end
 .export neo_orb_roles
 .endif
 last_judgment: .res 2
@@ -1946,6 +2048,9 @@ start_game:
 .include "src/render.inc"
 .ifdef NEO_BUILD
 .include "src/neo.inc"
+.include "src/neo_twirl.inc"
+.include "src/neo_preview.inc"
+.include "src/snapshot_icons.inc"
 .ifdef CONDITIONAL_JUDGMENT_BUILD
 .include "src/conditional_judgments.inc"
 .endif

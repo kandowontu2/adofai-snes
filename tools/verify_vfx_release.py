@@ -10,8 +10,11 @@ def verify(name):
     def run(tool,*args):
         subprocess.run([sys.executable,str(ROOT/'tools'/tool),*map(str,args)],cwd=ROOT,check=True)
     run('verify_vfx_options_mesen.py','--pack',pack)
-    for level,off,watch in [(252,False,True),(252,False,False),(252,True,True),(252,True,False),
-                            (68,True,True),(73,True,True)]:
+    checks=[(252,False,True),(252,False,False),(252,True,True),(252,True,False),
+            (68,True,True),(73,True,True)]
+    if 285 in levels:checks.extend((285,off,watch) for off in (False,True) for watch in (False,True))
+    if 287 in levels:checks.extend((287,off,watch) for off in (False,True) for watch in (False,True))
+    for level,off,watch in checks:
         local=levels.index(level)+1
         args=['--pack',name,'--levels',local,'--sampled-graphics','--resume']
         if off:args.append('--vfx-off')

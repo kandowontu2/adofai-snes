@@ -18,6 +18,7 @@ neo_math_base_x=$078C
 neo_math_base_y=$078E
 neo_math_group=$0790
 neo_math_mode=$0792
+.assert neo_math_mode+2 <= $07A0, error, "Math labels overlap planet preview scratch"
 
 .segment "NEOCODE"
 ; Judgment may consume a midspin and its landing early. Presentation must
@@ -87,6 +88,31 @@ neo_math_load_graphics:
     ; Last 22 Neo OBJ tiles: beyond the 16x16 meteor's bottom row, without
     ; touching the HUD map at $7800 or the track map/spill arena at $7000.
     neo_graphics NEO_MATH_FONT_ADDR,$7EA0,704
+    ; OBJ palette 7 belongs to the white third-planet insertion guide.
+    ; Live primary/third color updates use palettes 4, 5, and 6 only.
+    sep #$20
+    .a8
+    lda #241
+    sta $2121
+    ldx #7
+@preview_white:
+    lda #$FF
+    sta $2122
+    lda #$7F
+    sta $2122
+    dex
+    bne @preview_white
+    ; Match the softer dashed guide without dimming the white planet.
+    ldx #8
+@preview_guide:
+    lda #$B5
+    sta $2122
+    lda #$56
+    sta $2122
+    dex
+    bne @preview_guide
+    rep #$20
+    .a16
     rtl
 
 neo_math_randomize:

@@ -78,5 +78,81 @@
     "reference": "https://www.youtube.com/watch?v=eOePfbcQkzY",
     "perfect_only_tag": "death",
     "requires_msu": true
+  },
+  {
+    "id": 285,
+    "code": "C9-X",
+    "title": "MILKY WAYS",
+    "artist": "Bossfight",
+    "author": "BluPen & Lemon1415",
+    "workshop": "2189119879",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=dSJBifJNsKI"
+  },
+  {
+    "id": 286,
+    "code": "GC-X",
+    "title": "GALAXY COLLAPSE",
+    "artist": "Kurokotei",
+    "author": "pinball & Toht",
+    "source": "assets/private/community/galaxy-collapse/galaxy_collapse_fullpack/unnerfed.adofai",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=TuRlwg47OaA"
+  },
+  {
+    "id": 287,
+    "code": "PR-X",
+    "title": "PRIMROSE",
+    "artist": "MEGA MAN X8 OST",
+    "author": "TeoC",
+    "source": "assets/private/community/primrose/Primrose.adofai",
+    "archive": "https://drive.google.com/drive/folders/11ZVwBwGM3rzb3hRshdc2vrhwqMH6HZGK",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "live_planet_proxies": true,
+    "reference": "https://www.youtube.com/watch?v=d7FNWtESmB4"
+  },
+  {
+    "id": 288,
+    "code": "B4-X",
+    "title": "THANKS FOR PLAYING (4 ORBS)",
+    "artist": "Charcoal190",
+    "author": "M1n3c4rt",
+    "workshop": "2929378489",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "live_planet_proxies": true,
+    "reference": "https://www.youtube.com/watch?v=CKE4GnnpsXI",
+    "local_decoration_pivots": true
+  },
+  {
+    "id": 289,
+    "code": "HC-X",
+    "title": "HERACLES EX",
+    "artist": "Yooh",
+    "author": "Trevor Smithy",
+    "workshop": "2818364450",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=L9A2VEkZpwo"
+  },
+  {
+    "id": 290,
+    "code": "SB-X",
+    "title": "SKY BLUE",
+    "artist": "GrivR.",
+    "author": "FluffyYoshi",
+    "workshop": "3371317110",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://steamcommunity.com/sharedfiles/filedetails/?id=3371317110"
   }
 ]
