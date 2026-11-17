@@ -503,12 +503,13 @@ Neo Cosmos localization asset. Rerender both charts after importing. These
 headings remain enabled with VFX off. Run tools/verify_neo_headings_release.py
 --pack YOUR_PACK to capture every stage heading in MesenCE.
 
-Current master builds upgrade restart seeds to compact format 3 and data
-version 34. They retain every visible atlas byte without 4 KiB padding,
-omit proven zero map tails, and share identical immutable screen packets.
-All timestamps and rendered updates remain present. Replace the ROM and MSU
-data together; an older ROM cannot read this restart layout.
-Always distribute the rebuilt ROM and MSU data together.
+Current master builds use restart format 4 and MSU data version 35. Restart
+seeds reference the exact screen image already stored in the animation
+stream. The build also removes unused Mode 7 tag tables from snapshot
+directories and shares identical image packets. Every timestamp, update,
+visible tile and symbol remains present. The independent render caches
+remain complete for verification. Always replace the ROM and MSU data together;
+an older ROM cannot read this layout.
 
 For the additional Community charts, download Workshop items 2929378489
 (Noteblock Cover) and 2818364450 (Heracles EX), then import them:
@@ -550,6 +551,51 @@ floor objects plus these images: `jumptile.png`, `jumptile_outline.png`, `pauset
 `hyperorbit_tile.png`, and `snail_indicator.png`. Include `null` in that image
 allowlist to retain native AddObject floors. The same gameplay-only rendering
 is used for both positions of the VFX option.
+
+### Six additional Community charts
+
+With Steam running, download and import these main charts:
+
+```powershell
+.\.venv\Scripts\python.exe tools/download_tech.py --ids 2128998212 2975260940 3558160844 2886897340 3386994667 2805465983
+.\.venv\Scripts\python.exe tools/import_community.py --levels 291 292 293 294 295 296
+```
+
+| ID | Menu code | Chart |
+| --- | --- | --- |
+| 291 | WP-X | Wake Up, Piano! — Strode |
+| 292 | OT-X | OCTAGON — M1n3c4rt |
+| 293 | MG-X | MECHANICAL GOD — Hazrd |
+| 294 | BV-X | Beethoven Virus — Trevor Smithy |
+| 295 | WT-X | William Tell Overture — Dinosore |
+| 296 | FL-X | Flow — Pharah & HanB |
+
+Continue with the complete snapshot/master workflow above. Keep all image
+files beside each downloaded chart. OCTAGON uses the native local-pivot and
+live-proxy rendering flags recorded in its catalog entry. Its artwork is
+part of gameplay and stays enabled with VFX off. William Tell's automatic
+tiles and PlaySound cues are mixed on the music sample clock, including
+intentional duplicate cues. Authored checkpoint locations are preserved.
+
+For VFX OFF, render a separate copy of the compiled cache with these settings
+in its `level<ID>.json`, then preserve it with `merge_render_cache.py` before
+merging the VFX ON cache:
+
+| Charts | VFX OFF settings |
+| --- | --- |
+| 291, 292 | Use the same cache in both modes; their artwork is gameplay. |
+| 293 | Set `decoration_tracks` to `false`. |
+| 294, 295 | Keep decoration tracks enabled; set `decoration_gameplay_images` to `[null]` to retain text while omitting background images. |
+| 296 | Keep decoration tracks enabled; set `decoration_gameplay_images` to `[null, "remember.png", "enter.png", "3sq.png", "3sqbg.png", "ppt3x.png"]`. |
+
+Apply those settings before rendering, not to an already rendered stream.
+Keep `projection_native_palette_versions` written by the snapshot renderer;
+the pixel verifier needs the native palette timeline before artwork is added.
+
+Run `tools/verify_snapshot_storage.py --pack YOUR_PACK` after building. It
+compares every assembled playback choice, native event, image reference and
+restart seed against the full local caches. Follow it with the MesenCE catalog,
+manual-play and checkpoint checks; the storage proof does not replace them.
 
 
 ### Release editions

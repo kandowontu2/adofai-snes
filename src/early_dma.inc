@@ -128,6 +128,57 @@ snapshot_seed_header:
 @done:
     rtl
 
+.ifdef COMPACT_SNAPSHOT_SEEDS
+.if COMPACT_SNAPSHOT_SEEDS >= 4
+snapshot_reference_seed:
+    ; Restore the same immutable screen pose through the normal SA-1
+    ; decoder after native camera/coordinate state has been seeded.
+    sep #$20
+    .a8
+    ldx #0
+@reference:
+    data_read8
+    sta f:M1_SNAPSHOT_PENDING,x
+    inx
+    cpx #6
+    bcc @reference
+    rep #$20
+    .a16
+    lda #0
+    ldx #0
+@map:
+    sta f:M1_MAP_STAGE,x
+    inx
+    inx
+    cpx #4096
+    bcc @map
+    ldx #0
+@palette:
+    sta f:M1_PALETTE,x
+    inx
+    inx
+    cpx #96
+    bcc @palette
+    ; Initialize both blank glyphs, including all eight bitplanes.
+    ; The first decoded pose must target atlas zero, which the loading
+    ; path uploads in full before making gameplay visible.
+    ldx #0
+@blank:
+    sta f:$430000,x
+    sta f:$434000,x
+.ifdef WIDE_SNAPSHOT_SUPPORT
+    sta f:$435000,x
+.endif
+    inx
+    inx
+    cpx #64
+    bcc @blank
+    lda #$0200
+    sta f:M1_FRONT_BANK
+    rtl
+.endif
+.endif
+
 early_dma_nmi_gate:
     lda #0
     sta f:EARLY_DMA_WARMUP

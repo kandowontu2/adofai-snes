@@ -1,5 +1,5 @@
 """MSU-1 data and optional song-start PCM for the hybrid edition."""
-import hashlib,json,math,struct,subprocess
+import hashlib,json,math,struct,subprocess,tempfile
 from pathlib import Path
 import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
@@ -23,7 +23,9 @@ def validate_track_numbers(charts):
 def generate(out,charts,music,*,generate_pcm=True):
     validate_track_numbers(charts)
     descriptors=bytearray();manifest=[];stem=out/'adofai'
-    with stem.with_suffix('.msu').open('wb') as data:
+    from msu_snapshot_pool import SnapshotPool
+    with tempfile.TemporaryFile(dir=out) as scratch,stem.with_suffix('.msu').open('w+b') as data:
+        shared=SnapshotPool(scratch)
         data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',21 if len(charts)>=200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
         for c in charts:
             n=c['id'];offset=data.tell();data.write(music[n]);track=n
@@ -39,31 +41,48 @@ def generate(out,charts,music,*,generate_pcm=True):
             data.write(b''.join(struct.pack('<I',s) for s in snapshots));data.seek(end)
             descriptors+=struct.pack('<IHHIIHHI',offset,track,checkpoint_track_base(n),animation_offset,table_offset,c.get('visibility_cells',0),int(bool(c.get('pattern_versions'))),timeline_offset)
             if c.get('sa1_stream_format'):
-                c['stream_msu_base']=data.tell()
-                data.write((out/f'stream_data{n}.bin').read_bytes())
-                if c.get('mode1_tracks'):
-                    if not c.get('mode1_projected'):
-                        c['mode1_icon_base']=data.tell()
-                        data.write((out/f'mode1_icons{n}.bin').read_bytes())
-                    c['mode1_seed_base']=data.tell()
-                    data.write((out/f'mode1_seeds{n}.bin').read_bytes())
-                    if c.get('vfx_off'):
-                        c['vfx_off']['stream_msu_base']=data.tell()
-                        data.write((out/f'stream_data_vfx_off{n}.bin').read_bytes())
-                        c['vfx_off']['mode1_seed_base']=data.tell()
-                        data.write((out/f'mode1_seeds_vfx_off{n}.bin').read_bytes())
-                    if c.get('fallback_stream_packets'):
-                        c['fallback_stream_msu_base']=data.tell()
-                        data.write((out/f'stream_data_fallback{n}.bin').read_bytes())
-                (out/f'level{n}.json').write_text(json.dumps(c,indent=2))
+                if c.get('mode1_snapshot') and c.get('compact_snapshot_seeds')==4:
+                    def variant(meta,suffix=''):
+                        meta['stream_msu_base'],meta['mode1_seed_base']=shared.write_variant(data,
+                            (out/f'stream_index{suffix}{n}.bin').read_bytes(),
+                            (out/f'stream_data{suffix}{n}.bin').read_bytes(),
+                            (out/f'mode1_seeds{suffix}{n}.bin').read_bytes())
+                    variant(c)
+                    if c.get('vfx_off'):variant(c['vfx_off'],'_vfx_off')
+                    assert not c.get('fallback_stream_packets'),'Snapshot pools require independent poses'
+                    (out/f'level{n}.json').write_text(json.dumps(c,indent=2))
+                else:
+                    write_stream_assets(out,data,c,n)
             if not generate_pcm:
                 manifest.append(dict(id=n,code=c['code'],title=c['title'],data_offset=offset,brr_bytes=len(music[n])))
                 continue
             tracks=generate_pcm_tracks(out,c)
             manifest.append(dict(id=n,code=c['code'],title=c['title'],data_offset=offset,brr_bytes=len(music[n]),tracks=tracks))
             print(c['code'],len(tracks),'PCM entries',flush=True)
+        sharing=shared.finish(data)
+        (out/'msu-snapshot-sharing.json').write_text(json.dumps(sharing,indent=2))
     (out/'msu_descriptors.bin').write_bytes(descriptors)
     (out/'msu-manifest.json').write_text(json.dumps(dict(format='MSU1 44100 Hz signed 16-bit stereo',normal_speed='PCM',other_speeds='12 kHz BRR from MSU data',levels=manifest),indent=2))
+
+
+def write_stream_assets(out,data,c,n):
+    c['stream_msu_base']=data.tell()
+    data.write((out/f'stream_data{n}.bin').read_bytes())
+    if c.get('mode1_tracks'):
+        if not c.get('mode1_projected'):
+            c['mode1_icon_base']=data.tell()
+            data.write((out/f'mode1_icons{n}.bin').read_bytes())
+        c['mode1_seed_base']=data.tell()
+        data.write((out/f'mode1_seeds{n}.bin').read_bytes())
+        if c.get('vfx_off'):
+            c['vfx_off']['stream_msu_base']=data.tell()
+            data.write((out/f'stream_data_vfx_off{n}.bin').read_bytes())
+            c['vfx_off']['mode1_seed_base']=data.tell()
+            data.write((out/f'mode1_seeds_vfx_off{n}.bin').read_bytes())
+        if c.get('fallback_stream_packets'):
+            c['fallback_stream_msu_base']=data.tell()
+            data.write((out/f'stream_data_fallback{n}.bin').read_bytes())
+    (out/f'level{n}.json').write_text(json.dumps(c,indent=2))
 
 def generate_pcm_tracks(out, c):
     """Generate hybrid song-start PCM; checkpoint retries use BRR."""

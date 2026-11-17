@@ -12,6 +12,35 @@ from make_assets import FPS
 
 
 class DecorationTrackTests(unittest.TestCase):
+    def test_full_native_palette_reuses_exact_art_colors(self):
+        chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)])
+        data=dict(source='unused.adofai',bpm=120,featured_actions=[],featured_decorations=[
+            dict(eventType='AddText',decText='A',scale=[50,50])])
+        palette=np.zeros(256,dtype=np.uint16)
+        palette[32:128]=np.arange(96,dtype=np.uint16)+100
+        palette[127]=32767
+        image=np.zeros((34,64),dtype=np.uint8)
+        image[1:33]=np.resize(np.arange(32,128,dtype=np.uint8),(32,64))
+        before=palette[image].copy();py,px=np.mgrid[:32,:64]
+        result=DecorationTracks(data,chart).draw(image,0,px,py,0,palette)
+        after=palette[result]
+        # Only the white glyph may replace the densely colored track.
+        changed=after!=before
+        self.assertTrue(changed.any())
+        self.assertTrue(np.all(after[changed]==32767))
+
+    def test_literal_arrow_and_legacy_global_placement_render(self):
+        from decoration_tracks import text_image
+        arrow=text_image('<- Fast!')
+        self.assertEqual(arrow.shape,(64,512,4))
+        self.assertTrue(arrow[:,:64,3].any())
+        chart=dict(notes=[dict(x=32,y=32,time=0,speed=1)])
+        data=dict(source='unused.adofai',bpm=120,featured_actions=[],featured_decorations=[
+            dict(eventType='AddText',decText='A',relativeTo='Global',position=[1,2],parallax=0)])
+        obj=DecorationTracks(data,chart).objects[0]
+        self.assertEqual([t.at(0) for t in obj['tracks'][:2]],[1.5,3.])
+        self.assertEqual(obj['parallax'],[0,0])
+
     def test_native_pivot_offset_scales_and_rotates_with_the_sprite(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)

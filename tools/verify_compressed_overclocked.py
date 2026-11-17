@@ -1,15 +1,19 @@
 """Replay Overclocked manually in MesenCE without any PCM tracks present."""
-import argparse,json,os,re,shutil,subprocess
+import argparse,json,os,re,shutil,subprocess,sys
 from pathlib import Path
 from verification_data import identity
 ROOT=Path(__file__).resolve().parents[1]
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--pack',required=True)
-    pack=ROOT/'build/packs'/parser.parse_args().pack;frozen=identity(pack/'adofai.sfc')
-    local=json.loads((pack/'pack.json').read_text())['levels'].index(284)+1
+    parser.add_argument('--level-id',type=int,default=284,help='Global chart ID; defaults to Overclocked')
+    args=parser.parse_args();pack=ROOT/'build/packs'/args.pack;frozen=identity(pack/'adofai.sfc')
+    local=json.loads((pack/'pack.json').read_text())['levels'].index(args.level_id)+1
+    subprocess.run([sys.executable,str(ROOT/'tools/run_mesen_campaign.py'),'--pack',args.pack,
+                    '--levels',str(local),'--prepare-only','--sampled-graphics'],check=True)
     template=pack/f'verification/mesen-{local}-prepared/config.lua';assert template.exists()
-    out=pack/'verification/overclocked-compressed';out.mkdir(parents=True,exist_ok=True)
+    out=pack/('verification/overclocked-compressed' if args.level_id==284 else f'verification/compressed-{args.level_id}')
+    out.mkdir(parents=True,exist_ok=True)
     assert not list(out.glob('*.pcm'))
     shutil.copyfile(pack/'adofai.sfc',out/'adofai.sfc')
     (out/'adofai.msu').unlink(missing_ok=True);(out/'adofai.msu').hardlink_to(pack/'adofai.msu')
@@ -35,7 +39,9 @@ end,emu.eventType.endFrame)
 end
 '''
     (out/'audio.lua').write_text(script)
-    (out/'config.lua').write_text('local C=dofile('+json.dumps(template.as_posix())+');C.out='+json.dumps(out.as_posix())+';C.palette_script='+json.dumps((out/'audio.lua').as_posix())+';return C\n')
+    clocks=''.join('C.addr.'+name+'='+str(labels[name])+';' for name in
+                   ('clock_song_frames','clock_song_frac','speed_offset_frac','music_origin','speed_scale'))
+    (out/'config.lua').write_text('local C=dofile('+json.dumps(template.as_posix())+');C.out='+json.dumps(out.as_posix())+';'+clocks+'C.palette_script='+json.dumps((out/'audio.lua').as_posix())+';return C\n')
     # Observe a coherent BRR clock pair and predict the next controller poll.
     replay=(ROOT/'tools/verify_campaign_mesen.lua').read_text()
     assert replay.count('lead=1.5')==1
@@ -55,6 +61,10 @@ end
     assert result.returncode==0 and report.endswith('PASS\n') and audio.endswith('PASS\n'),report
     assert identity(pack/'adofai.sfc')==frozen and identity(out/'adofai.sfc')==frozen
     (out/'verification.json').write_text(json.dumps(dict(passed=True,**frozen,result=report.splitlines()[0],audio=audio),indent=2))
-    print('COMPRESSED OVERCLOCKED MANUAL PASS',flush=True)
+    overruns=re.search(r'vblank_overruns=(\d+)',report)
+    assert overruns and int(overruns[1])==0
+    (out/'manifest.json').write_text(json.dumps(dict(passed=True,**frozen,vfx_off=False,
+        vblank_overruns=int(overruns[1]),graphics_dumps=True,sampled_graphics=True,audio_mode='BRR'),indent=2))
+    print('COMPRESSED MANUAL PASS',args.level_id,flush=True)
 
 if __name__=='__main__':main()

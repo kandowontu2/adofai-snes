@@ -659,6 +659,20 @@ stream_entry_compact:
     sta stream_choices
     pla
     sta stream_choices+6
+.ifdef REFERENCE_SNAPSHOT_SEEDS
+    ; Independent-pose masters omit the obsolete 512-byte Mode 7 tag
+    ; seed. All four choices remain: i * 32 with full 24-bit carry.
+    and #$07FF
+    .repeat 5
+    asl a
+    .endrepeat
+    sta stream_choices+2
+    lda stream_choices+6
+    .repeat 11
+    lsr a
+    .endrepeat
+    sta stream_choices+4
+.else
     ; i * 544 = i * 32 + i * 512, with full 24-bit carry.
     and #$07FF
     .repeat 5
@@ -683,6 +697,7 @@ stream_entry_compact:
     lda stream_offset+2
     adc stream_choices+4
     sta stream_choices+4
+.endif
     lda #stream_choices
     sta transfer_ptr
     lda #$7E

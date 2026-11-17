@@ -28,7 +28,12 @@ def main():
     saved=compact_seeds(out)
     from snapshot_sharing import patch_pack as share_snapshots
     shared=share_snapshots(out)
-    if args.stream_levels or saved or shared:
+    from snapshot_seed_references import patch_pack as reference_seeds
+    referenced=reference_seeds(out)
+    layout_path=out/'msu-snapshot-sharing.json'
+    layout=json.loads(layout_path.read_text()) if layout_path.exists() else {}
+    needs_compact_directory=any(c.get('compact_snapshot_seeds')==4 for c in charts) and layout.get('directory_saved_bytes') is None
+    if args.stream_levels or saved or shared or referenced or needs_compact_directory or not (out/'adofai.msu').exists():
         charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
         from msu_assets import generate
         generate(out,charts,{c['id']:(out/f"level{c['id']}.brr").read_bytes() for c in charts},generate_pcm=not args.no_pcm)
@@ -108,7 +113,10 @@ def compile_engine(out, *, generate_pcm=True):
     if 'NEO_BUILD = 1' in addresses:
         from neo_runtime_assets import tables as neo_tables
         current+=neo_tables(out,menu_levels)
-        current+='\n.segment "NEOCODE"\nlevel_early_dma: .byte '+','.join(str(int(json.loads((out/f'level{n}.json').read_text()).get('early_vblank_trial',False))) for n in menu_levels)+'\n.segment "RODATA"\n'
+        # This loading-only table is read with a far address. Keep it in
+        # the camera bank's free tail as the song catalog grows.
+        segment='CAMERA' if len(menu_levels)>=200 else 'NEOCODE'
+        current+='\n.segment "'+segment+'"\nlevel_early_dma: .byte '+','.join(str(int(json.loads((out/f'level{n}.json').read_text()).get('early_vblank_trial',False))) for n in menu_levels)+'\n.segment "RODATA"\n'
     from input_event_assets import tables as input_event_tables
     inputs=input_event_tables(out,menu_levels)
     current+=inputs

@@ -38,6 +38,8 @@ def hold_events(data, notes):
                     break
                 at += delay if at_start else -delay
     result.extend(track_cues(data,notes))
+    result.extend(planet_cues(data,notes))
+    result.extend(play_sound_events(data,notes))
     return sorted(result, key=lambda e: e['time'])
 
 
@@ -65,3 +67,42 @@ def track_cues(data,notes):
 def suppress_regular_hit(notes, i):
     return (notes[i].get('hold_length', -1) >= 0 or notes[i-1].get('hold_length', -1) >= 0
             or (i >= 2 and notes[i-1]['flags'] & 16 and notes[i-2].get('hold_length', -1) >= 0))
+
+
+def planet_cues(data,notes):
+    """scrConductor's insertion/removal chime, including its hold exclusion."""
+    from track_motion import enabled
+    changes={e['floor']:e['volume'] for e in data.get('native_effects',[]) if e['type']=='ffxSetHitsound'}
+    for e in data.get('featured_actions',[]):
+        if e['eventType']=='SetHitsound' and enabled(e.get('active',True)):
+            changes[e['floor']]=e.get('hitsoundVolume',100)/100
+    result=[];volume=data.get('native_hit_volume',1.)
+    for i,note in enumerate(notes[1:],1):
+        volume=changes.get(i,volume)
+        if suppress_regular_hit(notes,i):continue
+        previous=notes[i-1].get('planets',2);current=note.get('planets',2)
+        if previous==current:continue
+        result.append(dict(note=i,sound='VehiclePositive' if current>previous else 'VehicleNegative',
+                           time=note['time'],end=None,volume=volume*.6))
+    return result
+
+
+def play_sound_events(data,notes):
+    """Native ffxPlaySound timing, sample lead, pitch and optional stop time."""
+    import json
+    from pathlib import Path
+    from import_hitsounds import SOUNDS
+    from track_motion import enabled
+    offsets=json.loads((Path(__file__).resolve().parents[1]/'assets/audio/hit-sound-offsets.json').read_text())
+    result=[]
+    for event in data.get('featured_actions',[]):
+        if event['eventType']!='PlaySound' or not enabled(event.get('active',True)):continue
+        sound=event['hitsound'];volume=event.get('hitsoundVolume',100)/100
+        if sound=='None' or volume<=0:continue
+        if sound not in SOUNDS:raise ValueError(('External PlaySound sample requires importing',sound))
+        i=event['floor'];note=notes[i]
+        at=note['time']+event.get('angleOffset',0)/180*60/data['bpm']/note['speed']-event.get('offset',0)/1000
+        duration=event.get('playDuration',0)/1000
+        result.append(dict(note=i,sound=sound,time=at-offsets.get(sound,0),end=at+duration if duration>0 else None,
+                           volume=volume,pitch=event.get('pitch',100),loop=False))
+    return result

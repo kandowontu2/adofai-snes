@@ -18,7 +18,7 @@ def regressions(frozen,ids):
     run('verify_msu_header_mesen.py','--pack',BASE.name)
     sequence=[65,70,67,94,144,1]
     pairs=list(zip(sequence,sequence[1:]))
-    for first,second in ((286,68),(287,1),(288,289)):
+    for first,second in ((286,68),(287,1),(288,289),(296,62),(292,294),(294,296)):
         if first in ids and second in ids:
             pairs.append((ids.index(first)+1,ids.index(second)+1))
     # Keep both charts in the same emulator session for each transition,
@@ -91,6 +91,11 @@ def main():
             and all(previous.get(k)==v for k,v in frozen.items())):
         previous=regressions(frozen,ids)
     features=[]
+    if 'REFERENCE_SNAPSHOT_SEEDS = 1' in (BASE/'addresses.inc').read_text():
+        path=V/'snapshot-storage.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and all(prior.get(k)==v for k,v in frozen.items())):
+            run('verify_snapshot_storage.py','--pack',BASE.name)
+        bound(path,frozen);features.append('snapshot-storage.json')
     if 256 in ids:
         path=V/'twirl-memory-negative.json';prior=read(path) if path.exists() else {}
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
@@ -133,8 +138,10 @@ def main():
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
                 and all(prior.get(k)==v for k,v in frozen.items())):
             run('run_mesen_campaign.py','--pack',BASE.name,'--levels',local,'--checkpoints','--sampled-graphics')
-        bound(path,frozen);features.append(str(path.relative_to(V)))
-    for n in (285,287,288,289,290):
+        bound(path,frozen)
+        run('verify_mesen_ppu.py','--pack',BASE.name,'--level',local,'--folder',path.parent)
+        features.append(str(path.relative_to(V)))
+    for n in (285,287,288,289,290,291,292,293,294,295,296):
         if n not in ids:continue
         local=ids.index(n)+1
         path=V/f'mesen-{local}/manifest.json';prior=read(path) if path.exists() else {}
@@ -149,7 +156,17 @@ def main():
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
                 and all(prior.get(k)==v for k,v in frozen.items())):
             run('run_mesen_campaign.py','--pack',BASE.name,'--levels',local,'--checkpoints','--sampled-graphics')
-        bound(path,frozen);features.append(str(path.relative_to(V)))
+        bound(path,frozen)
+        run('verify_mesen_ppu.py','--pack',BASE.name,'--level',local,'--folder',path.parent)
+        features.append(str(path.relative_to(V)))
+    for n in (291,292,293,294,295,296):
+        if n not in ids:continue
+        path=V/f'compressed-{n}/verification.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and all(prior.get(k)==v for k,v in frozen.items())):
+            run('verify_compressed_overclocked.py','--pack',BASE.name,'--level-id',n)
+        bound(path,frozen)
+        run('verify_mesen_ppu.py','--pack',BASE.name,'--level',ids.index(n)+1,'--folder',path.parent)
+        features.append(str(path.relative_to(V)))
     if 62 in ids:
         local=ids.index(62)+1;path=V/f'mesen-checkpoints-{local}/manifest.json'
         prior=read(path) if path.exists() else {}

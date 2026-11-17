@@ -231,3 +231,33 @@ B4-X uses an authored four-planet image rotated around a local pivot. The native
 Three-planet twirl matrices use CPU WRAM $07C8..$07DD. The previous aliases at $05A2 overlapped the stream cursor and caused old packets to replay, delayed completion and long pauses. The layout gate proves that twirl, preview, math, OAM and stream scratch regions are disjoint. verify_twirl_stream_mesen.lua compares all 94 stream bytes before and after every live twirl blend. Its negative control restores the old aliases and must fail at $05A2. The original completion and hold-coverage thresholds remain unchanged.
 
 Release transition replays use the compiled VFX default and assert that option in gameplay. This matches real menu navigation after reset and prevents comparing VFX-off output against VFX-on captures.
+
+### Global snapshot storage, format 4
+
+Restart seeds retain the exact cursor, format, camera copies and symbol list,
+and reference the same immutable pose already used by the animation stream.
+The loading path clears blank glyphs in both atlases and decodes into atlas
+zero before publishing gameplay. A restart must not inherit the previous
+level's pixels, indexed mode, camera copies or symbols.
+
+Snapshot-only masters use 32-byte playback directories: all four choices
+remain, while the unused 512-byte Mode 7 tag seed is omitted. The runtime
+computes the directory address with a full 24-bit `index * 32`. Source caches
+retain their complete legacy directories for independent verification.
+Identical immutable poses can share an MSU pool across charts and VFX modes;
+only the referencing event owns the musical due time. MSU version 35 rejects
+older incompatible layouts. No updates, symbols, tile pixels or colors are
+removed by these changes.
+
+`verify_snapshot_storage.py` proves the assembled directory times/sizes,
+native event bytes, pose bytes and restart states against the complete caches.
+Unit tests cover ordinary/wide 4bpp and 8bpp atlases, blank starts, copies and
+symbols. MesenCE replays still verify visible pixels, manual inputs, every
+checkpoint and consecutive level transitions.
+
+Decorative composites retain `projection_native_palette_versions` before
+generated palette writes are added to the runtime stream. The reference
+renderer uses that original timeline for the track beneath transparent art.
+Reusing the finished composite's palette as its own input changes colors and
+invalidates the pixel oracle. The source-color regression test covers this
+case with distinct authored and generated RGB555 values.

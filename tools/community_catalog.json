@@ -154,5 +154,79 @@
     "set": "community",
     "requires_msu": true,
     "reference": "https://steamcommunity.com/sharedfiles/filedetails/?id=3371317110"
+  },
+  {
+    "id": 291,
+    "code": "WP-X",
+    "title": "WAKE UP, PIANO!",
+    "artist": "Plum",
+    "author": "Strode",
+    "workshop": "2128998212",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=f91nDsuxFhg"
+  },
+  {
+    "id": 292,
+    "code": "OT-X",
+    "title": "OCTAGON",
+    "artist": "KAERRA",
+    "author": "M1n3c4rt",
+    "workshop": "2975260940",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=rivILKHEDqA",
+    "live_planet_proxies": true,
+    "local_decoration_pivots": true
+  },
+  {
+    "id": 293,
+    "code": "MG-X",
+    "title": "MECHANICAL GOD",
+    "artist": "AZALI",
+    "author": "Hazrd",
+    "workshop": "3558160844",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=3dgDPccvj3E"
+  },
+  {
+    "id": 294,
+    "code": "BV-X",
+    "title": "BEETHOVEN VIRUS",
+    "artist": "Sheet Music Boss",
+    "author": "Trevor Smithy",
+    "workshop": "2886897340",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=bYyIIZCmd8w"
+  },
+  {
+    "id": 295,
+    "code": "WT-X",
+    "title": "WILLIAM TELL OVERTURE",
+    "artist": "Gioachino Rossini",
+    "author": "Dinosore",
+    "workshop": "3386994667",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=KxJ_WTbebIY"
+  },
+  {
+    "id": 296,
+    "code": "FL-X",
+    "title": "FLOW",
+    "artist": "432pro",
+    "author": "Pharah & HanB",
+    "workshop": "2805465983",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=cMBCC6CKcrI"
   }
 ]

@@ -1,4 +1,4 @@
-import sys,unittest,struct,random
+import sys,unittest,struct,random,json,tempfile
 from pathlib import Path
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
@@ -10,6 +10,21 @@ from mode1_tracks import decode_tile,schedule
 
 
 class ProjectedTrackTests(unittest.TestCase):
+    def test_reference_renderer_uses_native_colors_before_artwork_palette_writes(self):
+        from projected_tracks import Source
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory)
+            chart=dict(map_height=1,map_width=1,pattern_initial=[0],cell_coordinates=[],visibility_offsets=[],visibility_cells=0,
+                pattern_versions=[],track_palette_versions=[[0,0,10482]],
+                projection_native_palette_versions=[[0,0,9457]],camera_follow_versions=[[0,0,-32]],
+                camera_rotation_versions=[[0,256,0]])
+            (folder/'level1.json').write_text(json.dumps(chart))
+            (folder/'patterns1.bin').write_bytes(bytes([32])*64)
+            (folder/'timeline1.bin').write_bytes(bytes(2))
+            source=Source(folder,1);image=source.screen(0)
+            self.assertTrue(image.any())
+            self.assertTrue(np.all(source.palette[image[image!=0]]==9457))
+
     def test_indexed_atlas_reuses_flipped_tiles_before_applying_its_limit(self):
         rng=np.random.default_rng(286)
         tiles=rng.integers(1,16,size=(256,8,8),dtype=np.uint8)

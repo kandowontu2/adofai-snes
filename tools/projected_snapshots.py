@@ -23,6 +23,7 @@ def pose_body(refs,palettes,glyphs):
 def write(source,output,level,glyphs,frames,*,preview=False,copy_world=None,postroll=120,extra_colors=(),actor_events=()):
     source=Path(source);output=Path(output);output.mkdir(parents=True,exist_ok=True)
     chart=json.loads((source/f'level{level}.json').read_text())
+    chart.setdefault('projection_native_palette_versions',chart.get('track_palette_versions',[]))
     last=chart['notes'][-1]['frame']
     assert preview or len(frames)==last+postroll+1,'A partial renderer test must not ship'
     events=[(t,k,i,v,p) for t,k,i,v,p in unpack_events((source/f'animation{level}.bin').read_bytes(),chart)

@@ -141,7 +141,7 @@ def compile_chart(data):
         result.update(decoration_tracks=True,decoration_depth_order=True,
                       decoration_background_resolution=2,
                       decoration_background_only=True,decoration_background_brightness=.35)
-    if data['id'] in (284,285,287,288) or data.get('triple_planet') and data.get('featured_decorations'):
+    if data['id'] in (284,285,287,288,291,292,293,294,295,296) or data.get('triple_planet') and data.get('featured_decorations'):
         result.update(decoration_tracks=True,decoration_depth_order=True)
     if data.get('live_planet_proxies'):
         result['live_planet_proxies']=True
@@ -602,8 +602,12 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     defs += [f'LEVEL_COUNT = {len(charts)}']
     if any(c.get('wide_snapshot_atlas') for c in charts):defs+=['WIDE_SNAPSHOT_SUPPORT = 1']
     if any(c.get('compact_snapshot_seeds') for c in charts):
-        assert all(c.get('compact_snapshot_seeds')==3 and (not c.get('vfx_off') or c['vfx_off'].get('compact_snapshot_seeds')==3) for c in charts if c.get('mode1_snapshot'))
-        defs+=['COMPACT_SNAPSHOT_SEEDS = 3']
+        seed_versions={m.get('compact_snapshot_seeds') for c in charts if c.get('mode1_snapshot') for m in ([c,c['vfx_off']] if c.get('vfx_off') else [c])}
+        assert len(seed_versions)==1 and seed_versions<={3,4},seed_versions
+        defs+=[f'COMPACT_SNAPSHOT_SEEDS = {next(iter(seed_versions))}']
+        if seed_versions=={4}:
+            assert all(c.get('mode1_snapshot') for c in charts if c.get('sa1_stream_format')),'Reference seed loader needs independent snapshots for every streamed chart'
+            defs+=['REFERENCE_SNAPSHOT_SEEDS = 1']
     if msu_charts:defs+=['MSU_CHART_TABLES = 1','COMPRESSED_STREAM_INDEX = 1']
     if zero_pauses:defs+=['ZERO_PAUSE_TABLES = 1']
     if hit_banks:defs+=['HIT_SOUND_BANKS = 1',f'HIT_SOUND_DESCRIPTORS_ADDR = ${loc["hitdescriptors"]:06X}']

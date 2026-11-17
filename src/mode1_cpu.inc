@@ -106,6 +106,9 @@ mode1_restore_seed:
 .ifdef NEO_BUILD
     jsl snapshot_seed_header
 .endif
+.ifdef REFERENCE_SNAPSHOT_SEEDS
+    jsl snapshot_reference_seed
+.else
     ldy #.loword(M1_PALETTE)
     lda #96
     jsr mode1_read_seed_block
@@ -151,6 +154,7 @@ mode1_restore_seed:
     ldy #.loword(STREAM_BUFFER)
     lda #2048
     jsr mode1_read_seed_block
+.endif
 @atlas_ready:
     sep #$20
     .a8

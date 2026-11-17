@@ -23,7 +23,7 @@ def sample(name,rate):
     b[-9]|=1;target.write_bytes(b);raw.unlink()
     return bytes(b)
 
-def selections(chart,source):
+def selections(chart,source,*,for_input=True):
     events={}
     for event in source['events']:events[event['floor']]=event
     normal=mid=source['hitsound'];volume=source['hitsoundVolume'];use_mid=False;set_mid=False
@@ -41,8 +41,9 @@ def selections(chart,source):
         result.append((sound,max(0,min(127,round(volume*.76)))))
     # A manual input may arrive before the automatic midspin has advanced
     # the gameplay cursor. It still belongs to the following hittable floor.
-    for i in range(len(result)-2,-1,-1):
-        if chart['notes'][i]['flags']&8:result[i]=result[i+1]
+    if for_input:
+        for i in range(len(result)-2,-1,-1):
+            if chart['notes'][i]['flags']&8:result[i]=result[i+1]
     return result
 
 def compile_bank(chart,source):

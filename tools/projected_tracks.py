@@ -81,7 +81,10 @@ class Source:
         for i,rows in enumerate(c['pattern_versions']):
             for f,v in rows:self.tag_events[f].append((i,v))
         self.color_events=collections.defaultdict(list)
-        for f,i,v in c['track_palette_versions']:self.color_events[f].append((32+i,v))
+        # Raster artwork can reuse a source index covered by its final
+        # composite. Reconstruct the native track from its original color
+        # timeline, before any generated artwork palette writes.
+        for f,i,v in c.get('projection_native_palette_versions',c['track_palette_versions']):self.color_events[f].append((32+i,v))
         self.palette=np.zeros(256,dtype=np.uint16)
         self.cameras={f:(x,y) for f,x,y in c['camera_follow_versions']};self.camera=self.cameras[0]
         self.rotations={f:(c,s) for f,c,s in c.get('camera_sampling_versions',c.get('camera_rotation_versions',[]))}

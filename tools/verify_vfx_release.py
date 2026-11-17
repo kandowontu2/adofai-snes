@@ -14,6 +14,8 @@ def verify(name):
             (68,True,True),(73,True,True)]
     if 285 in levels:checks.extend((285,off,watch) for off in (False,True) for watch in (False,True))
     if 287 in levels:checks.extend((287,off,watch) for off in (False,True) for watch in (False,True))
+    for n in (293,294,295,296):
+        if n in levels:checks.extend((n,True,watch) for watch in (False,True))
     for level,off,watch in checks:
         local=levels.index(level)+1
         args=['--pack',name,'--levels',local,'--sampled-graphics','--resume']

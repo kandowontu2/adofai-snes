@@ -31,7 +31,7 @@ def text_image(text, *, stage_punctuation=False):
             colors.append(tuple(int(value[i:i+2],16) for i in (0,2,4))+(int(value[6:8] or 'ff',16),))
         elif token.lower()=='</color>':
             if len(colors)>1:colors.pop()
-        elif token.startswith('<'):
+        elif token.startswith('<') and token.endswith('>'):
             raise ValueError(('Unsupported instructional text markup',token))
         else:
             for char in token.upper():
@@ -284,7 +284,7 @@ class DecorationTracks:
             if dec.get('relativeTo') in ('RedPlanet', 'BluePlanet', 'GreenPlanet'):
                 self.planet_proxies.append(dec)
                 continue
-            if dec.get('relativeTo', 'Tile') not in ('Tile','Camera','CameraAspect'):
+            if dec.get('relativeTo', 'Tile') not in ('Tile','Global','Camera','CameraAspect'):
                 raise ValueError(('Unsupported decoration placement', dec.get('relativeTo')))
             if dec.get('maskingType', 'None') != 'None':
                 raise ValueError(('Unsupported decoration mask', dec.get('tag')))
@@ -346,11 +346,13 @@ class DecorationTracks:
             for _, name in images:
                 if name and name not in self.images:
                     self.images[name] = np.asarray(Image.open(directory/name).convert('RGBA'))
+            parallax=dec.get('parallax',[0,0])
+            if isinstance(parallax,(int,float)):parallax=[parallax,parallax]
             self.objects.append(dict(origin=origin, gameplay_floor=gameplay_floor, text=dec.get('decorationImage','').startswith('@text:'), tracks=[Tween(v, c) for v, c in zip(initial, commands)],
                                      header=data.get('id')==284 and dec.get('tag') in ('game','game2','game3'),
                                      images=images, image_times=[r[0] for r in images],
                                      pivot=dec.get('pivotOffset', [0, 0]), color=dec.get('color', 'ffffff')[:6],
-                                     parallax=dec.get('parallax', [0, 0]),
+                                     parallax=parallax,
                                      depth=dec.get('depth', 0), order=order,
                                      blend=dec.get('blendMode','None'),
                                      tile=dec.get('tile',[1,1]),
@@ -483,10 +485,21 @@ class DecorationTracks:
         mask = layer[:, :, 3] >= 128
         if not mask.any():
             return image
-        used = set(image.ravel())
+        # Covered source pixels will be replaced below. Reserving their
+        # palette slots can exhaust the palette even though those colors
+        # never reach the final image (Flow's foreground pattern cards).
+        retained=image.copy()
+        retained[top+1:top+1+px.shape[0]][mask]=0
+        used = set(retained.ravel())
+        # A long animated track can use all 96 numeric source indices for
+        # a handful of identical RGB555 colors. Coalesce those aliases,
+        # preserving opacity and every native pixel, before allocating art.
+        canonical={};translation=np.arange(256,dtype=np.uint8)
+        for index in sorted(used-{0}):
+            translation[index]=canonical.setdefault(int(palette[index]),index)
+        image=translation[image];retained=translation[retained]
+        used=set(retained.ravel())
         available = [i for i in range(32, 128) if i not in used]
-        if len(available) < 12:
-            raise ValueError('Not enough free source palette entries for decoration art')
         # One shared SNES palette for custom art; native track pixels are intact.
         protected=floor_mask&~native_mask if self.background_only else np.zeros(px.shape,dtype=bool)
         floor_words=np.array([],dtype=np.uint16)
@@ -494,17 +507,27 @@ class DecorationTracks:
         if protected.any():
             rgb=floor_rgb[protected].astype(np.uint16)>>3
             floor_words,floor_inverse=np.unique(rgb[:,0]|(rgb[:,1]<<5)|(rgb[:,2]<<10),return_inverse=True)
-        count=min(12,len(available)-len(floor_words))
-        if count<1:raise ValueError(('Gameplay floor colors exceed source palette',frame,len(floor_words)))
+        count=12
         colors = Image.fromarray(layer[:, :, :3]).quantize(colors=count, method=Image.Quantize.FASTOCTREE)
         indices = np.asarray(colors)
         rgb = np.array(colors.getpalette(), dtype=np.uint16).reshape(-1, 3)[:count] >> 3
         words = rgb[:, 0] | (rgb[:, 1] << 5) | (rgb[:, 2] << 10)
-        slots = np.array(available[:count], dtype=np.uint8)
-        palette[slots] = words
+        # Art often uses colors already present in the track. Share those
+        # exact RGB555 values before allocating a new slot; unused quantizer
+        # swatches do not consume slots. Native pixels remain untouched.
+        by_color={int(palette[i]):i for i in sorted(used,reverse=True) if i}
+        free=iter(available)
+        def allocate(word):
+            word=int(word)
+            if word not in by_color:
+                slot=next(free,None)
+                if slot is None:raise ValueError(('Decoration colors exceed source palette',frame,len(by_color)))
+                by_color[word]=slot;palette[slot]=word
+            return by_color[word]
+        slots=np.zeros(count,dtype=np.uint8)
+        for index in np.unique(indices[mask]):slots[index]=allocate(words[index])
         image[top+1:top+1+px.shape[0]][mask] = slots[indices[mask]]
         if protected.any():
-            floor_slots=np.array(available[count:count+len(floor_words)],dtype=np.uint8)
-            palette[floor_slots]=floor_words
+            floor_slots=np.array([allocate(word) for word in floor_words],dtype=np.uint8)
             image[top+1:top+1+px.shape[0]][protected]=floor_slots[floor_inverse]
         return image

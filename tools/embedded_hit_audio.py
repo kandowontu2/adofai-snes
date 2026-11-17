@@ -27,6 +27,21 @@ def fingerprint(chart):
     data = dict(version=2, settings=settings(chart['id']), samples=samples,
                 offsets=json.loads((ROOT/'assets/audio/hit-sound-offsets.json').read_text()),
                 notes=[(n['time'], n['flags'], selected[i]) for i,n in enumerate(chart['notes'])])
+    # Keep unchanged frozen music caches valid. Only charts which actually
+    # gain authored automatic-floor sounds need a new regular-hit fingerprint.
+    scheduled=selections(chart,source,for_input=False)
+    automatic=[]
+    for i,note in enumerate(chart['notes'][1:],1):
+        sound,volume=scheduled[i]
+        if not note['flags']&8 or note['flags']&16 or sound=='None' or not volume:continue
+        if chart.get('neo_cosmos'):
+            from neo_audio import suppress_regular_hit
+            if suppress_regular_hit(chart['notes'],i):continue
+        automatic.append((i,note['time'],sound,volume))
+    if automatic:
+        data['automatic_hits']=automatic
+        data['automatic_samples']={name:hashlib.sha256((ROOT/f'assets/private/hitsounds/snd{name}.wav').read_bytes()).hexdigest()
+                                   for _,_,name,_ in automatic}
     if chart.get('neo_cosmos'):
         data['neo_sound_events']=chart.get('neo_sound_events',[])
         data['neo_holds']=[n.get('hold_length',-1) for n in chart['notes']]
@@ -39,7 +54,7 @@ def mix_hits(pcm, chart, rate):
     """Place each hit once, on the same sample clock as music (already at .78 gain)."""
     from hit_sound_assets import selections
     source = json.loads((ROOT/'assets/private/hitsound-levels.json').read_text())[str(chart['id'])]
-    selected = selections(chart, source)
+    selected = selections(chart, source,for_input=False)
     config = settings(chart['id'])
     offsets = json.loads((ROOT/'assets/audio/hit-sound-offsets.json').read_text())
     if config.get('source_sha256'):
@@ -53,7 +68,9 @@ def mix_hits(pcm, chart, rate):
         if chart.get('neo_cosmos'):
             from neo_audio import suppress_regular_hit
             if suppress_regular_hit(chart['notes'],note['step']):continue
-        if note['flags'] & 8 or sound == 'None' or not volume:
+        # scrConductor schedules every non-midspin floor, including authored
+        # AutoPlayTiles floors. Their sound is independent of player input.
+        if note['flags'] & 16 or sound == 'None' or not volume:
             continue
         if note['step'] in embedded:
             assert sound == config['sample']
@@ -87,16 +104,21 @@ def mix_hits(pcm, chart, rate):
                              rounding_error_samples=start-exact))
     for event in chart.get('neo_sound_events',[]):
         sound=event['sound']
-        if sound not in samples:
+        pitch=event.get('pitch',100)
+        key=sound if pitch==100 else (sound,pitch)
+        if key not in samples:
             hit_rate,hit=wavfile.read(ROOT/f'assets/private/hitsounds/snd{sound}.wav')
             hit=hit.astype(float)
             if hit.ndim>1:hit=hit.mean(axis=1)
-            samples[sound]=resample_poly(hit,rate,hit_rate)
-        hit=samples[sound]*event['volume']*.5
+            assert pitch>0,('Nonpositive scripted sound pitch',chart['id'],event)
+            from fractions import Fraction
+            ratio=Fraction(rate*100,hit_rate)/Fraction(str(pitch))
+            samples[key]=resample_poly(hit,ratio.numerator,ratio.denominator)
+        hit=samples[key]*event['volume']*.5
         start=round(event['time']*rate)
         if event['end'] is not None:
             count=max(0,round(event['end']*rate)-start)
-            hit=np.resize(hit,count)
+            hit=np.resize(hit,count) if event.get('loop',True) else hit[:count]
         source_start=max(0,-start);target_start=max(0,start)
         count=min(len(hit)-source_start,len(pcm)-target_start)
         if count<=0:continue
@@ -128,7 +150,7 @@ def patch_pack(out, *, generate_pcm=True):
         compact_version=min(c.get('compact_snapshot_seeds',0) for n in levels
                             for c in [json.loads((out/f'level{n}.json').read_text())]
                             if c.get('mode1_snapshot'))
-        data_version=34 if compact_version>=3 else 33 if compact_version>=2 else 32
+        data_version=35 if compact_version>=4 else 34 if compact_version>=3 else 33 if compact_version>=2 else 32
     try:
         descriptors = (out/'msu_descriptors.bin').read_bytes()
         placements = json.loads((out/'placements.json').read_text())

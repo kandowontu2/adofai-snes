@@ -4,7 +4,7 @@ A native SNES adaptation of A Dance of Fire and Ice, using the SA-1, Mode 7,
 and SPC700. The master also uses MSU-1 for chart data and optional PCM music.
 This is an unofficial project; it is not affiliated with 7th Beat Games.
 
-The selected master catalog contains 240 charts, including the remaining
+The selected master catalog contains 246 charts, including the remaining
 Classic and Tech Featured waves, 20 Yangsy-authored cursed charts, and the
 Team Vega 1-EX through 12-EX remakes. **MAIN EX LEVELS** and **YANGSY CURSED
 LEVELS** have separate menu categories. Main EX charts without authored
@@ -29,6 +29,9 @@ the finished-effects version shown in the work-in-progress video.
 Community also includes Milky Ways (BluPen & Lemon1415), the unnerfed Galaxy
 Collapse chart by pinball & Toht, updated Primrose by TeoC, the four-orb
 Noteblock Cover, Trevor Smithy's Heracles EX, and FluffyYoshi's Sky Blue.
+The latest additions are Wake Up, Piano! (Strode), OCTAGON
+(M1n3c4rt), MECHANICAL GOD (Hazrd), Beethoven Virus (Trevor Smithy),
+William Tell Overture (Dinosore), and Flow (Pharah & HanB).
 Visible three-planet entries
 have the native white-planet preview and dashed triangle. T3-X/EX display
 their native stage headings, including the ampersand in Holds & Midspins.
@@ -78,7 +81,7 @@ Use [cleanup-full-pcm.ps1](cleanup-full-pcm.ps1) to remove retired PCM copies;
 Keep master files together and extract archives before playing. Revisions may
 change the MSU dataset: replace both `adofai.sfc` and `adofai.msu` when instructed.
 Start a fresh session instead of loading save states from an older build.
-The refreshed master `.msu` is about 3.99 GiB even without PCM files: it contains
+The refreshed master `.msu` is about 3.30 GiB even without PCM files: it contains
 the compiled graphics as well as compressed audio. Removing PCM does not
 remove that graphics data.
 
@@ -124,9 +127,9 @@ tracks retain authored timing with the original sample-specific advances.
 Playback speed changes affect
 the complete mix, including percussion pitch. Input judgments remain separate.
 
-The refreshed master requires dataset 34: replace both the ROM and `.msu` data
-file. The release also supplies new songs, checkpoint tracks, and any music
-mixes changed by the stock-chart refresh.
+The refreshed master requires dataset 35: replace both the ROM and `.msu` data
+file. The hybrid release also supplies new song-start PCM files and changed
+music mixes. Checkpoint retries use compressed audio in both editions.
 `tools/audit_music_hits.py` screens every source song,
 `tools/verify_sample_mixes.py` checks every hit's placement, and
 `tools/verify_music_locked_hits.py` compares whole-run emulator audio with the
