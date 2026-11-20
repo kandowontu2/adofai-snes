@@ -3,6 +3,7 @@ import argparse,concurrent.futures,json,subprocess,sys
 from pathlib import Path
 from verification_data import identity,freeze_data_identity
 from run_mesen_campaign import suite_digest
+from verify_four_orb_release import BODY_ORACLE_VERSION
 ROOT=Path(__file__).resolve().parents[1]
 BASE=ROOT/'build/packs/stock-refresh-master'
 V=BASE/'verification'
@@ -123,8 +124,10 @@ def main():
         path=V/'four-orb-visibility.json';prior=read(path) if path.exists() else {}
         alternate=V/'four-orb-visibility-vfx-off.json';other=read(alternate) if alternate.exists() else {}
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and prior.get('body_oracle_version')==BODY_ORACLE_VERSION
                 and all(prior.get(k)==v for k,v in frozen.items())
                 and other.get('passed') and other.get('suite_digest')==suite_digest()
+                and other.get('body_oracle_version')==BODY_ORACLE_VERSION
                 and all(other.get(k)==v for k,v in frozen.items())):
             run('verify_four_orb_release.py','--pack',BASE.name)
         bound(path,frozen);features.append('four-orb-visibility.json')
