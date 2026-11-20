@@ -15,6 +15,17 @@ from menu_sets import groups
 
 
 class FeaturedImportTests(unittest.TestCase):
+    def test_fog_sign_panels_are_required_gameplay_art(self):
+        from import_official import normalize_json
+        raw=dict(settings=dict(bpm=246,offset=0),angleData=[0]*5,actions=[])
+        for level in (117,118):
+            data=normalize_json(raw,dict(id=level,code='TEST',title='TEST',text='test'))
+            data['featured_decorations']=[dict(decorationImage=name) for name in
+                                         ('ctile.png','ctilesa.png','ctilesc.png','fsim bg2.png')]
+            chart,_=compile_chart(data)
+            self.assertTrue(chart['decoration_tracks'])
+            self.assertEqual(chart['decoration_gameplay_images'],['ctile.png','ctilesa.png','ctilesc.png'])
+
     def test_legacy_action_decorations_survive_import(self):
         from import_featured import import_chart
         with tempfile.TemporaryDirectory() as folder:

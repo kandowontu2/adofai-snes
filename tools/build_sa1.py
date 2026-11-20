@@ -198,6 +198,10 @@ def compile_engine(out, *, generate_pcm=True):
             for size in ('2000','3000','4000','6000'):
                 text=text.replace(f'size=${size},type=ro,file=%O,fill=yes;\n PAY: start=$81{size},size=$7E{0x10000-int(size,16):04X}',
                                   'size=$7000,type=ro,file=%O,fill=yes;\n PAY: start=$817000,size=$7E9000')
+        if 'NEO_CODE_BYTES = $8000' in addresses:
+            for size in ('2000','3000','4000','6000','7000'):
+                text=text.replace(f'size=${size},type=ro,file=%O,fill=yes;\n PAY: start=$81{size},size=$7E{0x10000-int(size,16):04X}',
+                                  'size=$8000,type=ro,file=%O,fill=yes;\n PAY: start=$818000,size=$7E8000')
         config.write_text(text)
     assemble_engine(out)
 

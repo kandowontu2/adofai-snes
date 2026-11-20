@@ -15,6 +15,20 @@ EXACT_SLIVERS=$0774
 EXACT_LEFT=$0776
 
 sprite_exact_room:
+.ifdef SYMBOL_SCALE_BUILD
+    lda sprite_attr
+    cmp #$33
+    beq @scaled_icon
+    cmp #$35
+    bne @ordinary_icon
+@scaled_icon:
+    lda sprite_tile
+    sec
+    sbc f:SYMBOL_SCALE_BASE
+    cmp #64
+    jcc @eligible
+@ordinary_icon:
+.endif
     lda object_small
     beq @icon
     ; Live math text is also critical. Adjacent eight-line bins can look

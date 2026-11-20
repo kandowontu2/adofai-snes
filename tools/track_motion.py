@@ -42,6 +42,34 @@ def stick_schedule(data,count):
         values.append(value)
     return values
 
+
+def planet_offset(note):
+    return note.get('planet_position_offset',note.get('position_track_offset',(0,0)))
+
+
+def planet_position_offsets(chart,motion):
+    """Keep nonsticky planets on their physical path when tile art moves.
+
+    scrPlanet.MoveOneUnitInDirection advances from the preceding planet,
+    rather than snapping to each floor's PositionTrack placement. A sticky
+    landing establishes the next free path's anchor; holds/free roam can
+    explicitly deliver the planets to a new starting position.
+    """
+    notes=chart['notes']
+    if all(n.get('stick_to_floor',True) for n in notes):return
+    offsets=[n.get('position_track_offset',(0,0)) for n in notes]
+    updates=iter(sorted(motion.items()));pending=next(updates,None)
+    anchor=offsets[0]
+    for i,n in enumerate(notes):
+        while pending is not None and pending[0]<=n.get('frame',round(n.get('time',0)*FPS)):
+            for j,p in pending[1].items():offsets[j]=p
+            pending=next(updates,None)
+        if n.get('stick_to_floor',True):continue
+        if not i or notes[i-1].get('hold_length',-1)>=0 or notes[i-1].get('freeroam'):
+            anchor=n.get('position_track_offset',(0,0))
+        elif notes[i-1].get('stick_to_floor',True):anchor=offsets[i-1]
+        n['planet_position_offset']=list(anchor)
+
 def ease_name(value):
     names=['Unset','Linear','InSine','OutSine','InOutSine','InQuad','OutQuad','InOutQuad','InCubic','OutCubic','InOutCubic',
            'InQuart','OutQuart','InOutQuart','InQuint','OutQuint','InOutQuint','InExpo','OutExpo','InOutExpo','InCirc','OutCirc',
@@ -174,7 +202,9 @@ def motion_schedule(data,chart):
             new=tuple(axes[axis].get(frame,value[axis]) for axis in range(2))
             if new!=value:changes[frame][i]=new;value=new
     from neo_mawaru import motion
-    return motion(data,chart,dict(sorted(changes.items())))
+    result=motion(data,chart,dict(sorted(changes.items())))
+    planet_position_offsets(chart,result)
+    return result
 
 def rotation_schedule(data,chart):
     """MoveTrack rotation is an independent absolute offset from the floor pose."""

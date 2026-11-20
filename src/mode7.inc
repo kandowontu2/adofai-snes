@@ -390,6 +390,9 @@ mode7_orbit_position:
 
 ; Fixed Mode 1 HUD bands around a native-scale Mode 7 track.
 mode7_prepare_view:
+.ifdef SYMBOL_SCALE_BUILD
+    jsl symbol_scale_update
+.endif
 .ifdef SA1_BUILD
     jsl camera_projection_limits
 .endif
@@ -461,7 +464,7 @@ mode7_draw_scaled_orb:
     cmp #9
     bcs @composite
     tax
-    lda orb_size_tiles,x
+    lda f:orb_size_tiles,x
     and #255
     sta sprite_tile
     cpx #5
@@ -505,7 +508,7 @@ mode7_draw_scaled_orb:
     pha
 @part:
     phx
-    lda orb_quad_tiles,x
+    lda f:orb_quad_tiles,x
     and #255
     sta sprite_tile
     jsr mode7_orb_piece
@@ -535,8 +538,12 @@ mode7_draw_scaled_orb:
     bra @part
 @done:
     rts
+.ifdef SYMBOL_SCALE_BUILD
+.segment "NEOCODE"
+.endif
 orb_size_tiles: .byte 64,64,65,66,67,0,2,6,4,0
 orb_quad_tiles: .byte 10,14,40,42,44,46,70,78,96,98,100,102,0
+.segment "CODE"
 
 mode7_orb_piece:
     lda oam_pos

@@ -9,6 +9,7 @@ return function(C)
   local function signed(v)return (v+32768)%65536-32768 end
   local function value(n)return word(H.addr[n],W)end
   local samples=0
+  local checked_holds={}
   local planet_samples=0
   local function check(ok,message)
     if ok then return true end
@@ -120,6 +121,7 @@ return function(C)
       if not check(signed(value('neo_hold_'..axis))==offset,'Hold pivot drift at floor '..step..' axis '..axis..' actual='..signed(value('neo_hold_'..axis))..' expected='..offset..' phase='..phase..' time='..time) then return end
     end
     samples=samples+1
+    checked_holds[step]=(checked_holds[step] or 0)+1
     if samples==1 or samples%100==0 then
       local f=io.open(C.out..'/hold-orbits.txt','w');f:write('PASS samples='..samples..'\n');f:close()
     end
@@ -131,6 +133,9 @@ return function(C)
     if samples>0 and samples~=published_samples then
       local f=io.open(C.out..'/hold-orbits.txt','w');f:write('PASS samples='..samples..'\n');f:close()
       published_samples=samples
+      local f=io.open(C.out..'/hold-coverage.txt','w')
+      for step,count in pairs(checked_holds) do f:write(step..'='..count..'\n')end
+      f:close()
     end
     if planet_samples>0 and planet_samples~=published_planets then
       local f=io.open(C.out..'/hold-planets.txt','w');f:write('PASS samples='..planet_samples..'\n');f:close()

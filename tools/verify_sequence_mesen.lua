@@ -19,6 +19,7 @@ for i,stage in ipairs(Q.stages) do
  if C.input_script then dofile(C.input_script)(C) end
  if C.screen_script then dofile(C.screen_script)(C) end
  if C.snapshot_icons then dofile(C.snapshot_icons.script)(C) end
+ if C.symbol_scale then dofile(C.symbol_scale.script)(C) end
  if C.twirl_stream then dofile(C.twirl_stream.script)(C) end
  if C.palette_script then dofile(C.palette_script)(C) end
  if C.coordinates then dofile(C.coordinates.script)(C) end

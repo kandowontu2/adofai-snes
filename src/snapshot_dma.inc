@@ -22,6 +22,23 @@ snapshot_dma_preflight:
     adc m7_row_span
     clc
     adc #1280
+.ifdef SYMBOL_SCALE_BUILD
+    pha
+    lda f:SYMBOL_SCALE_PENDING
+    bne :+
+    pla
+    bra :++
+:
+    pla
+    clc
+    adc f:SYMBOL_SCALE_BYTES
+    ; Cached symbols also need banked setup and, for 16px sheets, two
+    ; strided DMA descriptors. Reserve their instruction time as well as
+    ; their payload; a nearly full atlas otherwise overruns the border.
+    clc
+    adc #192
+:
+.endif
     ldx pattern_blanked
     beq :+
     ; First checkpoint publication also replaces the full HUD, meter,

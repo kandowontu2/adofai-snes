@@ -1,5 +1,6 @@
 """Sequential MSU animation events and fast checkpoint state snapshots."""
 import bisect,collections,struct
+from track_motion import planet_offset
 
 def full_cell_coordinates(out,chart):
     """Recover world coordinates from the sparse map, including cached builds."""
@@ -197,7 +198,7 @@ def generate(out,chart,timeline,patterns):
         positions=[mapping[p] for p in positions]
         chart['map_batch_format']=1
     (out/f'animation{n}.bin').write_bytes(blob)
-    state=[0]*cells;alpha=[3]*count;xs=[x['x']+(x.get('position_track_offset',[0,0])[0] if not x.get('stick_to_floor',True) else 0) for x in chart['notes']];ys=[x['y']+(x.get('position_track_offset',[0,0])[1] if not x.get('stick_to_floor',True) else 0) for x in chart['notes']];chr_slots=[0]*(256 if mode7 else 1024);cursor=0;zoom=inverse=256;palette=[0]*96;camera_x=camera_y=256;rotation_c=256;rotation_s=rotation_phase=0;projection_c=256;projection_s=0;raster_shift=0
+    state=[0]*cells;alpha=[3]*count;xs=[x['x']+(planet_offset(x)[0] if not x.get('stick_to_floor',True) else 0) for x in chart['notes']];ys=[x['y']+(planet_offset(x)[1] if not x.get('stick_to_floor',True) else 0) for x in chart['notes']];chr_slots=[0]*(256 if mode7 else 1024);cursor=0;zoom=inverse=256;palette=[0]*96;camera_x=camera_y=256;rotation_c=256;rotation_s=rotation_phase=0;projection_c=256;projection_s=0;raster_shift=0
     origin_x=origin_y=0
     for at,i,cp in sorted((max(0,c['origin_frame']-32),i,c) for i,c in enumerate(chart['checkpoints'])):
         while cursor<len(events) and events[cursor][0]<=at:

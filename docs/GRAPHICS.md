@@ -50,7 +50,16 @@ artwork, not regenerated thumbnails. The original-size planet occupies tile
 
 Each starting tile addresses a 16 by 16 OBJ block (two adjacent tiles on two
 atlas rows). Four-block sizes use top-left, top-right, bottom-left, bottom-right
-order. Trails occupy tiles 128 through 255. Preserve transparent pixel index 0.
+order. Trails occupy tiles 128 through 255. Preserve transparent pixel index 0.The master derives camera-scaled rabbit, snail and twirl artwork from startingtiles 32, 34, 36 and 38 in this same sheet. Edit those original 16-by-16 blocks;the build caches sizes from 1 through 32 pixels without changing their colors.Stacked speed/twirl spacing scales too. Small sizes use one 8-pixel OBJ, mediumsizes one 16-pixel OBJ, and large sizes four 16-pixel pieces. Artwork uploadsonly when its pixel size changes, together with the corresponding OAM frame.The cache uses the invisible right half of the snapshot tilemap, leaving thevisible track, font, meter and Neo objects intact. The four legacy charts borrowthe inactive Neo OBJ area; the next level load restores its original artwork.
+
+Older master caches need one full payload rebuild to add this artwork:
+
+```powershell
+.\.venv\Scripts\python.exe tools/build_sa1.py --out build/packs/YOUR_PACK --source build/packs/YOUR_PACK --no-pcm
+```
+
+This does not rerender the chart snapshots. Subsequent cached engine rebuilds
+refresh the derived symbol sizes from `objects.chr` automatically.
 
 The Neo Cosmos renderer uses the new 16-by-16 symbols at starting
 tiles 104 (zero-extra hold, red arrow), 106 (extended hold, blue), and
@@ -61,11 +70,11 @@ from the supplied `objects (1).chr`; do not move them into the planet or trail
 slots.
 
 `mode7/freeroam.chr` is a separate 2,048-byte, 4bpp sheet (64 tiles).
-Tiles 0–3 draw the occupied return cell; 4 is a collectible coin, 5 is a
-warning, and 6–7 are vertical/horizontal laser beams. Tiles 8–19 contain
+Tiles 0â€“3 draw the occupied return cell; 4 is a collectible coin, 5 is a
+warning, and 6â€“7 are vertical/horizontal laser beams. Tiles 8â€“19 contain
 three fading versions of the return cell. Tile 20 is the incoming meteor used
 by T3 and T3EX defense sections. Keep the remaining tiles reserved.
-The loader places this sheet at OBJ indices 448–511, separate from the
+The loader places this sheet at OBJ indices 448â€“511, separate from the
 track spill cache and HUD tilemap.
 
 Track graphics are procedural: charts can use arbitrary angles, tile rotations,

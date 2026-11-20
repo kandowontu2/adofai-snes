@@ -52,7 +52,7 @@ def main():
         if args.graphics_dumps:
             for pattern in ('ppu-*.bin','screen-*.png','step-*.png'):
                 for capture in out.glob(pattern):capture.unlink()
-            for name in ('hold-orbits.txt','hold-planets.txt','screen-registers.txt','screen-capture-times.csv','mode1-icon-jobs.txt','ppu-verification.json'):
+            for name in ('hold-orbits.txt','hold-planets.txt','hold-coverage.txt','screen-registers.txt','screen-capture-times.csv','mode1-icon-jobs.txt','ppu-verification.json'):
                 (out/name).unlink(missing_ok=True)
         names=('state','step','elapsed','combo','perfects','misses','selected_level','speed_tenths','time_attack','judgment_counts','score_lo','score_hi','finish_cs','nmi_audio_ticks','audio_ticks','speed_offset','joy')
         if global_id in (280,284):
@@ -168,6 +168,9 @@ def main():
             bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
             data=','.join('{'+','.join(map(str,(n['flags'],n.get('hold_length',-1),int(n['ccw']),n.get('planets',2))))+'}' for n in chart['notes'])
             scheduled+=',snapshot_icons={ready='+str(labels['mode1_icons_ready']+bank)+',complete='+str(labels['mode1_icons_complete']+bank)+',sparse_complete='+str(labels['snapshot_sparse_complete']+bank)+',attack='+str(labels['time_attack'])+',checkpoint='+str(labels['checkpoint_record'])+',notes={'+data+'},script='+json.dumps((ROOT/'tools/verify_snapshot_icons_mesen.lua').as_posix())+'}'
+        if args.graphics_dumps and 'SYMBOL_SCALE_BUILD = 1' in (base/'addresses.inc').read_text():
+            scheduled+=',symbol_scale_inverse='+str(labels['camera_inverse'])
+            scheduled+=',symbol_scale={loaded='+str(labels['SYMBOL_SCALE_LOADED']&0x3ffff)+',pending='+str(labels['SYMBOL_SCALE_PENDING']&0x3ffff)+',vram='+str(labels['SYMBOL_SCALE_VRAM']&0x3ffff)+',irq='+str(labels['EARLY_IRQ_RUNNING']&0x3ffff)+',frames='+json.dumps((base/'symbol_scale_frames.bin').as_posix())+',script='+json.dumps((ROOT/'tools/verify_symbol_scale_mesen.lua').as_posix())+'}'
         if args.graphics_dumps and chart.get('mode1_tracks')==1:
             from animation_catchup import unpack_events
             import struct
@@ -282,7 +285,12 @@ def main():
                 coverage=out/name
                 assert coverage.exists(),f'Missing hold verification coverage: {coverage}'
                 count=int(re.search(r'samples=(\d+)',coverage.read_text())[1])
-                assert count>(100 if chart.get('mode1_tracks') else 0),f'Insufficient hold checks: {coverage}: {count}'
+                spans=[(n['step'],chart['notes'][i+1]['frame']-n['frame']) for i,n in enumerate(chart['notes'][:-1]) if n.get('hold_length',-1)>=0]
+                minimum=min(100,max(1,sum(duration for _,duration in spans)//6)) if chart.get('mode1_tracks') else 1
+                assert count>=minimum,f'Insufficient hold checks: {coverage}: {count} < {minimum}'
+                if name=='hold-orbits.txt':
+                    checked=dict((int(a),int(b)) for a,b in re.findall(r'(\d+)=(\d+)',(out/'hold-coverage.txt').read_text()))
+                    assert all(checked.get(step,0)>0 for step,duration in spans if duration>=12),'An observable hold was never checked'
         if args.graphics_dumps and chart.get('neo_math_questions'):
             coverage=out/'math-labels.txt'
             assert coverage.exists() and int(re.search(r'samples=(\d+)',coverage.read_text())[1])>100,'Missing live math-label coverage'

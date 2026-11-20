@@ -22,18 +22,29 @@ def rgb(value):
     value=str(value).lstrip('#')
     return tuple(int(value[i:i+2],16)/255 for i in (0,2,4))
 
-def state(settings,floor,start):
+def color_alpha(value):
+    if isinstance(value,dict):return max(0.,min(1.,float(value.get('a',1))))
+    value=str(value).lstrip('#')
+    return int(value[6:8],16)/255 if len(value)==8 else 1.
+
+def state(settings,floor,start,*,include_alpha=False):
     s=dict(DEFAULT,**settings);kind=s['trackColorType'];style=s['trackStyle']
     if isinstance(kind,int):kind=TYPES[kind]
     if isinstance(style,int):style=STYLES[style]
     a,b=rgb(s['trackColor']),rgb(s['secondaryTrackColor'])
-    if kind=='Stripes':a=a if (floor-start)%2==0 else b;kind='Single'
+    aa,ab=color_alpha(s['trackColor']),color_alpha(s['secondaryTrackColor'])
+    if kind=='Stripes':
+        if (floor-start)%2:a,aa=b,ab
+        kind='Single'
     period=max(.001,float(s['trackColorAnimDuration']));length=max(1,int(s['trackPulseLength']))
     pulse=s['trackColorPulse'];pulse=('None','Forward','Backward')[pulse] if isinstance(pulse,int) else pulse
     phase=(1-floor%length/length) if pulse=='Forward' else floor%length/length if pulse=='Backward' else 0
     glow=0 if s.get('disableGlow',False) else max(0,float(s.get('trackGlowIntensity',100)))/100
-    if kind in ('Single','Volume'):return ('Single',a,a,1.,0.,style,glow)
-    return (kind,a,b,period,phase,style,glow)
+    if kind in ('Single','Volume'):
+        result=('Single',a,a,1.,0.,style,glow);alphas=(aa,aa)
+    else:
+        result=(kind,a,b,period,phase,style,glow);alphas=(aa,ab)
+    return result+(alphas,) if include_alpha else result
 
 def color(s,seconds):
     kind,a,b,period,phase,style=s[:6];t=(seconds/period+phase)%1
@@ -43,7 +54,7 @@ def color(s,seconds):
     mix=(1-math.cos(t*math.tau))/2 if kind=='Glow' else t if kind=='Blink' else int(t>=.5) if kind=='Switch' else 0
     return tuple(x+(y-x)*mix for x,y in zip(a,b))
 
-def sequences(data,chart):
+def sequences(data,chart,*,include_alpha=False):
     notes=chart['notes'];count=len(notes);settings=dict(DEFAULT,**data.get('track_settings',{}))
     by_floor=collections.defaultdict(list);commands=[[] for _ in notes]
     for a in gameplay_actions(data):
@@ -65,7 +76,7 @@ def sequences(data,chart):
             local.update({k:a[k] for k in FIELDS if k in a and a[k] is not None})
             if 'trackColorType' in a:local_start=i
             if not enabled(a.get('justThisTile',False)):settings=dict(local);start=local_start
-        initial.append((0,0.,'Linear',state(local,i,local_start)))
+        initial.append((0,0.,'Linear',state(local,i,local_start,include_alpha=include_alpha)))
         original.append(dict(local));origins.append(local_start)
     beat=lambda i:60/data['bpm']/notes[i]['speed']
     def tile(value,floor):
@@ -103,8 +114,8 @@ def sequences(data,chart):
         for i in range(max(0,begin),min(count-1,end)+1,1+gap):
             current[i].update({k:a[k] for k in FIELDS if k in a and a[k] is not None})
             if 'trackColorType' in a:origins[i]=begin
-            commands[i].append((frame,duration,ease,state(current[i],i,origins[i])))
-    return [((0,0,'Linear',state(dict(trackColor=n['math_tint'],disableGlow=True),i,0)),)
+            commands[i].append((frame,duration,ease,state(current[i],i,origins[i],include_alpha=include_alpha)))
+    return [((0,0,'Linear',state(dict(trackColor=n['math_tint'],disableGlow=True),i,0,include_alpha=include_alpha)),)
             if 'math_tint' in n else tuple([initial[i]]+commands[i])
             for i,n in enumerate(chart['notes'])]
 
@@ -120,6 +131,65 @@ def evaluate(sequence,frame):
         if record[0]>frame:break
         start=sample(record[0]);at,duration,ease,target=record
     return sample(frame),target[5]
+
+def evaluate_alpha(sequence,frame):
+    def alpha(target,at):
+        a,b=target[7];t=(at/FPS/target[3]+target[4])%1
+        mix=(1-math.cos(t*math.tau))/2 if target[0]=='Glow' else t if target[0]=='Blink' else int(t>=.5) if target[0]=='Switch' else 0
+        return a+(b-a)*mix
+    at,duration,ease,target=sequence[0];start=alpha(target,0)
+    def sample(frame):
+        value=alpha(target,frame)
+        if target[0]=='Single' and duration and frame<at+duration*FPS:
+            phase=easing(ease,max(0,min(1,(frame-at)/(duration*FPS))))
+            value=start+(value-start)*phase
+        return max(0.,min(1.,value))
+    for record in sequence[1:]:
+        if record[0]>frame:break
+        # RecolorFloorPlus completes an interrupted color tween first.
+        start=alpha(target,at+duration*FPS if target[0]=='Single' else record[0])
+        at,duration,ease,target=record
+    return sample(frame)
+
+def apply_color_alpha(data,chart,initial,changes):
+    """Multiply renderer color alpha by the independent floor opacity."""
+    values=[v for k,v in data.get('track_settings',{}).items() if k in ('trackColor','secondaryTrackColor')]
+    values.extend(c['color'] for c in data.get('native_track_colors',[]) if 'color' in c)
+    for event in gameplay_actions(data):
+        if event['eventType'] in ('ColorTrack','ChangeTrack','RecolorTrack'):
+            values.extend(event[k] for k in ('trackColor','secondaryTrackColor') if event.get(k) is not None)
+    for event in data.get('native_track_effects',[]):
+        values.extend(event[k] for k,used in (('color1','usedColor1'),('color2','usedColor2'))
+                      if k in event and event.get(used,True))
+    if not any(color_alpha(v)<1 for v in values):return initial,changes
+    seqs=sequences(data,chart,include_alpha=True);groups=collections.defaultdict(list)
+    for i,sequence in enumerate(seqs):
+        if any(record[3][7]!=(1.,1.) for record in sequence):groups[sequence].append(i)
+    if not groups:return initial,changes
+    chart['track_color_alpha_version']=1
+    end=math.ceil(max(n['time'] for n in chart['notes'])*FPS)+120
+    events=collections.defaultdict(dict);factors=[(0,1,2,3)]*len(initial)
+    for sequence,indices in groups.items():
+        prior=None
+        for frame in range(end+1):
+            value=evaluate_alpha(sequence,frame)
+            # This signature is exact for every existing opacity level.
+            # Store only crossings, not a float update on every frame.
+            signature=tuple(round(level*value) for level in range(4))
+            if signature!=prior:
+                events[frame].update((i,signature) for i in indices);prior=signature
+    base=list(initial);shown=list(initial);result=collections.defaultdict(dict)
+    for i,signature in events.pop(0,{}).items():factors[i]=signature
+    for i,value in enumerate(base):shown[i]=factors[i][value]
+    first=list(shown)
+    for frame in sorted(set(changes)|set(events)):
+        affected=set(changes.get(frame,{}))|set(events.get(frame,{}))
+        for i,value in changes.get(frame,{}).items():base[i]=value
+        for i,signature in events.get(frame,{}).items():factors[i]=signature
+        for i in affected:
+            value=factors[i][base[i]]
+            if value!=shown[i]:result[frame][i]=value;shown[i]=value
+    return first,dict(sorted(result.items()))
 
 def palette_words(value,style,glow=0):
     if style=='Gems':

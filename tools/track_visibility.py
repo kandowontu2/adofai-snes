@@ -165,7 +165,8 @@ def visibility_schedule(data,chart):
                 value=max(raw[i],raw[connectors[i]]) if i in connectors else raw[i]
                 if value!=shown[i]:result[frame][i]=value;shown[i]=value
         combined=result
-    return initial,dict(sorted(combined.items()))
+    from track_colors import apply_color_alpha
+    return apply_color_alpha(data,chart,initial,dict(sorted(combined.items())))
 
 def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,authored=None):
     motion=motion or {}

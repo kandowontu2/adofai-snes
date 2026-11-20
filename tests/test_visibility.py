@@ -6,6 +6,57 @@ from track_visibility import visibility_schedule
 from make_assets import FPS
 
 class Visibility(unittest.TestCase):
+    def test_recolor_alpha_hides_old_routes_until_recolored_opaque(self):
+        data,chart=self.fixture();data['track_settings']={'trackColor':'debb7b'}
+        data['track_actions']=[
+            dict(floor=1,eventType='RecolorTrack',startTile=[2,'Start'],endTile=[0,'Start'],trackColor='debb7b00'),
+            dict(floor=2,eventType='MoveTrack',startTile=[0,'Start'],endTile=[2,'Start'],opacity=100,duration=0),
+            dict(floor=3,eventType='RecolorTrack',startTile=[1,'Start'],endTile=[1,'Start'],trackColor='308077ff')]
+        initial,changes=visibility_schedule(data,chart)
+        self.assertEqual(self.value(initial,changes,0,.9),3)
+        self.assertEqual([self.value(initial,changes,i,1.1) for i in range(4)],[0,0,0,3])
+        self.assertEqual(self.value(initial,changes,0,2.1),0)
+        self.assertEqual([self.value(initial,changes,i,3.1) for i in range(4)],[0,3,0,3])
+
+    def test_color_alpha_multiplies_move_track_opacity(self):
+        data,chart=self.fixture();data['track_settings']={'trackColor':'ffffff80'}
+        data['track_actions']=[dict(floor=1,eventType='MoveTrack',startTile=[0,'Start'],endTile=[0,'Start'],opacity=50,duration=0)]
+        initial,changes=visibility_schedule(data,chart)
+        self.assertEqual(initial,[2]*4)
+        self.assertEqual(self.value(initial,changes,0,1.1),1)
+        self.assertEqual(self.value(initial,changes,1,1.1),2)
+
+    def test_color_alpha_fade_and_disabled_recolor(self):
+        data,chart=self.fixture();data['track_settings']={'trackColor':'ffffffff'}
+        data['track_actions']=[
+            dict(floor=0,eventType='RecolorTrack',trackColor='ffffff00',active='Disabled'),
+            dict(floor=1,eventType='RecolorTrack',startTile=[0,'Start'],endTile=[0,'Start'],trackColor='ffffff00',duration=2)]
+        initial,changes=visibility_schedule(data,chart)
+        self.assertEqual(self.value(initial,changes,0,.5),3)
+        self.assertEqual(self.value(initial,changes,0,1.5),2)
+        self.assertEqual(self.value(initial,changes,0,3.1),0)
+
+    def test_stripe_and_glow_colors_keep_their_alpha(self):
+        data,chart=self.fixture()
+        data['track_settings']=dict(trackColorType='Stripes',trackColor='ff000000',secondaryTrackColor='00ff00ff')
+        initial,_=visibility_schedule(data,chart)
+        self.assertEqual(initial,[0,3,0,3])
+        data['track_settings'].update(trackColorType='Glow',trackColorAnimDuration=2)
+        initial,changes=visibility_schedule(data,chart)
+        self.assertEqual(initial,[0]*4)
+        self.assertEqual(self.value(initial,changes,0,1),3)
+        self.assertEqual(self.value(initial,changes,0,2),0)
+
+    def test_interrupted_recolor_completes_prior_alpha_target(self):
+        data,chart=self.fixture();data['track_settings']={'trackColor':'ffffffff'}
+        data['track_actions']=[
+            dict(floor=0,eventType='RecolorTrack',startTile=[0,'Start'],endTile=[0,'Start'],trackColor='ffffff00',duration=4),
+            dict(floor=1,eventType='RecolorTrack',startTile=[0,'Start'],endTile=[0,'Start'],trackColor='ffffffff',duration=1)]
+        initial,changes=visibility_schedule(data,chart)
+        self.assertEqual(self.value(initial,changes,0,.9),2)
+        self.assertEqual(self.value(initial,changes,0,1.02),0)
+        self.assertEqual(self.value(initial,changes,0,2.1),3)
+
     def test_zero_scale_stays_hidden_despite_opacity_restore(self):
         data,chart=self.fixture()
         data['native_track_effects']=[dict(type='ffxMoveFloorPlus',floor=1,start=0,end=0,

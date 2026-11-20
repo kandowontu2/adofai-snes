@@ -8,6 +8,28 @@ from import_official import normalize_json
 from make_assets import FPS
 
 class Motion(unittest.TestCase):
+    def test_nonsticky_loops_do_not_inherit_spreading_tile_offsets(self):
+        from track_motion import planet_position_offsets,planet_offset
+        notes=[dict(frame=i*10,stick_to_floor=i==0,position_track_offset=[x,0])
+               for i,x in enumerate((24,24,-12,60,-48,96))]
+        chart=dict(notes=notes)
+        planet_position_offsets(chart,{0:{i:tuple(n['position_track_offset']) for i,n in enumerate(notes)}})
+        self.assertEqual([planet_offset(n) for n in notes[1:]],[[24,0]]*5)
+        self.assertEqual(notes[-1]['position_track_offset'],[96,0])
+
+    def test_nonsticky_entry_keeps_the_actual_moving_platform_anchor(self):
+        from track_motion import planet_position_offsets,planet_offset
+        notes=[dict(frame=i*10,stick_to_floor=i==0,position_track_offset=[0,0]) for i in range(3)]
+        planet_position_offsets(dict(notes=notes),{0:{0:(0,0)},9:{0:(48,-24)},11:{0:(99,99)}})
+        self.assertEqual([planet_offset(n) for n in notes[1:]],[[48,-24],[48,-24]])
+
+    def test_hold_release_can_establish_a_new_nonsticky_anchor(self):
+        from track_motion import planet_position_offsets,planet_offset
+        notes=[dict(frame=i*10,stick_to_floor=False,position_track_offset=[i*48,0],
+                    hold_length=0 if i==1 else -1) for i in range(4)]
+        planet_position_offsets(dict(notes=notes),{})
+        self.assertEqual([planet_offset(n) for n in notes],[[0,0],[0,0],[96,0],[96,0]])
+
     def test_legacy_scalar_scale_matches_vector_including_zero(self):
         from track_motion import scale_schedule
         import copy

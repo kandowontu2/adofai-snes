@@ -68,7 +68,8 @@ def motion(chart,updates,planet=False):
         candidates=range(len(notes)) if changed or frame==0 else updates[frame]
         values={}
         for i in candidates:
-            offset=notes[i].get('position_track_offset',(0,0)) if planet and not notes[i].get('stick_to_floor',True) else offsets[i]
+            from track_motion import planet_offset
+            offset=planet_offset(notes[i]) if planet and not notes[i].get('stick_to_floor',True) else offsets[i]
             value=tuple(offset[j]-phase[j] for j in range(2))
             if value!=last[i]:values[i]=value;last[i]=value
         if values:result[frame]=values

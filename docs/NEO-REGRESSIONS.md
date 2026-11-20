@@ -261,3 +261,62 @@ renderer uses that original timeline for the track beneath transparent art.
 Reusing the finished composite's palette as its own input changes colors and
 invalidates the pixel oracle. The source-color regression test covers this
 case with distinct authored and generated RGB555 values.
+
+### Nonsticky loops and high-speed BRR
+
+Linen (FC14-4) spreads the visible loops starting at step 477, while the
+planets repeat the same small hexagon. XOJ-X similarly spreads its tile art
+around steps 949–1248. PositionTrack offsets must not move a nonsticky
+planet's physical path. Test normal play, Watch, and checkpoint starts.
+`verify_nonsticky_loops.py --pack YOUR_PACK --before PATH_TO_OLD_PACK`
+checks repeated physical positions and requires the old build to expose
+the displacement as a fault control.
+
+Run `verify_stream_rate_mesen.py --pack YOUR_PACK --level 11 --speed 2.5`
+and again with `--speed 4.0`. The 2.5× regression passes; the 4.0× stress
+case still exposes a separate throughput limit and remains unresolved.
+The probe compares music bytes actually sent
+to the SPC against its playback clock through the entire song. Heracles
+previously exhausted the preloaded music around step 106 because a refill
+cap could not sustain 2.5× playback, replaying stale BRR ring contents.
+Normal note counts alone cannot detect this audio fault.
+
+### RecolorTrack transparency and Octagon
+
+Track color alpha multiplies the separate MoveTrack opacity. In OT-X, the
+gold routes around step 139 must disappear when RecolorTrack changes their
+color to `debb7b00`; an unrelated opacity change must not bring them back.
+Check the cyan route around chart frame 2523 in both manual and Watch mode.
+The visibility tests cover reversed ranges, independent opacity, alpha fades,
+striped colors, disabled events, and interrupted recolors.
+
+### Phantigma
+
+PH-X uses Juegang's chart linked by the TUF level 17587 record: 1,269 hits,
+215 midspins, nine holds, and no authored checkpoints. Exercise the complete
+song with manual input and Watch, and check hold/release captures against the
+PPU oracle. Test both optional VFX variants and compressed BRR playback;
+VFX off must keep the full track, camera movement, symbols, and holds.
+
+### Fog sees it sign panels
+
+Fog sees it (FC07-1/2) uses authored `ctile*.png` sign, envision and
+elevator panels to guide otherwise hidden paths. These panels belong to
+gameplay and render with VFX off. The import regression excludes the scenic
+background images while requiring these panels. Verify their animated poses,
+including FC07-2 near chart frame 1230, and their checkpoint restoration.
+
+### Zoomed event symbols
+
+The master caches 1–32-pixel rabbit/snail/twirl graphics from their source CHR.
+Symbol spacing and centers follow camera zoom, including negative and zero
+zoom. The icon oracle reconstructs small, normal and composite OBJ layouts
+from native flags and the actual camera matrix. A separate check compares the
+published VRAM cache with all source artwork bytes. Exact scanline admission
+charges in one pass and rolls back partial charges when rejecting a sprite.
+
+`verify_symbol_scale_boot_mesen.py` dirties the symbol mailbox before reset.
+It requires a healthy menu with no pending upload, and rejects a deliberately
+patched zero-size comparison. This catches stale-flag/uninitialized-DMA bugs
+before gameplay. Release transitions include Feral Easy → T3 and ΩΩPARTS → T4EX
+to check restoration of the legacy renderer's borrowed Neo OBJ memory.

@@ -598,6 +598,29 @@ restart seed against the full local caches. Follow it with the MesenCE catalog,
 manual-play and checkpoint checks; the storage proof does not replace them.
 
 
+### Phantigma (PH-X)
+
+Use Juegang's chart from the [TUF download](https://api.tuforums.com/cdn/57d19ff2-aec2-414a-af2a-eeb303d1cf40).
+Extract the ZIP so the following file exists under the project folder:
+
+```text
+assets/private/phantigma-juegang/Phantigma/level.adofai
+```
+
+Keep `Phantigma.ogg` and the accompanying PNG files beside it. Use
+`level.adofai`, rather than the backup chart. Then import it:
+
+```powershell
+.\.venv\Scripts\python.exe tools/import_community.py --levels 297
+```
+
+Continue with the complete snapshot/master workflow above. Render full camera
+position, rotation and zoom. For VFX ON, keep decoration tracks enabled; the
+compiler samples decorative backgrounds at resolution 2 while retaining the
+full track detail. For the separate VFX OFF cache, set `decoration_tracks` to
+`false` before rendering, then merge the variants as described above. Both
+variants retain all nine holds. This chart has no authored checkpoints.
+
 ### Release editions
 
 The full PCM edition is retired. `install_stock_release.py` updates only

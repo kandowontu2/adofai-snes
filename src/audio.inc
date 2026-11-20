@@ -571,9 +571,13 @@ msu_audio_tick:
     bra @tick
 @packets:
     lda audio_pending_packets
-    cmp #91
+    ; At 4.0x the 12 kHz stream consumes about 150 three-byte packets
+    ; per video frame. The former 90-packet cap starved 2.5x playback,
+    ; eventually replaying old data from the SPC ring. Allow five audio
+    ; ticks at maximum pitch; the FIFO-space check below still bounds DMA.
+    cmp #181
     bcc @budget
-    lda #90
+    lda #180
 @budget:
     sta f:AUDIO_FIFO_PACKETS
     asl a

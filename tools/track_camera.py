@@ -1,7 +1,7 @@
 """Original orthographic zoom events sampled into SNES Mode 7 matrices."""
 import math
 from make_assets import FPS
-from track_motion import easing,ease_name,native_event_time,native_duration
+from track_motion import easing,ease_name,native_event_time,native_duration,planet_offset
 
 def follow_schedule(chart,motion,data=None):
     """One song-clock trajectory shared by viewport streaming and sprites.
@@ -29,7 +29,7 @@ def follow_schedule(chart,motion,data=None):
             if release_follow:origin=(x+hold_x,y+hold_y);landed=frame
             x+=hold_x
             y+=hold_y
-        dx,dy=offsets[i] if notes[i].get('stick_to_floor',True) else notes[i].get('position_track_offset',(0,0))
+        dx,dy=offsets[i] if notes[i].get('stick_to_floor',True) else planet_offset(notes[i])
         target=(notes[i]['x']+dx,notes[i]['y']+dy)
         follow_phase=1.
         if native or release_follow:
@@ -49,7 +49,7 @@ def follow_schedule(chart,motion,data=None):
                 floor=data['floors'][i]
                 phase=eased_phase(floor.get('planetEase',1),phase,floor.get('planetEaseParts',1),floor.get('planetEasePartBehavior',0)==0)
             a=notes[i]['exit_angle']
-            tx,ty=offsets[i+1] if notes[i+1].get('stick_to_floor',True) else notes[i+1].get('position_track_offset',(0,0))
+            tx,ty=offsets[i+1] if notes[i+1].get('stick_to_floor',True) else planet_offset(notes[i+1])
             hx=(notes[i+1]['x']+tx-notes[i]['x']-dx-24*math.cos(a))*phase
             hy=(notes[i+1]['y']+ty-notes[i]['y']-dy-24*math.sin(a))*phase
             if native:

@@ -31,7 +31,6 @@ def normalize_json(d,meta):
         if enabled(a.get('active',True)):events[a['floor']].append(a)
     speed=1.0;ccw=False;auto=False;planets=2;margin=100;bpm=settings['bpm']
     for i,f in enumerate(floors):
-        f['auto']=int(auto)
         changes=[a for a in events[i] if a['eventType']=='SetSpeed']
         for a in events[i]:
             kind=a['eventType']
@@ -48,6 +47,9 @@ def normalize_json(d,meta):
                 if i and floors[i-1]['midSpin']:floors[i-1]['numPlanets']=planets
             elif kind=='AutoPlayTiles':auto=enabled(a['enabled'])
             elif kind=='ScaleMargin':margin=a['scale']
+        # SetupLevelEvents assigns scrFloor.auto after processing the
+        # events on that floor. The incoming landing is already automatic.
+        f['auto']=int(auto)
         f['isCCW']=int(ccw)
         f['numPlanets']=planets
         f['margin']=margin

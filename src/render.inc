@@ -880,7 +880,11 @@ render_symbols:
     lda #$32
 @speed:
     sta sprite_attr
+.ifdef SYMBOL_SCALE_BUILD
+    jsl symbol_scale_draw
+.else
     jsr sprite
+.endif
 @reverse:
     ldx render_i
     lda f:NOTE_FLAGS,x
@@ -903,10 +907,18 @@ render_symbols:
     beq @swirl
     lda sprite_y
     sec
+.ifdef SYMBOL_SCALE_BUILD
+    sbc f:SYMBOL_SCALE_GAP
+.else
     sbc #14
+.endif
     sta sprite_y
 @swirl:
+.ifdef SYMBOL_SCALE_BUILD
+    jsl symbol_scale_draw
+.else
     jsr sprite
+.endif
 @special:
     ldx render_i
     lda f:NOTE_FLAGS,x

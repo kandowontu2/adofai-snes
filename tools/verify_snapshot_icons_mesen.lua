@@ -21,18 +21,34 @@ return function(C)
    local object=a/4;local h=high[math.floor(object/4)]
    charge(emu.read(0x201+a,W),bit(h,2^(2*(object%4)+1))and 16 or 8)
   end
-  local function sprite(x,y,tile,attr)
+  local function sprite(x,y,tile,attr,size)
+   size=size or 16
    if start+#bytes>=512 or x< -15 or x>=256 or y<32 or y>=177 then return end
-   for line=y,math.min(175,y+15)do
-    if objects[line]>=32 or tiles[line]+2>34 then return end
+   for line=y,math.min(175,y+size-1)do
+    if objects[line]>=32 or tiles[line]+size/8>34 then return end
    end
-   charge(y,16)
-   for b=math.floor(y/8),math.floor((y+15)/8)do budget[b]=budget[b]+2 end
+   charge(y,size)
+   for b=math.floor(y/8),math.floor((y+size-1)/8)do budget[b]=budget[b]+size/8 end
    local object=(start+#bytes)/4;local index=math.floor(object/4)
-   high[index]=high[index]+2^(2*(object%4)+1)
+   if size==16 then high[index]=high[index]+2^(2*(object%4)+1)end
    if x<0 then high[index]=high[index]+2^(2*(object%4))end
    bytes[#bytes+1]=x%256;bytes[#bytes+1]=y
    bytes[#bytes+1]=tile;bytes[#bytes+1]=attr
+  end
+  local inverse=C.symbol_scale_inverse and math.abs(signed(word(C.symbol_scale_inverse,W)))or 256
+  local scale=inverse==0 and 0 or math.max(1,math.min(32,math.floor((inverse+8)/16)))
+  local function event(x,y,tile,attr)
+   if scale==0 then return end
+   if scale==16 then return sprite(x,y,tile,attr)end
+   local box=scale<=8 and 8 or scale<=16 and 16 or 32
+   local center=(16-box)/2
+   local first=64+(tile-32)/2*(box/8)
+   if box==32 then
+    sprite(x+center,y+center,first,attr+1)
+    sprite(x+center+16,y+center,first+2,attr+1)
+    sprite(x+center,y+center+16,first+32,attr+1)
+    sprite(x+center+16,y+center+16,first+34,attr+1)
+   else sprite(x+center,y+center,first,attr+1,box)end
   end
   local record=word(I.checkpoint,W)
   local activated=record==0 and -1 or word(0x1d800+record-1,W)
@@ -44,8 +60,8 @@ return function(C)
    if emu.read(0x8400+floor,S)~=0 and not bit(flags,128)then
     local x,y=signed(word(0x3a400+a,S)),signed(word(0x3ba00+a,S))
     local speed=flags%4
-    if speed~=0 then sprite(x,y,speed==1 and 32 or 34,speed==1 and 0x32 or 0x34)end
-    if bit(flags,4)then sprite(x,y-(speed~=0 and 14 or 0),ccw~=0 and 38 or 36,ccw~=0 and 0x34 or 0x32)end
+    if speed~=0 then event(x,y,speed==1 and 32 or 34,speed==1 and 0x32 or 0x34)end
+    if bit(flags,4)then event(x,y-(speed~=0 and math.floor((scale*14+8)/16)or 0),ccw~=0 and 38 or 36,ccw~=0 and 0x34 or 0x32)end
     if bit(flags,32)then
      if hold>=0 then sprite(x+(hold>=1 and 1 or 0),y,hold>=1 and 106 or 104,hold>=1 and 0x34 or 0x32)
      elseif p and p[2]>=0 then sprite(x,y,108,p[2]>=1 and 0x34 or 0x32)

@@ -611,6 +611,20 @@ SPILL_OAM_HIGH=$43EE00
 SPILL_OAM_BUDGET=$43EE20
 SPILL_OAM_PREFIX=$43EE40
 SPILL_OAM_BYTES=$43EE42
+SYMBOL_SCALE_SIZE=$43EFBC
+SYMBOL_SCALE_BOX=$43EFBE
+SYMBOL_SCALE_CENTER=$43EFC0
+SYMBOL_SCALE_GAP=$43EFC2
+SYMBOL_SCALE_BASE=$43EFC4
+SYMBOL_SCALE_VRAM=$43EFC6
+SYMBOL_SCALE_LOADED=$43EFC8
+SYMBOL_SCALE_PENDING=$43EFCA
+SYMBOL_SCALE_SOURCE=$43EFCC
+SYMBOL_SCALE_BYTES=$43EFD0
+SYMBOL_SCALE_STEP=$43EFD2
+SYMBOL_SCALE_TILES=$43EFD4
+.assert SYMBOL_SCALE_TILES+8 <= $43F000, error, "Symbol scale state overlaps cache scratch"
+.export SYMBOL_SCALE_SIZE,SYMBOL_SCALE_BOX,SYMBOL_SCALE_LOADED,SYMBOL_SCALE_PENDING,SYMBOL_SCALE_VRAM,EARLY_IRQ_RUNNING
 .ifdef EXTENDED_CHART_BUILD
 ; Snapshot atlases end at $43A000. The extended screen-coordinate arrays
 ; end at $43D000; keep persistent icon metadata beyond both, not in the
@@ -1235,6 +1249,9 @@ sa1_fast_main:
     sta f:MENU_REPEAT_DELAY
     sta f:HIT_SOUND_COMMAND
     sta f:HIT_SOUND_COUNT
+.ifdef SYMBOL_SCALE_BUILD
+    sta f:SYMBOL_SCALE_PENDING
+.endif
 .ifdef MSU_BUILD
     sta f:AUDIO_FIFO_HEAD
     sta f:AUDIO_FIFO_TAIL
@@ -1655,6 +1672,9 @@ load_selected_level:
     lda #1
     sta f:SA1_ROM_CURRENT
 .endif
+.ifdef SYMBOL_SCALE_BUILD
+    jsl symbol_scale_reset
+.endif
 .ifdef SA1_STREAM_BUILD
     lda selected_level
     .repeat 5
@@ -2051,6 +2071,9 @@ start_game:
 .include "src/neo_twirl.inc"
 .include "src/neo_preview.inc"
 .include "src/snapshot_icons.inc"
+.ifdef SYMBOL_SCALE_BUILD
+.include "src/symbol_scale.inc"
+.endif
 .ifdef CONDITIONAL_JUDGMENT_BUILD
 .include "src/conditional_judgments.inc"
 .endif

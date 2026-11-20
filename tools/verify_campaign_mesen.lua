@@ -17,6 +17,7 @@ if C.holds then dofile(C.holds.script)(C) end
 if C.triplet then dofile(C.triplet.script)(C) end
 if C.preview then dofile(C.preview.script)(C) end
 if C.snapshot_icons then dofile(C.snapshot_icons.script)(C) end
+if C.symbol_scale then dofile(C.symbol_scale.script)(C) end
 if C.twirl_stream then dofile(C.twirl_stream.script)(C) end
 local W=emu.memType.snesWorkRam
 local function word(address) return emu.read(address,W)+emu.read(address+1,W)*256 end

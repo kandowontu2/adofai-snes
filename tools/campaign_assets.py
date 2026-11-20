@@ -141,7 +141,7 @@ def compile_chart(data):
         result.update(decoration_tracks=True,decoration_depth_order=True,
                       decoration_background_resolution=2,
                       decoration_background_only=True,decoration_background_brightness=.35)
-    if data['id'] in (284,285,287,288,291,292,293,294,295,296) or data.get('triple_planet') and data.get('featured_decorations'):
+    if data['id'] in (284,285,287,288,291,292,293,294,295,296,297) or data.get('triple_planet') and data.get('featured_decorations'):
         result.update(decoration_tracks=True,decoration_depth_order=True)
     if data.get('live_planet_proxies'):
         result['live_planet_proxies']=True
@@ -149,6 +149,15 @@ def compile_chart(data):
         result['local_decoration_pivots']=True
     if data['id']==284:
         result['decoration_text_contrast']=True
+    if data['id']==297:
+        result['decoration_background_resolution']=2
+    if data['id'] in (117,118):
+        # Fog's sign/envision/elevator panels replace hidden track and
+        # convey timing. Keep their authored motion with VFX disabled.
+        result.update(decoration_tracks=True,decoration_depth_order=True,
+                      decoration_gameplay_images=sorted({d.get('decorationImage')
+                          for d in data.get('featured_decorations',[])
+                          if d.get('decorationImage','').startswith('ctile')}))
     if data['id']==115:
         # Vigor Lines Yoked bridges its PositionTrack gaps with authored
         # tile images. Keep the large radial scenery out of this layer.
@@ -408,7 +417,13 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if any(c.get('wide_snapshot_atlas') for c in charts):
         raw=assets['background_map']
         assets['background_map']=b''.join(struct.pack('<H',(w&0xFC00)|((w&1023)+64)) for (w,) in struct.iter_unpack('<H',raw))
-    neo_code_bytes=0x7000 if len(charts)>=200 else 0x4000 if any(c['id']>=75 for c in charts) else 0x3000
+    neo_code_bytes=0x8000 if len(charts)>=200 else 0x4000 if any(c['id']>=75 for c in charts) else 0x3000
+    if sa1 and msu and not rom_data and len(charts)>=200 and any(c.get('neo_cosmos') for c in charts):
+        legacy=[c for c in charts if c.get('mode1_tracks')!=3]
+        assert all(not c.get('neo_cosmos') and all(n.get('planets',2)==2 and n.get('hold_length',-1)<0 for n in c['notes']) for c in legacy), 'Neo/three-planet charts need snapshots before borrowing the Neo OBJ arena'
+        from symbol_scale import frames
+        assets['symbol_scale_frames']=frames(assets['objects'])
+        (OUT/'symbol_scale_frames.bin').write_bytes(assets['symbol_scale_frames'])
     snapshot_only=sa1 and msu and not rom_data and any(c['id']>=75 for c in charts)
     if snapshot_only:
         for c in charts:
@@ -521,7 +536,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
             # Cluster their small static tables above the FastROM mirror;
             # placing them at 1 MiB unnecessarily splits the lower 2 MiB.
             static_minimum=0x208000 if sa1 and rom_data and any(c.get('neo_cosmos') for c in resident) else 0x100000
-            minimum=(0x400000 if name.startswith('resident_') and not static_future else
+            minimum=(0x220000 if name=='symbol_scale_frames' else 0x400000 if name.startswith('resident_') and not static_future else
                      static_minimum if resident and not other_level_data and not name.startswith('romdata') else 0)
             # Packet dictionaries use a selectable 1-MiB window. They do
             # not require AR-X's fixed upper-half resident address range.
@@ -589,6 +604,8 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     (OUT/'placements.json').write_text(json.dumps(loc,indent=2))
     defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects','neo_math_font','level_titles')]
+    if 'symbol_scale_frames' in loc:
+        defs+=['SYMBOL_SCALE_BUILD = 1',f'SYMBOL_SCALE_FRAMES_ADDR = ${loc["symbol_scale_frames"]:06X}']
     if any(c.get('mode1_tracks') for c in stream_charts):defs += ['SA1_MODE1_BUILD = 1']
     if stream_charts:defs += ['SA1_STREAM_BUILD = 1','STREAM_INDEX_BYTES = 2',f'STREAM_DESCRIPTORS_ADDR = ${loc["stream_descriptors"]:06X}']
     if 'stream_vfx_off_descriptors' in loc:defs += [f'STREAM_VFX_OFF_DESCRIPTORS_ADDR = ${loc["stream_vfx_off_descriptors"]:06X}']
@@ -946,7 +963,8 @@ def main():
         else:tiles,tilemap=connected_track(c);timeline=bytes(2)
         pattern_data=c.pop('_pattern_data',bytes(16))
         if msu:(OUT/f'patterns{n}.bin').write_bytes(pattern_data)
-        blob=common.word_data([v['x']+(v.get('position_track_offset',[0,0])[0] if not v.get('stick_to_floor',True) else 0) for v in c['notes']])+common.word_data([v['y']+(v.get('position_track_offset',[0,0])[1] if not v.get('stick_to_floor',True) else 0) for v in c['notes']])+blob[4*len(c['notes']):]
+        from track_motion import planet_offset
+        blob=common.word_data([v['x']+(planet_offset(v)[0] if not v.get('stick_to_floor',True) else 0) for v in c['notes']])+common.word_data([v['y']+(planet_offset(v)[1] if not v.get('stick_to_floor',True) else 0) for v in c['notes']])+blob[4*len(c['notes']):]
         if msu:
             size=len(c['notes']);assert size<=MAX_NOTES
             blob=blob[:11*size]+bytes(note_control(v) for v in c['notes'])+blob[12*size:]

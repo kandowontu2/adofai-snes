@@ -117,7 +117,7 @@ worker_snapshot_icons_hot:
 @speed:
     sta map_dest
     jsr @position
-    jsr worker_snapshot_icon_sprite
+    jsr worker_snapshot_scaled_icon
 @reverse:
     lda map_base_ptr
     and #12
@@ -136,10 +136,14 @@ worker_snapshot_icons_hot:
     beq :+
     lda view_y
     sec
+.ifdef SYMBOL_SCALE_BUILD
+    sbc f:SYMBOL_SCALE_GAP
+.else
     sbc #14
+.endif
     sta view_y
 :
-    jsr worker_snapshot_icon_sprite
+    jsr worker_snapshot_scaled_icon
 @special:
     lda map_base_ptr
     and #$70
@@ -248,7 +252,69 @@ worker_snapshot_icon_charge:
     bcc @line
     rts
 
+.ifdef SYMBOL_SCALE_BUILD
+.segment "HOTICONSCAN"
+.endif
+worker_snapshot_scaled_icon:
+.ifdef SYMBOL_SCALE_BUILD
+    lda f:SYMBOL_SCALE_SIZE
+    bne :+
+    rts
+:
+    cmp #16
+    jeq worker_snapshot_icon_piece
+    lda map_dest
+    and #255
+    sec
+    sbc #32
+    tax
+    lda f:SYMBOL_SCALE_TILES,x
+    sta map_dest
+    lda view_x
+    clc
+    adc f:SYMBOL_SCALE_CENTER
+    sta view_x
+    lda view_y
+    clc
+    adc f:SYMBOL_SCALE_CENTER
+    sta view_y
+    jsr worker_snapshot_icon_piece
+    lda f:SYMBOL_SCALE_BOX
+    cmp #32
+    bne @scaled_done
+    inc map_dest
+    inc map_dest
+    lda view_x
+    clc
+    adc #16
+    sta view_x
+    jsr worker_snapshot_icon_piece
+    lda map_dest
+    clc
+    adc #30
+    sta map_dest
+    lda view_x
+    sec
+    sbc #16
+    sta view_x
+    lda view_y
+    clc
+    adc #16
+    sta view_y
+    jsr worker_snapshot_icon_piece
+    inc map_dest
+    inc map_dest
+    lda view_x
+    clc
+    adc #16
+    sta view_x
+    jsr worker_snapshot_icon_piece
+@scaled_done:
+    rts
+.endif
+.segment "HOTICONS"
 worker_snapshot_icon_sprite:
+worker_snapshot_icon_piece:
     lda view_x
     cmp #$FFF1
     bcs @x_inside
@@ -270,22 +336,44 @@ worker_snapshot_icon_sprite:
     sta view_rows
     lda #$0201
     sta map_run
+.ifdef SYMBOL_SCALE_BUILD
+    lda #$2100
+    sta map_tile
+    lda map_dest
+    bit #$0100
+    beq :+
+    lda f:SYMBOL_SCALE_BOX
+    cmp #8
+    bne :+
+    sta view_rows
+    lda #$0101
+    sta map_run
+    lda #$2200
+    sta map_tile
+:
+.endif
     jsr worker_snapshot_icon_interval
     bcs @outside
     stx scratch
 @check:
     lda a:SNAPSHOT_ICON_LINES,x
+.ifdef SYMBOL_SCALE_BUILD
+    cmp map_tile
+.else
     cmp #$2100
+.endif
     bcs @reject
-    and #255
-    cmp #32
-    bcs @reject
+    ; Prefix/candidate OBJ counts are at most 128. Test the low-byte
+    ; upper bits without destroying the packed sliver/object counts.
+    bit #$00E0
+    bne @reject
+    clc
+    adc map_run
+    sta a:SNAPSHOT_ICON_LINES,x
     inx
     inx
     cpx scratch2
     bcc @check
-    ldx scratch
-    jsr worker_snapshot_icon_charge
 @outside:
     ; Keep the CPU's conservative bins in sync for subsequent optional
     ; effects, while exact occupancy decides essential symbol admission.
@@ -294,15 +382,27 @@ worker_snapshot_icon_sprite:
     lsr a
     lsr a
     tax
-    lda view_y
+    lda view_rows
+    dec a
     clc
-    adc #15
+    adc view_y
     lsr a
     lsr a
     lsr a
     sta scratch2
     jmp snapshot_icon_coarse_charge
 @reject:
+    ; A later scanline can reject the entire OBJ. Undo only the lines
+    ; already charged, preserving the same all-or-nothing admission.
+    cpx scratch
+    beq @done
+    dex
+    dex
+    lda a:SNAPSHOT_ICON_LINES,x
+    sec
+    sbc map_run
+    sta a:SNAPSHOT_ICON_LINES,x
+    bra @reject
 @done:
     rts
 
@@ -312,8 +412,8 @@ snapshot_icon_coarse_charge:
     .a8
 snapshot_icon_charge:
     lda f:SPILL_OAM_BUDGET,x
-    inc a
-    inc a
+    clc
+    adc map_run+1
     sta f:SPILL_OAM_BUDGET,x
     inx
     cpx scratch2
@@ -340,9 +440,17 @@ snapshot_icon_append:
     tax
     lda f:$010000+snapshot_icon_sizes,x
     sta scratch
+.ifdef SYMBOL_SCALE_BUILD
+    lda view_rows
+    cmp #8
+    bne :+
+    lda #0
+    sta scratch
+:
+.endif
     lda view_x
     bpl snapshot_icon_high
-    lda scratch
+    lda f:$010000+snapshot_icon_sizes,x
     lsr a
     ora scratch
     sta scratch

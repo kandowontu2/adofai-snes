@@ -1,7 +1,7 @@
 """Recover exact-build release evidence and run final sequential regressions."""
 import argparse,json,subprocess,sys
 from pathlib import Path
-from verification_data import identity
+from verification_data import identity,freeze_data_identity
 from run_mesen_campaign import suite_digest
 ROOT=Path(__file__).resolve().parents[1]
 BASE=ROOT/'build/packs/stock-refresh-master'
@@ -18,7 +18,7 @@ def regressions(frozen,ids):
     run('verify_msu_header_mesen.py','--pack',BASE.name)
     sequence=[65,70,67,94,144,1]
     pairs=list(zip(sequence,sequence[1:]))
-    for first,second in ((286,68),(287,1),(288,289),(296,62),(292,294),(294,296)):
+    for first,second in ((286,68),(287,1),(288,289),(296,62),(292,294),(294,296),(63,68),(65,74)):
         if first in ids and second in ids:
             pairs.append((ids.index(first)+1,ids.index(second)+1))
     # Keep both charts in the same emulator session for each transition,
@@ -45,6 +45,7 @@ def main():
     parser.add_argument('--catalog-only',action='store_true',help='Validate all exact-build replay evidence before running independent release features')
     args=parser.parse_args();BASE=ROOT/'build/packs'/args.pack;V=BASE/'verification'
     frozen=identity(BASE/'adofai.sfc',fresh=True);ids=read(BASE/'pack.json')['levels'];rows=[]
+    freeze_data_identity(BASE/'adofai.sfc',frozen)
     assert len(ids)==len(set(ids)) and ids
     if args.regressions_only:
         regressions(frozen,ids)
@@ -96,6 +97,11 @@ def main():
         if not (prior.get('passed') and all(prior.get(k)==v for k,v in frozen.items())):
             run('verify_snapshot_storage.py','--pack',BASE.name)
         bound(path,frozen);features.append('snapshot-storage.json')
+    if 'SYMBOL_SCALE_BUILD = 1' in (BASE/'addresses.inc').read_text():
+        path=V/'symbol-scale-boot/verification.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and all(prior.get(k)==v for k,v in frozen.items())):
+            run('verify_symbol_scale_boot_mesen.py','--pack',BASE.name)
+        bound(path,frozen);features.append('symbol-scale-boot/verification.json')
     if 256 in ids:
         path=V/'twirl-memory-negative.json';prior=read(path) if path.exists() else {}
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
@@ -141,7 +147,7 @@ def main():
         bound(path,frozen)
         run('verify_mesen_ppu.py','--pack',BASE.name,'--level',local,'--folder',path.parent)
         features.append(str(path.relative_to(V)))
-    for n in (285,287,288,289,290,291,292,293,294,295,296):
+    for n in (50,63,285,287,288,289,290,291,292,293,294,295,296):
         if n not in ids:continue
         local=ids.index(n)+1
         path=V/f'mesen-{local}/manifest.json';prior=read(path) if path.exists() else {}

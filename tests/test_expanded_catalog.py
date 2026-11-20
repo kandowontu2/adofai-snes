@@ -82,7 +82,16 @@ class ExpandedCatalogTests(unittest.TestCase):
             dict(floor=2, eventType='AutoPlayTiles', enabled='Disabled')])
         data = normalize_json(raw, dict(id=1, code='TEST', title='TEST', text='test'))
         self.assertFalse(any(f['isCCW'] for f in data['floors']))
-        self.assertEqual([f['auto'] for f in data['floors']], [0, 1, 1, 0, 0, 0])
+        self.assertEqual([f['auto'] for f in data['floors']], [1, 1, 0, 0, 0, 0])
+
+    def test_auto_section_starts_on_its_event_floor(self):
+        raw = dict(settings=dict(bpm=165, offset=0), angleData=[0]*8, actions=[
+            dict(floor=2, eventType='AutoPlayTiles', enabled=True),
+            dict(floor=4, eventType='AutoPlayTiles', enabled=False),
+            dict(floor=6, eventType='AutoPlayTiles', enabled=True),
+            dict(floor=7, eventType='AutoPlayTiles', enabled=False)])
+        data=normalize_json(raw,dict(id=295,code='WT-X',title='TEST',text='test'))
+        self.assertEqual([f['auto'] for f in data['floors']],[0,0,1,1,0,0,1,0,0])
 
 
 if __name__ == '__main__':

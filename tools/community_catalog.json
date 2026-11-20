@@ -228,5 +228,18 @@
     "set": "community",
     "requires_msu": true,
     "reference": "https://www.youtube.com/watch?v=cMBCC6CKcrI"
+  },
+  {
+    "id": 297,
+    "code": "PH-X",
+    "title": "PHANTIGMA",
+    "artist": "D-D-Dice",
+    "author": "Juegang",
+    "source": "assets/private/phantigma-juegang/Phantigma/level.adofai",
+    "archive": "https://api.tuforums.com/cdn/57d19ff2-aec2-414a-af2a-eeb303d1cf40",
+    "neo_cosmos": true,
+    "set": "community",
+    "requires_msu": true,
+    "reference": "https://www.youtube.com/watch?v=1YsHVB3vl5w"
   }
 ]

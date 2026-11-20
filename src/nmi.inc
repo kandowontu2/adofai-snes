@@ -124,6 +124,9 @@ nmi_fast:
 .ifdef SA1_BUILD
     jsr spill_upload
 .endif
+.ifdef SYMBOL_SCALE_BUILD
+    jsl symbol_scale_upload
+.endif
     sep #$20
     .a8
 .endif

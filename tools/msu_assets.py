@@ -20,19 +20,20 @@ def validate_track_numbers(charts):
             assert 0<track<=65535 and track not in used,('Overlapping MSU tracks',track,used.get(track),n)
             used[track]=n
 
-def generate(out,charts,music,*,generate_pcm=True):
+def generate(out,charts,music,*,generate_pcm=True,extended_catalog=False):
+    extended_catalog=extended_catalog or len(charts)>=200
     validate_track_numbers(charts)
     descriptors=bytearray();manifest=[];stem=out/'adofai'
     from msu_snapshot_pool import SnapshotPool
     with tempfile.TemporaryFile(dir=out) as scratch,stem.with_suffix('.msu').open('w+b') as data:
         shared=SnapshotPool(scratch)
-        data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',21 if len(charts)>=200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
+        data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',21 if extended_catalog else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
         for c in charts:
             n=c['id'];offset=data.tell();data.write(music[n]);track=n
             animation_offset=data.tell();data.write((out/f'animation{n}.bin').read_bytes())
             # Sequential animation and the ROM coordinate index replace the
             # old random-access timelines. Retain the descriptor field.
-            timeline_offset=data.tell();data.write((out/f'chart{n}.bin').read_bytes() if len(charts)>=200 else bytes(2))
+            timeline_offset=data.tell();data.write((out/f'chart{n}.bin').read_bytes() if extended_catalog else bytes(2))
             table_offset=data.tell();data.write(bytes(4*len(c['checkpoints'])))
             snapshots=[]
             for i,cp in enumerate(c['checkpoints']):

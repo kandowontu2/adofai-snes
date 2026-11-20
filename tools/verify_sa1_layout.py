@@ -41,6 +41,11 @@ def verify(base,source):
         assert len(set(addresses))==len(addresses),'VBlank diagnostics overlap live camera state'
         assert all(0x41FCD0<=address<0x41FD00 and address%2==0 for address in addresses)
     helper_mirror='SA1_FASTROM_HELPERS = 1' in (base/'addresses.inc').read_text()
+    if 'symbol_scale_frames' in loc:
+        at=loc['symbol_scale_frames'];at=at-0xc00000 if at>=0xc00000 else at
+        data=(base/'symbol_scale_frames.bin').read_bytes()
+        assert rom[at:at+len(data)]==data,'Scaled symbol artwork differs from source'
+        assert (at&65535)+len(data)<=65536,'Scaled symbol artwork crosses ROM bank'
     unmirror=lambda a:a&0x7fffff if helper_mirror else a
     if helper_mirror:
         code_size=re.search(r'NEO_CODE_BYTES = \$([0-9A-Fa-f]+)',(base/'addresses.inc').read_text())
@@ -112,6 +117,8 @@ def verify(base,source):
         assert 0x7FDC82<=meter['METER_BITMAP'] and meter['METER_BITMAP']+272<=0x7FE000
     for n in pack['levels']:
         chart=json.loads((base/f'level{n}.json').read_text())
+        if 'symbol_scale_frames' in loc and chart.get('mode1_tracks')!=3:
+            assert not chart.get('neo_cosmos') and all(q.get('planets',2)==2 and q.get('hold_length',-1)<0 for q in chart['notes']),(n,'Legacy symbol cache aliases active Neo graphics')
         if labels.get('MAX_NOTE_CAPACITY',4352)>4352:
             assert len(chart['notes'])<=labels['MAX_NOTE_CAPACITY']
             assert sum(not(q['flags']&128) and bool(q['flags']&119) for q in chart['notes'])<=labels['MAX_SYMBOL_CAPACITY']

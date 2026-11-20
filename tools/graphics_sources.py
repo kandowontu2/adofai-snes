@@ -47,6 +47,10 @@ def patch_sa1_pack(out):
     if 'neo_math_font' in placements:
         graphics['neo_math_font']=(ROOT/'mode7/math-font.chr').read_bytes()
         if len(graphics['neo_math_font'])!=704:raise ValueError('math-font.chr must contain 22 tiles')
+    if 'symbol_scale_frames' in placements:
+        from symbol_scale import frames
+        graphics['symbol_scale_frames']=frames(graphics['objects'])
+        (out/'symbol_scale_frames.bin').write_bytes(graphics['symbol_scale_frames'])
     with (out / 'sa1_payload.bin').open('r+b') as payload:
         for key, data in graphics.items():
             address = placements[key]
