@@ -402,7 +402,7 @@ class DecorationTracks:
                                         depth=dec.get('depth',0)-.001,_floor_icon=True))
             else:decorations.append(dec)
         for order, dec in enumerate(decorations):
-            from gameplay_decorations import is_gameplay
+            from gameplay_decorations import is_gameplay,is_scripted_planet
             required=is_gameplay(dec,chart)
             if chart.get('decoration_vfx_off') and not required:continue
             if data.get('id')==284 and dec.get('decorationImage') in ('triangle.png','square.png'):
@@ -411,7 +411,7 @@ class DecorationTracks:
                 # These PNGs replace playable floors. Drawing them behind
                 # the native floor erased their identifying center symbols.
                 dec=dict(dec,depth=-2)
-            gameplay_planet=dec['eventType']=='AddObject' and dec.get('objectType')=='Planet'
+            gameplay_planet=is_scripted_planet(dec)
             gameplay_floor=(dec['eventType']=='AddObject' and dec.get('objectType')=='Floor') or required
             if chart.get('decoration_gameplay_images') and dec.get('decorationImage') not in chart['decoration_gameplay_images']:
                 continue

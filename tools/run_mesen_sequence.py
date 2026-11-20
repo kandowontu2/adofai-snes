@@ -23,7 +23,8 @@ def main():
  config='return {out='+json.dumps(out.as_posix())+',guard='+json.dumps((ROOT/'tools/mesen_failfast.lua').as_posix())+',addr={'+','.join(n+'='+str(labels[n]) for n in names)+'},frames='+str(limit)+',stages={'+','.join(stages)+'}}'
  path=out/'config.lua';path.write_text(config);env=os.environ.copy();env['ADOFAI_SEQUENCE_CONFIG']=str(path);(out/'result.txt').unlink(missing_ok=True)
  before=identity(base/'adofai.sfc');code=suite_digest()
- r=subprocess.run([str(a.mesen),'--testrunner','--timeout=900',str(base/'adofai.sfc'),str(ROOT/'tools/verify_sequence_mesen.lua')],cwd=ROOT,env=env,creationflags=subprocess.CREATE_NO_WINDOW,capture_output=True,text=True,timeout=930)
+ wall_limit=max(900,round(limit/60.099*3)+60)
+ r=subprocess.run([str(a.mesen),'--testrunner',f'--timeout={wall_limit}',str(base/'adofai.sfc'),str(ROOT/'tools/verify_sequence_mesen.lua')],cwd=ROOT,env=env,creationflags=subprocess.CREATE_NO_WINDOW,capture_output=True,text=True,timeout=wall_limit+30)
  (out/'emulator.log').write_text(r.stdout+r.stderr);result=(out/'result.txt').read_text() if (out/'result.txt').exists() else '\n'.join(f'{p.parent.name}: {p.read_text()}' for p in out.glob('stage-*/result.txt')) or 'No result';print(result,flush=True)
  assert before==identity(base/'adofai.sfc') and code==suite_digest(),'Build/checks changed during sequence'
  assert r.returncode==0 and result.endswith('PASS\n'),result

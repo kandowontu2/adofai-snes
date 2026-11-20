@@ -11,6 +11,14 @@ from benchmark_snapshot_components import packets
 from native_packet_codec import compact_prefix
 
 
+def native_signature(base,n,suffix):
+    digest=hashlib.sha256((base/f'stream_index{suffix}{n}.bin').read_bytes())
+    for prefix in ('stream_data','mode1_seeds'):
+        with (base/f'{prefix}{suffix}{n}.bin').open('rb') as stream:
+            digest.update(hashlib.file_digest(stream,'sha256').digest())
+    return digest.hexdigest()
+
+
 def native_size(task):
     base,n,suffix=task
     index=(base/f'stream_index{suffix}{n}.bin').read_bytes()
@@ -53,19 +61,25 @@ def variant_packets(base,n,suffix):
 
 def plan(base,out,max_bytes,workers,priority):
     ids=json.loads((base/'pack.json').read_text())['levels']
-    optional={n for n in ids if (base/f'stream_index_vfx_off{n}.bin').exists()}
+    optional={n for n in ids if json.loads((base/f'level{n}.json').read_text()).get('vfx_off')}
     tasks=[(base,n,suffix) for n in ids for suffix in (['','_vfx_off'] if n in optional else [''])]
     cache=out.with_name(out.stem+'-native.json')
     codec_sha=hashlib.sha256((Path(__file__).parent/'native_packet_codec.py').read_bytes()).hexdigest()
+    previous={}
     if cache.exists():
         saved=json.loads(cache.read_text());assert saved['levels']==ids and saved.get('codec_sha256')==codec_sha,'Native codec changed; use a fresh storage report'
-        source_stamp={str(base/f'stream_data{s}{n}.bin'):(base/f'stream_data{s}{n}.bin').stat().st_mtime_ns for _,n,s in tasks}
-        assert saved['source_stamp']==source_stamp,'Native storage cache is stale'
-        sizes=saved['sizes']
-    else:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:sizes=list(pool.map(native_size,tasks))
-        source_stamp={str(base/f'stream_data{s}{n}.bin'):(base/f'stream_data{s}{n}.bin').stat().st_mtime_ns for _,n,s in tasks}
-        cache.write_text(json.dumps(dict(levels=ids,sizes=sizes,source_stamp=source_stamp,codec_sha256=codec_sha),indent=2))
+        previous={(r['id'],r['suffix']):r for r in saved['sizes']}
+    sizes=[];pending=[]
+    for task in tasks:
+        _,n,suffix=task;row=previous.get((n,suffix))
+        # Index and restart-seed changes also affect the encoded size. A
+        # matching stream mtime alone cannot validate this cache.
+        if row and row['signature']==native_signature(base,n,suffix):sizes.append(row)
+        else:pending.append(task)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:sizes.extend(pool.map(native_size,pending))
+    sizes.sort(key=lambda r:(r['id'],r['suffix']))
+    source_stamp={str(base/f'stream_data{s}{n}.bin'):(base/f'stream_data{s}{n}.bin').stat().st_mtime_ns for _,n,s in tasks}
+    cache.write_text(json.dumps(dict(levels=ids,sizes=sizes,source_stamp=source_stamp,codec_sha256=codec_sha),indent=2))
     costs={(r['id'],r['suffix']):r for r in sizes}
     seen=set();pool_bytes=0;native_bytes=0;signatures=set()
     for n in ids:

@@ -11,7 +11,7 @@ def inspect(path):
     image=Image.open(path).convert('RGB')
     assert image.size==(256,224),image.size
     points={c:[] for c in ('red','green','blue','yellow')}
-    for y in range(32,176):
+    for y in range(16,176):
         for x in range(256):
             r,g,b=image.getpixel((x,y))
             c=('red' if r>180 and g<100 and b<100 else
@@ -41,16 +41,20 @@ def main():
     # insertion. Check all four colors after that transition.
     steps=(53,54,55,60,81,101,121,161,201,241,257)
     times=[chart['notes'][n]['frame'] for n in steps]
-    subprocess.run([sys.executable,str(ROOT/'tools/run_mesen_campaign.py'),'--pack',args.pack,
-                    '--levels',str(local),'--autoplay','--sampled-graphics',
-                    '--capture-times',*map(str,times)],check=True)
-    folder=base/f'verification/mesen-{local}-autoplay'
-    presented={int(row[0]):int(row[1]) for row in csv.reader((folder/'screen-capture-times.csv').open())}
-    samples=[dict(step=n,requested=t,presented=presented[t],**inspect(folder/f'screen-{t}.png'))
-             for n,t in zip(steps,times)]
-    assert identity(base/'adofai.sfc')==frozen
-    result=dict(passed=True,**frozen,suite_digest=suite_digest(),samples=samples)
-    (base/'verification/four-orb-visibility.json').write_text(json.dumps(result,indent=2))
-    print('FOUR-ORB VISIBILITY PASS',len(samples),flush=True)
+    for off in (False,True):
+        suffix='-vfx-off' if off else ''
+        subprocess.run([sys.executable,str(ROOT/'tools/run_mesen_campaign.py'),'--pack',args.pack,
+                        '--levels',str(local),'--autoplay','--sampled-graphics',
+                        *(['--vfx-off'] if off else []),'--capture-times',*map(str,times)],check=True)
+        folder=base/f'verification/mesen-{local}-autoplay{suffix}'
+        presented={int(row[0]):int(row[1]) for row in csv.reader((folder/'screen-capture-times.csv').open())}
+        samples=[dict(step=n,requested=t,presented=presented[t],**inspect(folder/f'screen-{t}.png'))
+                 for n,t in zip(steps,times)]
+        subprocess.run([sys.executable,str(ROOT/'tools/verify_mesen_ppu.py'),'--pack',args.pack,
+                        '--level',str(local),'--folder',str(folder)],check=True)
+        assert identity(base/'adofai.sfc')==frozen
+        result=dict(passed=True,**frozen,suite_digest=suite_digest(),samples=samples,vfx_off=off)
+        (base/f'verification/four-orb-visibility{suffix}.json').write_text(json.dumps(result,indent=2))
+        print('FOUR-ORB VISIBILITY PASS',len(samples),'VFX OFF' if off else 'VFX ON',flush=True)
 
 if __name__=='__main__':main()

@@ -1,5 +1,5 @@
 """Recover exact-build release evidence and run final sequential regressions."""
-import argparse,json,subprocess,sys
+import argparse,concurrent.futures,json,subprocess,sys
 from pathlib import Path
 from verification_data import identity,freeze_data_identity
 from run_mesen_campaign import suite_digest
@@ -13,7 +13,7 @@ def bound(path,frozen):
     d=read(path)
     assert d.get('passed') and all(d.get(k)==v for k,v in frozen.items()),str(path)
     return d
-def regressions(frozen,ids):
+def regressions(frozen,ids,workers=1):
     run('verify_menu_mode_mesen.py','--pack',BASE.name)
     run('verify_msu_header_mesen.py','--pack',BASE.name)
     sequence=[65,70,67,94,144,1]
@@ -23,12 +23,15 @@ def regressions(frozen,ids):
             pairs.append((ids.index(first)+1,ids.index(second)+1))
     # Keep both charts in the same emulator session for each transition,
     # without registering six simultaneous copies of the hardware probes.
-    for first,second in pairs:
+    def check_pair(pair):
+        first,second=pair
         path=V/f'sequence-{first}-{second}/manifest.json'
         prior=read(path) if path.exists() else {}
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
                 and all(prior.get(k)==v for k,v in frozen.items())):
             run('run_mesen_sequence.py','--pack',BASE.name,'--levels',first,second)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        for result in pool.map(check_pair,pairs):pass
     for n in (75,251):
         run('run_mesen_campaign.py','--pack',BASE.name,'--levels',ids.index(n)+1,'--prepare-only')
         run('verify_decoration_hitboxes_mesen.py','--pack',BASE,'--level-id',n)
@@ -43,12 +46,13 @@ def main():
     parser.add_argument('--pack',default='stock-refresh-master')
     parser.add_argument('--regressions-only',action='store_true')
     parser.add_argument('--catalog-only',action='store_true',help='Validate all exact-build replay evidence before running independent release features')
+    parser.add_argument('--regression-workers',type=int,default=1,help='Independent emulator processes for consecutive-level pairs')
     args=parser.parse_args();BASE=ROOT/'build/packs'/args.pack;V=BASE/'verification'
     frozen=identity(BASE/'adofai.sfc',fresh=True);ids=read(BASE/'pack.json')['levels'];rows=[]
     freeze_data_identity(BASE/'adofai.sfc',frozen)
     assert len(ids)==len(set(ids)) and ids
     if args.regressions_only:
-        regressions(frozen,ids)
+        regressions(frozen,ids,args.regression_workers)
         print('RELEASE REGRESSIONS PASS; CATALOG STILL REQUIRED',flush=True)
         return
     for local,n in enumerate(ids,1):
@@ -90,7 +94,7 @@ def main():
     previous=read(path) if path.exists() else {}
     if not (previous.get('passed') and previous.get('suite_digest')==suite_digest()
             and all(previous.get(k)==v for k,v in frozen.items())):
-        previous=regressions(frozen,ids)
+        previous=regressions(frozen,ids,args.regression_workers)
     features=[]
     if 'REFERENCE_SNAPSHOT_SEEDS = 1' in (BASE/'addresses.inc').read_text():
         path=V/'snapshot-storage.json';prior=read(path) if path.exists() else {}
@@ -117,10 +121,14 @@ def main():
         bound(path,frozen);features.append('snapshot-icon-negative.json')
     if 288 in ids:
         path=V/'four-orb-visibility.json';prior=read(path) if path.exists() else {}
+        alternate=V/'four-orb-visibility-vfx-off.json';other=read(alternate) if alternate.exists() else {}
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
-                and all(prior.get(k)==v for k,v in frozen.items())):
+                and all(prior.get(k)==v for k,v in frozen.items())
+                and other.get('passed') and other.get('suite_digest')==suite_digest()
+                and all(other.get(k)==v for k,v in frozen.items())):
             run('verify_four_orb_release.py','--pack',BASE.name)
         bound(path,frozen);features.append('four-orb-visibility.json')
+        bound(alternate,frozen);features.append('four-orb-visibility-vfx-off.json')
     if any(read(BASE/f'level{n}.json').get('mawaru_headings') for n in ids if n in (68,73)):
         path=V/'neo-headings.json';prior=read(path) if path.exists() else {}
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()

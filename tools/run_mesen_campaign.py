@@ -263,7 +263,8 @@ def main():
             scheduled+=',palette_script='+json.dumps((ROOT/'tools/verify_palette_mesen.lua').as_posix())+',palette={'+','.join('{'+','.join(map(str,e))+'}' for e in chart['track_palette_versions'])+'}'
         actions+=',wide_atlas='+str(bool(chart.get('wide_snapshot_atlas'))).lower()
         actions+=',indexed_color_support='+('true' if chart.get('indexed_color_frames') else 'false')
-        config='return {addr={'+','.join(k+'='+str(labels[k]) for k in names)+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'},out='+json.dumps(out.as_posix())+',level='+str(level)+',steps='+str(chart['steps'])+',hits='+str(chart['hits'])+',speed='+str(speed)+',attack='+str(int(args.time_attack))+',finish_centis='+str(round(chart['notes'][-1]['time']*100*1536/pitch) if 'time' in chart['notes'][-1] else round(chart['notes'][-1]['frame']/60.0988118623*100*1536/pitch))+',frames='+str(round(chart['duration']*60.099*1536/pitch)+600+(len(chart['checkpoints'])*900 if args.checkpoints else 0))+cpconfig+actions+'}\n'
+        frame_limit=round(chart['duration']*60.099*1536/pitch)+600+(len(chart['checkpoints'])*900 if args.checkpoints else 0)
+        config='return {addr={'+','.join(k+'='+str(labels[k]) for k in names)+'},times={'+','.join(str(n['frame']) for n in chart['notes'])+'},out='+json.dumps(out.as_posix())+',level='+str(level)+',steps='+str(chart['steps'])+',hits='+str(chart['hits'])+',speed='+str(speed)+',attack='+str(int(args.time_attack))+',finish_centis='+str(round(chart['notes'][-1]['time']*100*1536/pitch) if 'time' in chart['notes'][-1] else round(chart['notes'][-1]['frame']/60.0988118623*100*1536/pitch))+',frames='+str(frame_limit)+cpconfig+actions+'}\n'
         if 'native_animation_receive_done' in labels:
             coordinate_bank=0x800000 if 'SA1_FASTROM_MIRROR = 1' in (base/'addresses.inc').read_text() else 0
             scheduled+=',coordinates={script='+json.dumps((ROOT/'tools/verify_coordinates_mesen.lua').as_posix())+',done='+str(labels['native_animation_receive_done']+coordinate_bank)+',first=0x42B21E,last=0x42B220,x='+str(labels['NOTE_X'])+',y='+str(labels['NOTE_Y'])+',source_x='+str(labels.get('SYMBOL_X',0x410000))+',source_y='+str(labels.get('SYMBOL_Y',0x412200))+',limit='+str(labels.get('MAX_NOTE_CAPACITY',4352)*2)+'}'
@@ -273,9 +274,10 @@ def main():
         env=os.environ.copy();env['ADOFAI_TEST_CONFIG']=str(path)
         script='verify_checkpoints_mesen.lua' if args.checkpoints else 'verify_campaign_mesen.lua'
         if report.exists():report.unlink()
-        # Mesen's own default wall-clock limit is shorter than long songs
-        # under concurrent verification. Keep both limits explicit.
-        wall_limit=600 if args.checkpoints else 450
+        # Pixel/input probes can run slower than real time on a busy host.
+        # Scale the external process allowance with the replay length; the
+        # independent in-game frame limit and every assertion remain intact.
+        wall_limit=max(600 if args.checkpoints else 450,round(frame_limit/60.099*3)+60)
         result=subprocess.run([str(args.mesen),'--testrunner',f'--timeout={wall_limit}',str(base/'adofai.sfc'),str(ROOT/'tools'/script)],env=env,cwd=ROOT,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0,timeout=wall_limit+30,capture_output=True,text=True)
         (out/'emulator.log').write_text(result.stdout+result.stderr)
         report=out/'result.txt'

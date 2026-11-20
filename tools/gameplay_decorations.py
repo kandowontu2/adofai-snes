@@ -11,7 +11,23 @@ _PIECES=re.compile(r'(?:tile(?!able)|tileable[ _-]+(?:football|soccer)[ _-]+fiel
                    r'deathbar|laser|warning|obstacle|banana|coin|startrigger|hearttrigger)',re.I)
 
 
+def is_scripted_planet(dec):
+    """Recognize native planets and exported, independently animated bodies.
+
+    The exported-body convention uses a color-export image and b/bN actor
+    tags. Numbered 1ball/2ball/4ball sheets are separate tile-count cues.
+    """
+    if dec.get('eventType')=='AddObject' and dec.get('objectType')=='Planet':return True
+    image=dec.get('decorationImage','').replace('\\','/').rsplit('/',1)[-1]
+    tags=dec.get('tag','').split()
+    if (re.fullmatch(r'(?:red|blue|green|yellow)-export\.png',image,re.I)
+            and any(re.fullmatch(r'b\d*',tag) for tag in tags)):return True
+    return False
+
+
 def is_gameplay(dec,chart=None):
+    if is_scripted_planet(dec):return True
+    if re.fullmatch(r'(?:simple)?[1-8]ball\d*\.png',dec.get('decorationImage','').replace('\\','/').rsplit('/',1)[-1],re.I):return True
     if dec.get('maskingType')=='Mask':return True
     kind=dec.get('eventType')
     if kind in ('AddObject','AddText'):return True

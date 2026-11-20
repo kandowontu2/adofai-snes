@@ -28,7 +28,7 @@ def ready_renders(ids,rendered,wait):
             pending.remove(n);yield n
 
 
-def assemble(catalog, rendered, out, levels=None, imports=None,wait=False,storage_plan=None):
+def assemble(catalog, rendered, out, levels=None, imports=None,wait=False,storage_plan=None,stage_only=False):
     ids=levels or json.loads(catalog.read_text())['levels']
     out.mkdir(parents=True,exist_ok=True)
     assert not (out/'adofai.sfc').exists(),'Use a fresh output directory to preserve verified builds'
@@ -87,6 +87,18 @@ def assemble(catalog, rendered, out, levels=None, imports=None,wait=False,storag
                 shutil.copyfile(off/f'{prefix}{n}.bin',out/f'{prefix}_vfx_off{n}.bin')
             (out/f'level{n}.json').write_text(json.dumps(chart,indent=2))
     shutil.copyfile(catalog,out/'source-import-report.json')
+    if stage_only:
+        # Plan the same lossless seed/pose representation used by build_sa1,
+        # rather than counting the renderer's uncompressed restart atlases.
+        from compact_snapshot_seeds import patch_pack as compact_seeds
+        from snapshot_sharing import patch_pack as share_snapshots
+        from snapshot_seed_references import patch_pack as reference_seeds
+        print('Preparing lossless restart data',flush=True)
+        print('Restart atlas bytes saved:',compact_seeds(out),flush=True)
+        print('Repeated pose bytes saved:',share_snapshots(out),flush=True)
+        print('Restart-reference bytes saved:',reference_seeds(out),flush=True)
+        print('STAGED',len(ids),'CHARTS; generate a storage plan before assembling',flush=True)
+        return
     subprocess.run([sys.executable,str(ROOT/'tools/build_sa1.py'),'--source',str(out),'--out',str(out),'--no-pcm'],cwd=ROOT,check=True)
     print('ASSEMBLED',len(ids),'CHARTS',flush=True)
 
@@ -100,5 +112,6 @@ if __name__=='__main__':
     parser.add_argument('--imports',type=Path,help='Raw per-level imports when older render receipts lack a frozen source copy')
     parser.add_argument('--wait-for-renders',action='store_true',help='Stage completed songs while the remaining render jobs finish')
     parser.add_argument('--storage-plan',type=Path,help='Optional scenery budget from plan_catalog_storage.py; gameplay caches remain complete')
+    parser.add_argument('--stage-only',action='store_true',help='Prepare source assets for storage planning without building ROM/MSU files')
     args=parser.parse_args()
-    assemble(args.catalog,args.rendered,args.out,args.levels,args.imports,args.wait_for_renders,args.storage_plan)
+    assemble(args.catalog,args.rendered,args.out,args.levels,args.imports,args.wait_for_renders,args.storage_plan,args.stage_only)

@@ -97,8 +97,8 @@ remove that graphics data.
 The catalog uses shared complete screen poses and lossless native-event
 compression, including typed field prediction decoded by the SA-1. Tile
 detail and source motion updates are retained. To fit MSU-1's 4 GiB address
-limit, the current master includes 77 additional optional scenery caches;
-39 large decorative scenes use their complete gameplay cache in both VFX
+limit, the current master includes 80 additional optional scenery caches;
+35 large decorative scenes use their complete gameplay cache in both VFX
 settings. Required floors, hazards, minigames and T3 effects remain present.
 The full render caches can be used in smaller custom catalogs.
 

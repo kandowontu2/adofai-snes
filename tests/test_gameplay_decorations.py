@@ -28,6 +28,23 @@ class GameplayDecorationTests(unittest.TestCase):
         self.assertTrue(is_gameplay(dict(eventType='AddDecoration',decorationImage='state.png',tag='counter2')))
         self.assertFalse(is_gameplay(dict(eventType='AddDecoration',decorationImage='background.png',tag='input-glow')))
 
+    def test_numbered_planet_count_cues_are_gameplay(self):
+        for name in ('1ball.png','2ball135.png','4ball.png','4ball90.png','actors/8ball.png','simple2ball.png','simple3ball.png'):
+            self.assertTrue(is_gameplay(dict(eventType='AddDecoration',decorationImage=name)),name)
+        for name in ('balloon.png','orbital-background.png','background-4ball.png'):
+            self.assertFalse(is_gameplay(dict(eventType='AddDecoration',decorationImage=name)),name)
+
+    def test_exported_planet_actors_require_the_body_tag(self):
+        from gameplay_decorations import is_scripted_planet
+        for tag in ('b','b0','b19'):
+            dec=dict(eventType='AddDecoration',decorationImage='red-export.png',tag=tag)
+            self.assertTrue(is_scripted_planet(dec))
+            self.assertTrue(is_gameplay(dec))
+        self.assertFalse(is_scripted_planet(dict(decorationImage='red-export.png',tag='background')))
+        self.assertFalse(is_scripted_planet(dict(decorationImage='4ball.png')))
+        self.assertFalse(is_scripted_planet(dict(decorationImage='whiteball.png',tag='hero')))
+        self.assertFalse(is_gameplay(dict(decorationImage='avatar.png',tag='player1')))
+
     def test_translated_actor_proxies_require_the_existing_affine_adapter(self):
         data=dict(featured_actions=[dict(eventType='ScalePlanets',targetPlanet='All',scale=0)],
                   featured_decorations=[dict(objectType='Planet',relativeTo=p,position=[0,0]) for p in ('RedPlanet','BluePlanet')])

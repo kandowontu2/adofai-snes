@@ -655,11 +655,13 @@ lossless native-event/image compression. It can take hours for a large
 catalog. Completed compile/render stages can be resumed; do not reuse a
 failed projection cache after changing its imported source or VFX settings.
 
-MSU-1 can address at most 4 GiB. If a large catalog exceeds that limit, keep
-the staged output and generate a storage plan:
+MSU-1 can address at most 4 GiB. For a large catalog, use `--stage-only`
+on the first assembly command to prepare its files without creating the
+ROM/MSU. Then generate a storage plan and assemble into the same folder:
 
 ```powershell
-.\.venv\Scripts\python.exe tools/plan_catalog_storage.py --source build/packs/my-expanded-master --out build/catalog-work/storage-plan.json --workers 2
+.\.venv\Scripts\python.exe tools/assemble_catalog.py --catalog build/catalog-work/catalog.json --rendered build/catalog-work/rendered --out build/packs/my-budgeted-master --stage-only
+.\.venv\Scripts\python.exe tools/plan_catalog_storage.py --source build/packs/my-budgeted-master --out build/catalog-work/storage-plan.json --workers 2
 .\.venv\Scripts\python.exe tools/assemble_catalog.py --catalog build/catalog-work/catalog.json --rendered build/catalog-work/rendered --out build/packs/my-budgeted-master --storage-plan build/catalog-work/storage-plan.json
 ```
 

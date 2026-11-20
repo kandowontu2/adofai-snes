@@ -12,6 +12,25 @@ from make_assets import FPS
 
 
 class DecorationTrackTests(unittest.TestCase):
+    def test_scripted_planet_colors_cover_track_and_survive_vfx_off(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            rgba=np.zeros((100,100,4),dtype=np.uint8)
+            rgba[:50,:50]=(255,0,0,255);rgba[:50,50:]=(0,255,0,255)
+            rgba[50:,:50]=(0,0,255,255);rgba[50:,50:]=(255,255,0,255)
+            Image.fromarray(rgba).save(root/'red-export.png')
+            data=dict(source=str(root/'main.adofai'),bpm=120,featured_actions=[],featured_decorations=[
+                dict(eventType='AddDecoration',decorationImage='red-export.png',tag='b3',depth=-1)])
+            py,px=np.mgrid[:64,:64]
+            for off in (False,True):
+                chart=dict(notes=[dict(x=32,y=32,time=0,speed=1)],
+                           protect_gameplay_from_vfx=True,decoration_depth_order=True,decoration_vfx_off=off)
+                palette=np.zeros(256,dtype=np.uint16);palette[32]=0x4210
+                image=np.full((66,64),32,dtype=np.uint8)
+                result=DecorationTracks(data,chart).draw(image,0,px,py,0,palette)
+                colors=set(map(int,np.unique(palette[result])))
+                self.assertTrue({31,31<<5,31<<10,31|(31<<5)}<=colors,(off,colors))
+
     def test_sprite_masks_clip_pixels_without_drawing_the_mask(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);Image.new('RGBA',(100,100),'white').save(root/'block.png')
