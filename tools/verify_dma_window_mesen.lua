@@ -17,10 +17,18 @@ return function(C)
    -- Check the real map's references in bytes for either pixel depth.
    local indexed=C.indexed_color_support and emu.read(0x3efb8,S)%2==1
    local tilesPerBank=indexed and 256 or 512
-   for i=0,607 do
-    local a=0xe100+i*2;local entry=emu.read(a,V)+256*emu.read(a+1,V);local glyph=entry%1024
-    if C.wide_atlas then
-     local addr=(front==512 and 16384 or 0)+glyph*(indexed and 64 or 32)
+   local scroll=C.snapshot_aligned and 0 or 1
+   local first=math.floor(((C.viewport_top or 32)+scroll)/8)*32
+   local last=math.floor(((C.viewport_bottom or 176)-1+scroll)/8)*32+31
+   for i=first,last do
+    local a=0xe000+i*2;local entry=emu.read(a,V)+256*emu.read(a+1,V);local glyph=entry%1024
+    local addr=(C.wide_atlas and front==512 and 16384 or 0)+glyph*(indexed and 64 or 32)
+    -- Aligned 8-bpp poses use the immutable zero font tail as their
+    -- transparent glyph. It is outside both mutable atlases. Check
+    -- every byte rather than accepting an arbitrary outside slot.
+    if indexed and addr==0xa7c0 then
+     for byte=0,63 do assert(emu.read(addr+byte,V)==0,'Reserved transparent glyph contains nonzero pixels')end
+    elseif C.wide_atlas then
      assert(glyph==0 or (addr>=(front==512 and 20480 or 0) and addr<(front==512 and 40960 or 20480)),'Wide front map points outside its atlas')
     else
      assert(glyph==0 or (glyph>=tilesPerBank and 512 or 0)==front,'Prefetch front bank differs from hardware map')

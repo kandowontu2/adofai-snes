@@ -129,6 +129,12 @@ def main():
             run('verify_four_orb_release.py','--pack',BASE.name)
         bound(path,frozen);features.append('four-orb-visibility.json')
         bound(alternate,frozen);features.append('four-orb-visibility-vfx-off.json')
+    if 286 in ids:
+        path=V/'atlas-prefetch-negative.json';prior=read(path) if path.exists() else {}
+        if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
+                and all(prior.get(k)==v for k,v in frozen.items())):
+            run('verify_atlas_prefetch_negative.py','--pack',BASE.name)
+        bound(path,frozen);features.append('atlas-prefetch-negative.json')
     if any(read(BASE/f'level{n}.json').get('mawaru_headings') for n in ids if n in (68,73)):
         path=V/'neo-headings.json';prior=read(path) if path.exists() else {}
         if not (prior.get('passed') and prior.get('suite_digest')==suite_digest()
