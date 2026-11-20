@@ -393,8 +393,12 @@ nmi_fast:
     ldx #M7_HDMA_DISPLAY
     bra @table
 @mode1_scene:
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+    jsl menu_art_scene
+.else
     stx $4362
     ldx #.loword(hdma_hide)
+.endif
 .else
     ldx #.loword(hdma_hide)
     lda display_state

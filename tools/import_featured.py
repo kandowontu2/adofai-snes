@@ -114,9 +114,20 @@ def neo_fields(raw,data):
 
 
 def import_chart(meta,folder,out):
-    source=ROOT/meta['source'] if 'source' in meta else folder/meta['workshop']/'main.adofai'
+    source=ROOT/meta['source'] if 'source' in meta else folder/meta['workshop']/meta.get('chart_file','main.adofai')
     raw,repairs=read_chart(source)
-    neo_events={'Hold','FreeRoam','ScaleRadius','SetPlanetRotation'}
+    if meta.get('completion_floor') is not None:
+        # Multi-chart Workshop hubs wait indefinitely after their completion
+        # message so the player can choose another file from Unity's menu.
+        # Each cartridge entry instead ends at that same completed floor.
+        import copy
+        raw=copy.deepcopy(raw);last=meta['completion_floor']
+        if 'angleData' in raw:raw['angleData']=raw['angleData'][:last]
+        else:raw['pathData']=raw['pathData'][:last]
+        raw['actions']=[a for a in raw['actions'] if a['floor']<=last and
+                        not (a['floor']==last and a['eventType'] in ('Pause','SetSpeed'))]
+        repairs.append(f'End the standalone entry at completed floor {last}; omit the hub menu waiting floor')
+    neo_events={'Hold','FreeRoam','ScaleRadius','SetPlanetRotation','MultiPlanet'}
     has_neo=meta.get('neo_cosmos') or any(a['eventType'] in neo_events for a in raw['actions'])
     data=normalize_json(raw,dict(meta,text=meta.get('workshop',meta.get('archive')),neo_cosmos=bool(has_neo)))
     settings=raw['settings'];actions=raw['actions']

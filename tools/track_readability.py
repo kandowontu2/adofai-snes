@@ -35,7 +35,7 @@ def depth_schedule(chart,initial,changes,motion=None,camera_data=None):
     for frame in sorted(set(positions)|set(rotations)):
         if frame in positions:x,y=positions[frame]
         if frame in rotations:c,s=rotations[frame]
-        half=72-chart.get('viewport_inset',0)
+        half=max(104-chart.get('snapshot_map_top',32),72)-chart.get('viewport_inset',0)
         ex=(128*abs(c)+half*abs(s)+255)//256;ey=(half*abs(c)+128*abs(s)+255)//256
         extents[frame]=(ex+20,ey+20)
         norm=c*c+s*s
@@ -46,7 +46,7 @@ def depth_schedule(chart,initial,changes,motion=None,camera_data=None):
     widen_views(chart,views,transforms)
 
     chart['viewport_center_y']=104
-    chart['viewport_top']=32+chart.get('viewport_inset',0)
+    chart['viewport_top']=chart.get('snapshot_map_top',32)+chart.get('viewport_inset',0)
     chart['viewport_bottom']=176-chart.get('viewport_inset',0)
     chart['render_viewports']=views
     if rotations:chart['render_transforms']=transforms

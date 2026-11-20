@@ -57,6 +57,13 @@ def compile_regions(data, chart):
                 root=data['native_positions'][r['step']];scale=24/data['native_tile_size']
                 r['coins']=[[round((e['position'][0]-root[0])*scale),round(-(e['position'][1]-root[1])*scale)] for e in entities if e['path_id'] in ids]
                 r['coin_check']=round(r['start']+29.9*beat)
+        elif data['id']==299:
+            pickups=[d for d in data.get('featured_decorations',[]) if d.get('floor',0)==r['step']
+                     and d.get('decorationImage')=='Banana.png' and d.get('hitbox')=='Event']
+            r['coins']=[[round(24*d['position'][0]),round(-24*d['position'][1])] for d in pickups]
+            r['coin_types']=[3]*len(pickups)
+            r['coin_required']=len(pickups);r['coin_check']=r['return_start']
+            r['demo_collect_all']=True
         elif data['id']==70:
             index=data['floors'][r['step']]['freeroamRegion']
             if index==8:r['goal']=[552,0]
@@ -90,6 +97,9 @@ def compile_regions(data, chart):
             r['demo_route']=hazard_route(r,n)
         else:
             r['demo_route']=demo_route(r,n)
+    if data['id']==312:
+        from decoration_pickups import configure
+        configure(data,chart)
 
 
 def compile_laser(data, region, beat):
@@ -132,7 +142,11 @@ def demo_route(region,note,reverse=False):
     """A legal controller route for autoplay and independent manual replays."""
     cells={tuple(p) for p in region['cells']}
     goals=[(round(x/24)*24,round(y/24)*24) for x,y in region.get('coins',[])]
-    goals=[p for p in goals if p in cells][:3]
+    if region.get('demo_collect_all'):
+        # Edge pickups can sit one orbit radius beyond the grid. Visit the
+        # nearest landable pivot and let the second planet collect them.
+        goals=list(dict.fromkeys(min(cells,key=lambda q:abs(p[0]-q[0])+abs(p[1]-q[1])) for p in goals))
+    else:goals=[p for p in goals if p in cells][:3]
     if region.get('goal'):goals=[tuple(region['goal'])]
     if reverse:goals.reverse()
     current=tuple(region.get('entry',(0,0)));angle=note['angle'];at=region['start'];result=[]

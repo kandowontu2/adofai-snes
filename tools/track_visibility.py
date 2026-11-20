@@ -189,6 +189,36 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
         notes[region['step']]['freeroam_grid']=dict(region)
     bound=chart.get('motion_bounds',[max(n['x'] for n in notes),max(n['y'] for n in notes)])
     width=1<<math.ceil(math.log2((bound[0]+200)/8));height=math.ceil((bound[1]+160)/8)
+    # A floor can briefly grow thousands of pixels wide. Its largest
+    # footprint is indexed for later animation, but cells outside every
+    # authored camera rectangle can never be sampled by a full snapshot.
+    # Merge row spans instead of materializing that enormous empty area.
+    coverage=None
+    if chart.get('full_snapshot_source') and chart.get('render_viewports') and chart.get('index_render_viewports',True):
+        pending=collections.defaultdict(list)
+        for x,y,w,h in set(map(tuple,chart['render_viewports'].values())):
+            left=max(0,x-2);right=min(width,x+w+2)
+            for row in range(max(0,y-2),min(height,y+h+2)):
+                pending[row].append((left,right))
+        coverage={}
+        for row,spans in pending.items():
+            merged=[]
+            for left,right in sorted(spans):
+                if left>=right:continue
+                if merged and left<=merged[-1][1]:merged[-1]=(merged[-1][0],max(right,merged[-1][1]))
+                else:merged.append((left,right))
+            coverage[row]=merged
+    def footprint_bounds(x0,y0,w,h):
+        return max(0,(x0-1)//8),min(width,(x0+w+8)//8),max(0,(y0-1)//8),min(height,(y0+h+8)//8)
+    def footprint_rows(bounds):
+        left,right,top,bottom=bounds
+        for y in range(top,bottom):
+            for a,b in coverage.get(y,()) if coverage is not None else ((left,right),):
+                start,end=max(left,a),min(right,b)
+                if start<end:yield y,start,end
+    def footprint_cells(x0,y0,w,h):
+        for y,start,end in footprint_rows(footprint_bounds(x0,y0,w,h)):
+            for x in range(start,end):yield x,y
     pieces=[];preview_pieces=[];cells=collections.defaultdict(set);seams=[];preview_seams=[]
     preview_notes=notes
     for i,n in enumerate(notes):
@@ -222,19 +252,26 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
     for updates in scales.values():
         for i,value in updates.items():radii[i]=max(radii[i],math.ceil(max(abs(v) for v in value)*base_radii[i]))
     if rotations:chart['tile_rotation_version']=1
+    dirty_scope=None
+    def piece_rectangle(i,dx,dy):
+        x0,y0,im=base_pieces[i];x0+=dx;y0+=dy
+        w,h=im.size
+        # A rotated corner can extend outside its unrotated footprint.
+        # Keep a conservative sweep around the floor's own pivot.
+        if (rotations or radii[i]!=23) and notes[i].get('hold_length',-1)<0 and not any(k in notes[i] for k in ('scene_visual','warp_visual')):
+            radius=radii[i]
+            x0=notes[i]['x']+dx-radius;y0=notes[i]['y']+dy-radius
+            w=h=radius*2+1
+        return x0,y0,w,h
     def piece_cells(i,dx,dy):
-        result=set()
-        for part,ox,oy in [(base_pieces[i],dx,dy)]:
-            x0,y0,im=part;x0+=ox;y0+=oy
-            w,h=im.size
-            # A rotated corner can extend outside its unrotated footprint.
-            # Keep a conservative sweep around the floor's own pivot.
-            if (rotations or radii[i]!=23) and notes[i].get('hold_length',-1)<0 and not any(k in notes[i] for k in ('scene_visual','warp_visual')):
-                radius=radii[i]
-                x0=notes[i]['x']+dx-radius;y0=notes[i]['y']+dy-radius
-                w=h=radius*2+1
-            result.update((x,y) for y in range(max(0,(y0-1)//8),min(height,(y0+h+8)//8)) for x in range(max(0,(x0-1)//8),min(width,(x0+w+8)//8)))
-        return result
+        rectangle=piece_rectangle(i,dx,dy)
+        left,right,top,bottom=footprint_bounds(*rectangle)
+        if dirty_scope is not None and (right-left)*(bottom-top)>len(dirty_scope)*2:
+            # A zoomed-out floor may cover millions of world cells while
+            # the PPU samples only a few thousand. Include sampled cells
+            # and the previous nonzero cells that must be cleared.
+            return {(x,y) for x,y in dirty_scope if left<=x<right and top<=y<bottom}
+        return set(footprint_cells(*rectangle))
     if chart.get('mode7'):
         from track_motion import nearby_motion
         render_motion=nearby_motion(chart,motion,initial,changes)
@@ -251,11 +288,23 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
     if chart.get('reuse_motion_phase'):
         from raster_phase import motion as shift_motion
         render_motion=shift_motion(chart,render_motion)
+    footprints=collections.defaultdict(set)
     for i in {i for updates in rotations.values() for i in updates}|{i for updates in scales.values() for i in updates}:
-        for x,y in piece_cells(i,0,0):cells[x,y].add(i)
+        footprints[i].add(footprint_bounds(*piece_rectangle(i,0,0)))
     for updates in render_motion.values():
         for i,(dx,dy) in updates.items():
-            for x,y in piece_cells(i,round(dx/grid)*grid,round(dy/grid)*grid):cells[x,y].add(i)
+            footprints[i].add(footprint_bounds(*piece_rectangle(i,round(dx/grid)*grid,round(dy/grid)*grid)))
+    for i,rectangles in footprints.items():
+        # Index each floor/cell pair once, rather than once per animation
+        # frame. The union is identical even for enormous scaled floors.
+        rows=collections.defaultdict(list)
+        for bounds in rectangles:
+            for y,left,right in footprint_rows(bounds):rows[y].append((left,right))
+        for y,spans in rows.items():
+            end=-1
+            for left,right in sorted(spans):
+                for x in range(max(left,end),right):cells[x,y].add(i)
+                end=max(end,right)
     mode7=chart.get('mode7',False)
     if mode7 and chart.get('shared_track_contour'):chart['track_separators_version']=1
     scene=None
@@ -272,7 +321,7 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             writes={(f,i):v for f,i,v in chart['track_palette_versions']}
             writes.update({(f,i):v for f,i,v in scene.palette()})
             chart['track_palette_versions']=[(f,i,v) for (f,i),v in sorted(writes.items())]
-    alpha=list(initial);tiles=[bytes(64 if mode7 else 32)];lookup={tiles[0]:0};history={};current={}
+    alpha=list(initial);tiles=[bytes(64 if mode7 else 32)];lookup={tiles[0]:0};history={};current={};nonzero_cells=set()
     view_events={int(f):v for f,v in chart.get('render_viewports',{}).items()}
     if scene:
         previous=view_events[0]
@@ -454,22 +503,32 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
                 if history[x,y][-1][0]==frame:history[x,y][-1]=(frame,value)
                 else:history[x,y].append((frame,value))
                 current[x,y]=value
+                if value:nonzero_cells.add((x,y))
+                else:nonzero_cells.discard((x,y))
     def render(dirty,frame):
         chunks=collections.defaultdict(set)
         for x,y in dirty:chunks[x//16,y//16].add((x,y))
         for group in chunks.values():render_patch(group,frame)
     def rectangle(view):
         x,y,w,h=view
+        if precise is not None:
+            return {p for p in precise if p in cells and in_view(*p)}
         return {(xx,yy) for yy in range(y,y+h) for xx in range(x,x+w) if (xx,yy) in cells and in_view(xx,yy)}
     grid_events=collections.defaultdict(list)
     for region in chart.get('freeroam_regions',[]):
         for frame in set(region.get('cell_deaths',[]))-{65535}:grid_events[frame].append(region['step'])
+    if chart.get('full_snapshot_source') and chart.get('scope_precise_dirty',True) and precise is not None:
+        dirty_scope=precise|nonzero_cells
     render(set(cells) if viewport is None else rectangle(viewport),0)
+    next_progress=1800
     for frame in sorted(set(changes)|set(render_motion)|set(rotations)|set(color_changes)|set(detail_events)|set(view_events)|set(scales)|set(grid_events)|set(scene.frames if scene else [])):
         # While the final landing is pending, mode7_landing_time clamps the
         # scene to its frame minus one. Accepting it freezes the scene for
         # results. Never allocate patterns for unreachable post-clear views.
         if mode7 and frame>=notes[-1]['frame']:break
+        if chart.get('full_snapshot_source') and frame>=next_progress:
+            print(chart['code'],'geometry frame',frame,'of',notes[-1]['frame'],flush=True)
+            next_progress=(frame//1800+1)*1800
         updates=changes.get(frame,{})
         dirty=set()
         if frame in view_events:
@@ -477,6 +536,7 @@ def animated_track(chart,initial,changes,grid=1,motion=None,color_data=None,auth
             transform=transforms.get(frame,transform)
             if precise is not None:precise=sampled(frame)
             dirty.update(old ^ rectangle(viewport))
+        if dirty_scope is not None:dirty_scope=precise|nonzero_cells
         if scene and scene.first<=frame<=scene.last:
             dirty.update(rectangle(viewport))
         for i in grid_events.get(frame,[]):

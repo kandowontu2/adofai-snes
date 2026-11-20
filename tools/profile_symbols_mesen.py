@@ -13,6 +13,7 @@ def main():
     ap.add_argument('--last',type=int,required=True)
     ap.add_argument('--tag',required=True)
     ap.add_argument('--vfx-off',action='store_true')
+    ap.add_argument('--timing-only',action='store_true',help='Capture an older reference ROM without applying newer pixel oracles; not release verification')
     args=ap.parse_args()
     base=ROOT/'build/packs'/args.pack
     ids=json.loads((base/'pack.json').read_text())['levels']
@@ -25,20 +26,32 @@ def main():
     out=base/f'verification/symbols-{args.level}-{args.tag}'
     out.mkdir(parents=True,exist_ok=True)
     labels={n:int(a,16) for a,n in re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)',(base/'adofai.lbl').read_text())}
+    observers='''for _,k in ipairs({'palette_script','screen_script','icons','arc','objects','copies','math','midspin','dma_script','input_script','holds','triplet','preview','snapshot_icons','symbol_scale','twirl_stream','coordinates','sparse'})do C[k]=nil end''' if args.timing_only else ''
     script=f'''local C=dofile({json.dumps(config.as_posix())})
 C.out={json.dumps(out.as_posix())};C.graphics_dumps=false;C.profile_ranges=nil
+{observers}
 local W=emu.memType.snesWorkRam
 local function word(a)return emu.read(a,W)+256*emu.read(a+1,W)end
 local first,last={args.first},{args.last}
 local f=assert(io.open(C.out..'/samples.csv','w'));f:write('time,step,clocks,oam_bytes,visible_bytes,gap\\n')
 local dump=assert(io.open(C.out..'/oam.bin','wb'))
+local commits=assert(io.open(C.out..'/commits.csv','w'));commits:write('time,step,gap\\n')
 local entered=0;local ready=0;local start=nil;local frame=0;local previous=nil;local gap=0;local maxGap=0
 local samples=0;local clocks=0;local maxClocks=0;local maxObjects=0
+local symbolSamples=0;local symbolClocks=0;local maxSymbolClocks=0
 emu.addMemoryCallback(function()
  entered=entered+1
  local step=word(C.addr.step)
  if word(C.addr.state)==1 and step>=first and step<=last then start=emu.getState().masterClock else start=nil end
 end,emu.callbackType.exec,{labels['render_symbols']|0x800000},{labels['render_symbols']|0x800000},emu.cpuType.snes)
+-- The common portal label ends both sparse and worker icon paths. Keep
+-- full post-render clocks above, but measure symbol work separately from
+-- trails, copied planets, and the next presentation/IRQ wait.
+emu.addMemoryCallback(function()
+ if not start then return end
+ local n=emu.getState().masterClock-start
+ symbolSamples=symbolSamples+1;symbolClocks=symbolClocks+n;maxSymbolClocks=math.max(maxSymbolClocks,n)
+end,emu.callbackType.exec,{labels['snapshot_sparse_complete']|0x800000},{labels['snapshot_sparse_complete']|0x800000},emu.cpuType.snes)
 emu.addMemoryCallback(function(a,v)
  ready=ready+1
  if v~=1 or not start then return end
@@ -55,15 +68,17 @@ emu.addEventCallback(function()
  if word(C.addr.state)==1 and step>=first and step<=last then
   local commit=word(C.addr.commits)
   gap=gap+1
-  if previous and commit~=previous then maxGap=math.max(maxGap,gap);gap=0 end
+  if previous and commit~=previous then
+   maxGap=math.max(maxGap,gap);commits:write(word(C.addr.chart_time)..','..step..','..gap..'\\n');gap=0
+  end
   previous=commit
  end
  if step>last then
   print("callbacks",entered,ready,samples)
-  assert(samples>0,"No symbol samples: "..entered..","..ready)
-  f:close();dump:close()
+  assert(samples>0 and symbolSamples>0,"No symbol samples: "..entered..","..ready)
+  f:close();dump:close();commits:close()
   local r=assert(io.open(C.out..'/timing.json','w'))
-  r:write(string.format('{{"samples":%d,"mean_clocks":%.1f,"max_clocks":%d,"max_objects":%d,"max_gap":%d}}',samples,clocks/samples,maxClocks,maxObjects,maxGap));r:close();emu.stop(0)
+  r:write(string.format('{{"samples":%d,"mean_clocks":%.1f,"max_clocks":%d,"max_objects":%d,"max_gap":%d,"symbol_samples":%d,"mean_symbol_clocks":%.1f,"max_symbol_clocks":%d,"symbol_boundary":"entry_to_portal"}}',samples,clocks/samples,maxClocks,maxObjects,maxGap,symbolSamples,symbolClocks/symbolSamples,maxSymbolClocks));r:close();emu.stop(0)
  end
 end,emu.eventType.endFrame)
 local original=os.getenv

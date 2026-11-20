@@ -14,7 +14,7 @@ def verify(pack):
 local W=emu.memType.snesWorkRam
 local function w(n)return emu.read(A[n],W)+256*emu.read(A[n]+1,W)end
 local frame=0
-local presses={[90]='b',[110]='right',[130]='up',[150]='right',[170]='start',[190]='b',[210]='right'}
+local presses={[90]='select',[110]='right',[130]='up',[150]='right',[170]='start',[190]='select',[210]='right'}
 emu.addEventCallback(function()
  frame=frame+1
  if frame==105 then assert(w('state')==7 and w('vfx_enabled')==0,'VFX default/options entry') end

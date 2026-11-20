@@ -1,0 +1,14 @@
+{
+  "287": {
+    "Particle2.png": {"kind": "source", "image": "3_Particle 1_15158.png"}
+  },
+  "300": {
+    "Cierra.png": {"kind": "warning", "size": [1000, 1000]},
+    "Dont get distracted2.png": {"kind": "text", "text": "DON'T GET DISTRACTED!"},
+    "Fake2.2.png": {"kind": "portal"},
+    "Fake2.png": {"kind": "warning", "size": [100, 100]},
+    "Sin título.png": {"kind": "planet"},
+    "unknown (12).png": {"kind": "portal"},
+    "unknown (16).png": {"kind": "portal"}
+  }
+}

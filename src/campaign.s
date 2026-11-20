@@ -22,6 +22,7 @@
 :
 .endmacro
 .include "addresses.inc"
+.include "src/snapshot_layout.inc"
 .macro start_dma channel
 .ifdef NEO_BUILD
 .if channel = 1
@@ -459,7 +460,7 @@ CLONE_PARAMS=$43EF88 ; four (cos,sin,shift-x,shift-y,arc-phase) Q8/Q4 transforms
 CLONE_INPUT_BYTES=$43EFB0
 CLONE_OUTPUT_BYTES=$43EFB2
 M1_PREFETCH_READY=$43EFB4
-M1_BUILD_FORMAT=$43EFB6 ; bit 0=8-bpp Mode 3, bit 1=640-chunk wide atlas
+M1_BUILD_FORMAT=$43EFB6 ; bit 0=8-bpp, bit 1=wide atlas, bit 2=aligned/full slot zero
 M1_FRONT_FORMAT=$43EFB8
 CLONE_INPUT=$429620
 CLONE_OUTPUT=$429840
@@ -540,6 +541,7 @@ STREAM_CHR=$430000
 .assert STREAM_CHR >= M7_RAW_TO_PPU+$8000, error, "Inline textures overlap raw pattern lookup"
 .assert STREAM_CHR+256*64 <= M7_PATTERN_STAGE, error, "Inline textures overlap staged PPU textures"
 STREAM_BUFFER=$42C000
+.assert STREAM_BUFFER+$4000 = $430000, error, "Snapshot source window must end at its bank boundary"
 .assert STREAM_DELTA_BASE+512 <= STREAM_DELTA_SPAN, error, "Delta tags overlap spans"
 .assert STREAM_DELTA_SPAN+512 <= STREAM_DELTA_BUDGET, error, "Delta spans overlap budget"
 .assert STREAM_DELTA_BUDGET+2 <= STREAM_SHADOW_TAG, error, "Delta budget overlaps shadow tags"
@@ -598,6 +600,14 @@ NATIVE_CAMERA_X=$42B21A
 NATIVE_CAMERA_Y=$42B21C
 NATIVE_COORD_BEGIN=$42B21E
 NATIVE_COORD_END=$42B220
+NATIVE_LZ4_RESUME=$42B222
+NATIVE_COORD_DELTA=$42B224
+; Native decoding and icon/copy jobs are serialized. Reuse their inactive
+; IRAM scratch for typed predictors rather than fetching every field in BW-RAM.
+NATIVE_FILTER_INDICES=$000100
+NATIVE_FILTER_VALUES=$000180
+.assert NATIVE_FILTER_VALUES+104 <= $000220, error, "Native predictors overlap executable overlays"
+.export NATIVE_LZ4_RESUME
 M7_SPARSE_BATCH=$43E800
 M7_MISSING_LIST=$43F400
 M7_CACHE_MISSING_COUNT=$416C64
@@ -703,6 +713,8 @@ START=$1000
 SELECT=$2000
 
 .segment "ZEROPAGE"
+MENU_OPTIONS_SELECT=1
+.export MENU_OPTIONS_SELECT
 tick: .res 2
 last_tick: .res 2
 joy: .res 2
@@ -833,6 +845,9 @@ rom_data_ptr: .res 3
 ; Decoration collision cursor is transient; preserve the existing stream pointers.
 .segment "ZEROPAGE"
 neo_deco_ptr: .res 3
+.ifndef ROM_DATA_BUILD
+neo_note_ptr: .res 3
+.endif
 .segment "BSS"
 neo_deco_cursor: .res 2
 neo_deco_count: .res 2
@@ -968,8 +983,14 @@ neo_free_angle: .res 2
 neo_free_time: .res 2
 neo_free_hops: .res 2
 neo_free_clock: .res 2
-neo_coin_mask: .res 2
+neo_coin_mask: .res 4
 neo_free_collected: .res 2
+neo_pickup_counts: .res 6
+neo_pickup_checked: .res 2
+neo_pickup_strikes: .res 2
+neo_pickup_checkpoint_strikes: .res 2
+neo_pickup_mask_word: .res 2
+neo_pickup_rule: .res 2
 neo_free_checked: .res 2
 neo_free_index: .res 2
 neo_free_mask: .res 2
@@ -1172,6 +1193,8 @@ neo_curve_cache_record: .res 2
 sprite_limit: .res 2
 .ifdef PLANET_SCALE_BUILD
 planet_scale_values: .res 6
+planet_scale_level: .res 2
+planet_scale_entry: .res 2
 .endif
 
 .segment "CODE"
@@ -2081,9 +2104,13 @@ start_game:
 .include "src/planet_scale.inc"
 .endif
 .include "src/neo_math.inc"
+.include "src/objective_hud.inc"
 .endif
 .include "src/effects.inc"
 .include "src/hud.inc"
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+.include "src/menu_preview.inc"
+.endif
 .ifdef SA1_BUILD
 .include "src/hud_dma.inc"
 .endif
@@ -2140,6 +2167,9 @@ text_msu_missing: .byte "MSU DATA MISSING: SEE README",0
 .endif
 hdma_show: .byte 32,$16,127,$17,33,$17,32,$16,0
 hdma_hide: .byte 127,$16,97,$16,0
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+hdma_menu_art: .byte 127,$17,97,$17,0
+.endif
 .ifdef NEO_BUILD
 .segment "NEOCODE"
 .endif

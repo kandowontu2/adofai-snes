@@ -145,14 +145,14 @@ sprite:
     bra @append
 @field:
     lda sprite_y
-    cmp #32
+    cmp #GAMEPLAY_VIEW_TOP
     bcs @top_ok
 .ifdef SA1_BUILD
     lda sprite_attr
     cmp #$21
     jne @done
     lda sprite_y
-    cmp #25
+    cmp #GAMEPLAY_VIEW_TOP-7
     jcc @done
 .else
     jmp @done
@@ -857,7 +857,7 @@ render_symbols:
     jmp @next
 @event_x:
     lda sprite_y
-    cmp #32
+    cmp #GAMEPLAY_VIEW_TOP
     jcc @next
     cmp #191
     bcc @event_visible

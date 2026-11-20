@@ -70,7 +70,7 @@ worker_arc:
     clc
     adc a:.loword(TRAIL_JOB+2)
     sta view_y
-    cmp #32
+    cmp #GAMEPLAY_VIEW_TOP
     jcc @done
     cmp #177
     jcs @done

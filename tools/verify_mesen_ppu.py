@@ -4,7 +4,7 @@ from pathlib import Path
 from verify_render import map_reader
 ROOT=Path(__file__).resolve().parents[1]
 
-def sprite_tiles(oam,vram):
+def sprite_tiles(oam,vram,top=32):
     """Decode actual small tile overlays, and check both hardware limits."""
     overlays={};objects=[0]*224;slivers=[0]*224;first_overlay=None
     for i in range(128):
@@ -17,7 +17,7 @@ def sprite_tiles(oam,vram):
         # A perfectly valid tile cache can therefore mask parts of an icon.
         if size==16 and attr in (0x32,0x34,0x36):
             assert first_overlay is None,('Gameplay icon behind tile-cache OBJ',i,first_overlay,tile)
-        for line in range(max(32,y),min(176,y+size)):
+        for line in range(max(top,y),min(176,y+size)):
             objects[line]+=1;slivers[line]+=size//8
         if attr==0x21 and size==8 and tile<128:
             if first_overlay is None:first_overlay=i
@@ -67,7 +67,7 @@ def verify(base,level,folder):
         mapping=blob[16:272];vram=blob[272:272+65536];pixels=vram[:32768][1::2]
         extended=len(blob)>16+256+32768
         palette=struct.unpack_from('<256H',blob,272+65536) if extended else None
-        overlays=sprite_tiles(blob[-544:],vram) if extended else {}
+        overlays=sprite_tiles(blob[-544:],vram,chart.get('viewport_top',32)) if extended else {}
         if projected_frames and mode==7:
             from mode1_tracks import decode_tile
             at=bisect.bisect_right(projected_times,time)-1
@@ -92,7 +92,7 @@ def verify(base,level,folder):
             top=chart.get('viewport_top',32);bottom=chart.get('viewport_bottom',176)
             for sy in range(top,bottom):
                 # The SNES adds one scanline to a BG's zero vertical scroll.
-                py=sy+1
+                py=sy+(0 if chart.get('snapshot_aligned') else 1)
                 for sx in range(256):
                     addr=(py//8)*32+sx//8
                     entry=struct.unpack_from('<H',vram,0xE000+addr*2)[0]
@@ -103,7 +103,7 @@ def verify(base,level,folder):
                     raw=vram[atlas_base+(entry&1023)*stride:atlas_base+(entry&1023)*stride+stride]
                     p=sum(((raw[y*2+(plane&1)+(plane//2)*16]>>(7-x))&1)<<plane for plane in range(8 if mode in (4,8) else 4))
                     index=p if mode in (4,8) else ((entry>>10)&7)*16+p if p else 0
-                    wanted_index=int(expected[py,sx])
+                    wanted_index=int(expected[sy+1,sx])
                     want=int(projected_source.palette[wanted_index])
                     assert (p==0 if wanted_index==0 else p!=0 and palette[index]==want),(path,'projected pixel',step,time,sx,sy,palette[index],want,entry)
                     checked_pixels+=1

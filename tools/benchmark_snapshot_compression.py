@@ -9,6 +9,8 @@ from animation_bulk import HEADER, records
 
 
 def poses(folder, level):
+    chart = json.loads((folder / f'level{level}.json').read_text())
+    header_bytes = 96 + (184 - chart.get('snapshot_map_top', 32)) * 8
     stream = (folder / f'stream_data{level}.bin').read_bytes()
     index = (folder / f'stream_index{level}.bin').read_bytes()
     refs, seen = set(), set()
@@ -34,10 +36,10 @@ def poses(folder, level):
             raw = body
         elif kind in (45,46,47):
             from snapshot_codec import decode,decode_split
-            raw=(decode_split if kind in (46,47) else decode)(body,count)
+            raw=(decode_split if kind in (46,47) else decode)(body,count,header_bytes=header_bytes)
         else:
             assert kind == 41, kind
-            raw, pos = bytearray(body[:1312]), 1312
+            raw, pos = bytearray(body[:header_bytes]), header_bytes
             for _ in range(count):
                 tag = body[pos]
                 pos += 1
@@ -47,7 +49,7 @@ def poses(folder, level):
                 raw += glyph if tag == 0 else glyph + bytes(16) if tag == 1 else bytes(16) + glyph
                 pos += n
             assert pos == len(body)
-        assert len(raw) == 1312 + count * 32
+        assert len(raw) == header_bytes + count * 32
         yield size, bytes(raw)
 
 
@@ -59,6 +61,7 @@ def benchmark(folder, levels):
             raise ValueError(f'Level {level} is not an independent-pose stream')
         totals = dict(current=0, raw=0, lz4=0, lz4_split=0, deflate=0)
         count = 0
+        header_bytes = 96 + (184 - chart.get('snapshot_map_top', 32)) * 8
         for current, raw in poses(folder, level):
             count += 1
             totals['current'] += current
@@ -66,7 +69,7 @@ def benchmark(folder, levels):
             packed = lz4.block.compress(raw, mode='high_compression', compression=12, store_size=False)
             assert lz4.block.decompress(packed, uncompressed_size=len(raw)) == raw
             totals['lz4'] += 2 + min(len(packed), len(raw))
-            for part in (raw[:1312], raw[1312:]):
+            for part in (raw[:header_bytes], raw[header_bytes:]):
                 packed = lz4.block.compress(part, mode='high_compression', compression=12, store_size=False)
                 assert lz4.block.decompress(packed, uncompressed_size=len(part)) == part
                 totals['lz4_split'] += 2 + min(len(packed), len(part))

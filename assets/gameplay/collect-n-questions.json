@@ -1,0 +1,11 @@
+{
+  "description": "Compact SNES prompts for the five complex-plane questions. Answer positions come from the original chart colliders. The final prompt expresses the centroid transform using its imaginary component.",
+  "questions": [
+    ["Q11: X^2+4=0, X=SQRT(R), R REAL", "FIND X ON THE COMPLEX PLANE.", ""],
+    ["Q12: FIND ((1+I)/SQRT(2))^74", "", ""],
+    ["Q13: A IS THE REAL EIGENVALUE", "OF [-1,3;-3,5]. FIND", "(A/4)*(6+I)."],
+    ["Q14: A=INTEGRAL(1/Z) AROUND", "THE POSITIVE UNIT CIRCLE.", "FIND I*A/PI + EXP(A/2)."],
+    ["Q15: Z=(Q12+Q13+Q14)/3.", "FIND -4*IM(Z)-2I*IM(Z).", ""],
+    ["ALL FIVE QUESTIONS COMPLETE.", "WAIT FOR THE TRACK TO RETURN.", ""]
+  ]
+}

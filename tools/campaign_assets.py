@@ -123,6 +123,8 @@ def compile_chart(data):
             'notes':notes,'checkpoints':checkpoints,'first_frame':notes[1]['frame'],'last_frame':notes[-1]['frame'],
             'steps':n-1,'hits':sum(not(v['flags']&8) for v in notes[1:]),'beat_frames':round(beat*FPS),
             'first_arc_frames':round(arc(fs[0])*beat/fs[0]['speed']*FPS)}
+    result['snapshot_map_top']=16
+    result['protect_gameplay_from_vfx']=True
     if data.get('native_layout_version',0)>=2:result['native_layout_version']=data['native_layout_version']
     if data.get('neo_cosmos'):
         from neo_audio import hold_events
@@ -133,6 +135,9 @@ def compile_chart(data):
         from neo_visuals import configure
         configure(data,result)
     # Gems is an authored track style, not a T3/T4-only special case.
+    from gameplay_decorations import has_replacements
+    if has_replacements(data):
+        result.update(decoration_tracks=True,decoration_depth_order=True)
     from track_colors import sequences
     for note,sequence in zip(notes,sequences(data,result)):
         if sequence[0][3][5]=='Gems':note['gem_platform']=True
@@ -141,7 +146,7 @@ def compile_chart(data):
         result.update(decoration_tracks=True,decoration_depth_order=True,
                       decoration_background_resolution=2,
                       decoration_background_only=True,decoration_background_brightness=.35)
-    if data['id'] in (284,285,287,288,291,292,293,294,295,296,297) or data.get('triple_planet') and data.get('featured_decorations'):
+    if data['id'] in (284,285,287,288,291,292,293,294,295,296,297,298,299,300) or data['id'] in range(301,323) or data.get('triple_planet') and data.get('featured_decorations'):
         result.update(decoration_tracks=True,decoration_depth_order=True)
     if data.get('live_planet_proxies'):
         result['live_planet_proxies']=True
@@ -151,6 +156,31 @@ def compile_chart(data):
         result['decoration_text_contrast']=True
     if data['id']==297:
         result['decoration_background_resolution']=2
+    if data['id']==298:
+        # The eight authored AddObject planets replace hidden core planets.
+        # Keep a light playfield behind its black track with VFX disabled.
+        result.update(decoration_backdrop='e0e0e0',decoration_background_resolution=2,
+                      decoration_background_tags=['circ','circmask'])
+    if data['id'] in range(299,323):
+        result['decoration_background_resolution']=2
+        result['conditional_visual_success_route']=True
+    if data['id']==299:
+        # The live objective renderer owns collection visibility. A baked
+        # PNG cannot disappear in response to the player's actual route.
+        result['decoration_background_tags']=['Banana1','Banana2','Banana3','Banana4']
+    if data['id']==155:
+        # Sunspotter hides its stock floors and replaces them with PNG tiles.
+        # These are gameplay, including the opening, rather than optional VFX.
+        result.update(decoration_tracks=True,decoration_depth_order=True,
+                      decoration_backdrop=data.get('track_settings',{}).get('backgroundColor','7b7b7b'),
+                      decoration_gameplay_images=[None]+sorted({d['decorationImage']
+                          for d in data.get('featured_decorations',[])
+                          if d.get('decorationImage','').startswith('tiles_editor_')}))
+    if data['id']==158:
+        # Carnation's opening replaces hidden stock floors with native Floor
+        # decoration objects. The flowers, lamps, and curtains are optional.
+        result.update(decoration_tracks=True,decoration_depth_order=True,
+                      decoration_gameplay_images=[None],authored_decoration_backdrop=True)
     if data['id'] in (117,118):
         # Fog's sign/envision/elevator panels replace hidden track and
         # convey timing. Keep their authored motion with VFX disabled.
@@ -385,15 +415,15 @@ def ui_assets(pack_title='MAIN WORLDS 1-12',mode7=False):
         d.ellipse((round(x+3.5-r),round(y+3.5-r),round(x+3.5+r),round(y+3.5+r)),outline=5)
     pix=np.array(sheet);objects=b''.join(common.tile_bytes(pix[y*8:y*8+8,x*8:x*8+8]) for y in range(16) for x in range(16))
     hud=presentation.hud
-    common_lines=[(3,'COMBO 0000  BEST 0000  000%',4)]
+    common_lines=[(26,'000%',7)]
     title=[(1,'A DANCE OF FIRE AND ICE',7),(3,pack_title,5)]
     title += [(16,'UP / DOWN SELECT A LEVEL',4),(19,'START TO PLAY',7),(21,'X PRACTICE    Y WATCH',5),
-              (23,'SELECT CALIBRATE  B OPTIONS',6),(24,'L / R SPEED: 1.0X',5),(26,'OFFSET: +00 FRAMES  < >',4)]
+              (23,'SELECT OPTIONS',6),(24,'L / R SPEED: 1.0X',5),(26,'OFFSET: +00 FRAMES  < >',4)]
     huds=[hud(title),hud(common_lines),
-          hud(common_lines+[(21,'RHYTHM LOST',6),(24,'START TO RETRY',7),(26,'SELECT TO MENU',4)]),
+          hud([(21,'RHYTHM LOST',6),(24,'START TO RETRY',7),(26,'SELECT TO MENU',4)]),
           hud([(1,'LEVEL COMPLETE!',5),(5,'JUDGMENT       COUNT  POINTS  ',4),
                (18,'   TOTAL SCORE'.ljust(32),5),(20,'   ACCURACY'.ljust(32),7),(22,'                 SPEED'.ljust(32),4),(24,'START RETRY  SELECT MENU',4)]),
-          hud(common_lines+[(10,'PAUSED',7),(13,'START TO RESUME',5),(16,'SELECT TO RETURN TO TITLE',4)]),
+          hud([(10,'PAUSED',7),(13,'START TO RESUME',5),(16,'SELECT TO RETURN TO TITLE',4)]),
           hud([(2,'AUDIO CALIBRATION',7),(5,'TAP ALONG WITH THE CLICK',5),(7,'A B X Y L R / D-PAD TO TAP',4),
                (17,'SAMPLES 000 / 016',7),(21,'KEEP TAPPING AT A STEADY BEAT',4),(24,'START RETRY   SELECT CANCEL',4)]),
           hud([(2,'CALIBRATION COMPLETE',5),(7,'RECOMMENDED OFFSET',7),(10,'+00 FRAMES',6),
@@ -413,11 +443,17 @@ def title_text(chart):
     return f'{display_code(chart.get("code",str(chart["id"])+"-X"))} {chart["title"]}'.upper()[:28]
 
 
+def needs_neo_runtime(charts,msu=False):
+    # Snapshot loading, icon sizing, and featured trails share these helpers
+    # even when an individual chart has no Neo Cosmos musical mechanics.
+    return any(c.get('neo_cosmos') for c in charts) or msu and any(c.get('mode1_snapshot') or c['id']>=62 for c in charts)
+
+
 def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
-    if any(c.get('wide_snapshot_atlas') for c in charts):
-        raw=assets['background_map']
-        assets['background_map']=b''.join(struct.pack('<H',(w&0xFC00)|((w&1023)+64)) for (w,) in struct.iter_unpack('<H',raw))
-    neo_code_bytes=0x8000 if len(charts)>=200 else 0x4000 if any(c['id']>=75 for c in charts) else 0x3000
+    neo_support=needs_neo_runtime(charts,msu)
+    # Boot relocates BG2 indices to the reserved character arena. Keep the
+    # source map unchanged here so a fresh wide build does not offset twice.
+    neo_code_bytes=0x8000 if len(charts)>=200 or sa1 and msu and any(c.get('mode1_snapshot') for c in charts) else 0x4000 if any(c['id']>=75 for c in charts) else 0x3000
     if sa1 and msu and not rom_data and len(charts)>=200 and any(c.get('neo_cosmos') for c in charts):
         legacy=[c for c in charts if c.get('mode1_tracks')!=3]
         assert all(not c.get('neo_cosmos') and all(n.get('planets',2)==2 and n.get('hold_length',-1)<0 for n in c['notes']) for c in legacy), 'Neo/three-planet charts need snapshots before borrowing the Neo OBJ arena'
@@ -425,6 +461,8 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         assets['symbol_scale_frames']=frames(assets['objects'])
         (OUT/'symbol_scale_frames.bin').write_bytes(assets['symbol_scale_frames'])
     snapshot_only=sa1 and msu and not rom_data and any(c['id']>=75 for c in charts)
+    if any(c.get('snapshot_aligned') for c in charts):
+        assert assets['font'][-64:]==bytes(64),'Aligned indexed poses reserve the zero font tail at VRAM $A7C0'
     if snapshot_only:
         for c in charts:
             if c.get('mode1_snapshot'):
@@ -435,7 +473,10 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if msu and any(c['id']>=75 for c in charts):
         # Keep a growing catalog out of the CPU's executable 32 KiB bank.
         assets['level_titles']=b''.join(title_text(c).encode('ascii').ljust(29,b'\0') for c in charts)
-    if any(c.get('neo_cosmos') for c in charts):
+    if sa1 and msu and neo_support:
+        from menu_preview_assets import build as build_previews
+        assets.update(build_previews(OUT,charts))
+    if neo_support:
         from graphics_sources import neo_objects
         assets['neo_objects']=neo_objects()
         assert len(assets['neo_objects'])==2048
@@ -495,13 +536,19 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if sa1:
         # The CPU's FastROM code mirror occupies the first 32 KiB of
         # physical bank $20. Keep it out of both static assets and streams.
-        free=[(0x10000+neo_code_bytes if any(c.get('neo_cosmos') for c in charts) else 0x10000,0x200000)]
+        free=[(0x10000+neo_code_bytes if neo_support else 0x10000,0x200000)]
         if any(c.get('fastrom_helpers_trial') for c in charts):
             # Only CPU helpers need mirrors: camera plus the selected Neo bank.
             # Worker code stays on SA-1; do not waste a second copy of it.
             free.extend([(0x208000,0x20f000),(0x210000+neo_code_bytes,0x800000 if rom_data else 0x400000)])
         else:free.append((0x208000,0x800000 if rom_data else 0x400000))
         if (resident or stream_charts) and not rom_data:free.append((0x400000,0x800000))
+    if sa1 and msu and not rom_data and len(charts)>=200:
+        # Main-CPU planet-size lookups use far reads. Keep their separate
+        # assembler bank in the fixed E0 window, beyond helper mirrors.
+        low,high=0x230000,0x232000
+        free=[piece for start,end in free for piece in
+              ((start,min(end,low)),(max(start,high),end)) if piece[0]<piece[1]]
     image=bytearray(0x800000);loc={};shared_blobs={}
     def address(offset):
         if offset<0x400000:return offset+0xC00000
@@ -563,6 +610,10 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
                 if key is not None:shared_blobs[key]=loc[name]
                 free[i:i+1]=[(a,z) for a,z in [(start,aligned),(aligned+len(blob),end)] if a<z];break
         else:raise RuntimeError(f'8 MiB cartridge is full while placing {name} ({len(blob)} bytes); {sum(end-start for start,end in free)} bytes free; {sum(len(value) for key,value in assets.items() if key not in loc)} bytes unplaced')
+    if 'menu_preview_descriptors' in loc:
+        start=loc['menu_preview_descriptors']
+        start=start-0xC00000 if start>=0xC00000 else start
+        image[start:start+3*len(charts)]=b''.join(loc[f'menu_preview{c["id"]}'].to_bytes(3,'little') for c in charts)
     if hit_banks:
         sound_banks={r['id']:r for r in json.loads((OUT/'hit-sounds.json').read_text())}
         start=loc['hitdescriptors']-0xC00000 if loc['hitdescriptors']>=0xC00000 else loc['hitdescriptors']
@@ -603,7 +654,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     (OUT/'payload0.bin').write_bytes(image[:0x408000])
     (OUT/'payload1.bin').write_bytes(image[0x410000:])
     (OUT/'placements.json').write_text(json.dumps(loc,indent=2))
-    defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects','neo_math_font','level_titles')]
+    defs=[f'{name.upper()}_ADDR = ${addr:06X}' for name,addr in loc.items() if name in ('palette','objects','background_chr','background_map','font','neo_objects','neo_math_font','level_titles','menu_preview_descriptors','menu_preview_map')]
     if 'symbol_scale_frames' in loc:
         defs+=['SYMBOL_SCALE_BUILD = 1',f'SYMBOL_SCALE_FRAMES_ADDR = ${loc["symbol_scale_frames"]:06X}']
     if any(c.get('mode1_tracks') for c in stream_charts):defs += ['SA1_MODE1_BUILD = 1']
@@ -612,7 +663,14 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
     if 'stream_fallback_descriptors' in loc:defs += [f'STREAM_FALLBACK_DESCRIPTORS_ADDR = ${loc["stream_fallback_descriptors"]:06X}']
     defs.append('HITS_IN_MUSIC = 1')
     if snapshot_only:defs.extend(('SNAPSHOT_ONLY_MAPS = 1','SNAPSHOT_ONLY_COORDS = 1'))
-    if any(c.get('neo_cosmos') for c in charts):defs+=['NEO_BUILD = 1',f'NEO_CODE_BYTES = ${neo_code_bytes:04X}']
+    snapshot_tops={c.get('snapshot_map_top',32) for c in charts if c.get('mode1_snapshot')}
+    assert len(snapshot_tops)<=1,('Re-export all snapshot charts with the same viewport layout',snapshot_tops)
+    snapshot_top=next(iter(snapshot_tops),32)
+    defs.append(f'SNAPSHOT_MAP_TOP = {snapshot_top}')
+    sharing_path=OUT/'msu-snapshot-sharing.json'
+    if sharing_path.exists() and json.loads(sharing_path.read_text()).get('native_lz4'):
+        defs.append('NATIVE_LZ4_BUILD = 1')
+    if neo_support:defs+=['NEO_BUILD = 1',f'NEO_CODE_BYTES = ${neo_code_bytes:04X}']
     if any(c['id']>=75 for c in charts):defs+=['FEATURED_BUILD = 1']
     defs += [f'BACKGROUND_CHR_BYTES = {len(assets["background_chr"])}']
     defs += [f'SPC_DRIVER_ADDR = ${loc["spc_driver"]:06X}',f'SPC_DRIVER_BYTES = {len(assets["spc_driver"])}']
@@ -639,7 +697,7 @@ def pack_payload(assets,charts,msu=False,rom_data=False,sa1=False):
         assert all(sum(not(n['flags']&128) and bool(n['flags']&119) for n in c['notes'])<=2816 for c in charts),'Compact symbol index capacity'
     defs += [f'MAX_NOTE_CAPACITY = {5120 if extended else 4352 if large else 3072 if msu else 2048}']
     defs += [f'MAP_OFFSET_SHIFT = {charts[0].get("map_offset_shift",0)}']
-    if msu:defs+=['MSU_BUILD = 1',f'MSU_DATA_VERSION = {21 if msu_charts else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get("adaptive_raster") for c in charts) else 18 if any(c.get("mode7_zoom_enabled") for c in charts) else 17 if any(c.get("camera_position_events",0) for c in charts) else 16 if any(c.get("native_layout_version",0)>=2 for c in charts) else 15 if any(c.get("track_separators_version") for c in charts) else 14 if any(c.get("opacity_curve_version") for c in charts) else 13 if any(c.get("camera_rotation_versions") for c in charts) else 12}']
+    if msu:defs+=['MSU_BUILD = 1',f'MSU_DATA_VERSION = {22 if snapshot_top==16 else 21 if msu_charts else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get("adaptive_raster") for c in charts) else 18 if any(c.get("mode7_zoom_enabled") for c in charts) else 17 if any(c.get("camera_position_events",0) for c in charts) else 16 if any(c.get("native_layout_version",0)>=2 for c in charts) else 15 if any(c.get("track_separators_version") for c in charts) else 14 if any(c.get("opacity_curve_version") for c in charts) else 13 if any(c.get("camera_rotation_versions") for c in charts) else 12}']
     if rom_data:defs+=['ROM_DATA_BUILD = 1']
     if sa1:defs+=['SA1_BUILD = 1','SA1_FASTROM_MIRROR = 1']
     if sa1 and any(c.get('fastrom_helpers_trial') for c in charts):defs+=['SA1_FASTROM_HELPERS = 1']
@@ -949,6 +1007,9 @@ def main():
         initial,changes=visibility_schedule(data,c)
         authored=(initial,changes)
         motion=motion_schedule(data,c)
+        if c.get('decoration_tracks') and not c.get('freeroam_regions') and any(d.get('hitbox')=='Kill' for d in data.get('featured_decorations',[])):
+            from rhythm_hitboxes import configure as configure_rhythm_hitboxes
+            configure_rhythm_hitboxes(data,c)
         if args.fixed_tile_positions:
             motion={0:motion[0]} if 0 in motion else {}
             c['standalone_fixed_tile_positions']=True

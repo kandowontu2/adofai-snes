@@ -6,9 +6,48 @@ from projected_snapshots import write
 from compact_snapshot_seeds import compact,trim_map
 from snapshot_seed_references import reference_seeds
 from msu_snapshot_pool import SnapshotPool
+from native_packet_codec import expand_packet
 
 
 class GlobalSnapshotPool(unittest.TestCase):
+    def test_native_compression_preserves_all_reachable_events_and_pose_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'source';source.mkdir();out=Path(directory)/'out'
+            (source/'level1.json').write_text(json.dumps(dict(code='TEST',notes=[dict(frame=129)],pattern_initial=[0]*256)))
+            (source/'animation1.bin').write_bytes(HEADER.pack(0,28,0,1024)+bytes(1024)+HEADER.pack(65535,255,0,0))
+            glyphs=[bytes(32),bytes([85])*32]
+            write(source,out,1,glyphs,[({0:(1,0)},((32,33),))]*130,postroll=0)
+            index=(out/'stream_index1.bin').read_bytes();stream=(out/'stream_data1.bin').read_bytes()
+            seeds=reference_seeds(trim_map(compact((out/'mode1_seeds1.bin').read_bytes())),index,stream)
+            data=io.BytesIO();pool=SnapshotPool(io.BytesIO(),native_lz4=True)
+            base,seed_base=pool.write_variant(data,index,stream,seeds)
+            report=pool.finish(data);image=data.getvalue();mapping={}
+            self.assertGreater(report['native_saved_bytes'],0)
+            self.assertGreater(report['native_lz4_blocks'],0)
+            for entry,(_,_,choice) in enumerate(list(struct.iter_unpack('<HHI',index))[:-1]):
+                for j in range(4):
+                    time,size,offset=struct.unpack_from('<HHI',stream,choice+j*8)
+                    actual_time,actual_size,actual_offset=struct.unpack_from('<HHI',image,base+entry*32+j*8)
+                    self.assertEqual((actual_time,actual_offset>>28),(time,offset>>28))
+                    if not size:continue
+                    offset&=0xfffffff;actual_offset&=0xfffffff
+                    self.assertFalse(size&32768)
+                    actual=expand_packet(image[base+actual_offset:base+actual_offset+actual_size])
+                    expected=bytearray(stream[offset:offset+size])
+                    for a,b,t,kind,_,value in records(expected):
+                        if kind!=42:continue
+                        local=struct.unpack_from('<I',expected,a+7)[0]
+                        runtime=struct.unpack_from('<I',actual,a+7)[0]
+                        self.assertEqual(image[base+runtime:base+runtime+value],bytes(2)+stream[local+2:local+value])
+                        struct.pack_into('<I',expected,a+7,runtime);mapping[local]=runtime
+                    self.assertEqual(actual,expected)
+            expected=bytearray(seeds)
+            count=struct.unpack_from('<I',seeds)[0]//4
+            for at in struct.unpack_from('<'+str(count)+'I',seeds):
+                size,local=struct.unpack_from('<HI',seeds,at+4)
+                if size:struct.pack_into('<I',expected,at+6,mapping[local])
+            self.assertEqual(image[seed_base:seed_base+len(expected)],expected)
+
     def test_shared_runtime_references_preserve_all_choices_and_restart_poses(self):
         with tempfile.TemporaryDirectory() as directory:
             source=Path(directory)/'source';source.mkdir();out=Path(directory)/'out'

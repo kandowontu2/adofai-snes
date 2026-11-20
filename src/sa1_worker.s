@@ -12,7 +12,7 @@ SA1_WORKER=1
 .import __HOTICONS_LOAD__, __HOTICONS_RUN__, __HOTICONS_SIZE__
 .import __HOTICONSCAN_LOAD__, __HOTICONSCAN_RUN__, __HOTICONSCAN_SIZE__
 .import __HOTSYMBOLS_LOAD__, __HOTSYMBOLS_RUN__, __HOTSYMBOLS_SIZE__
-.assert __HOTICONSCAN_SIZE__ <= $260, lderror, "Symbol scan overlaps copy-parent cache"
+.assert __HOTICONSCAN_SIZE__ <= $240, lderror, "Symbol scan overlaps copy-parent cache"
 .assert __HOTSYMBOLS_SIZE__ <= $200, lderror, "Symbol projection exceeds its IRAM overlay"
 .assert __HOTICONS_SIZE__ <= $200, lderror, "Symbol kernel exceeds its IRAM overlay"
 .endif

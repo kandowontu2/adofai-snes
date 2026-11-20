@@ -39,13 +39,14 @@ def main():
     parser.add_argument('--pack', required=True)
     parser.add_argument('--ids', type=int, nargs='+')
     parser.add_argument('--workers', type=int, default=2)
+    parser.add_argument('--manual',action='store_true',help='Replay real note inputs instead of Watch')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     pack = root / 'build/packs' / args.pack
     levels = json.loads((pack / 'pack.json').read_text())['levels']
     selected = args.ids or levels
     assert len(set(selected)) == len(selected) and set(selected) <= set(levels)
-    folder = pack / 'verification/catalog'
+    folder = pack / ('verification/catalog-manual' if args.manual else 'verification/catalog')
     folder.mkdir(parents=True, exist_ok=True)
     frozen = identity(pack / 'adofai.sfc', fresh=True)
     freeze_data_identity(pack / 'adofai.sfc', frozen)
@@ -56,16 +57,18 @@ def main():
     if 'WIDE_SNAPSHOT_SUPPORT = 1' in (pack / 'addresses.inc').read_text():
         subprocess.run([sys.executable, 'tools/verify_background_vram_mesen.py',
                         '--pack', args.pack, '--levels', str(selected[0]),
-                        '--tag', 'catalog', '--boot-only'], cwd=root, check=True)
+                        '--tag', 'catalog-manual' if args.manual else 'catalog', '--boot-only'], cwd=root, check=True)
 
     def verify(level):
         index = levels.index(level) + 1
+        suffix='' if args.manual else '-autoplay'
+        replay=pack/f'verification/mesen-{index}{suffix}'
         startup_retry = False
         stages = [
             [sys.executable, 'tools/run_mesen_campaign.py', '--pack', args.pack,
-             '--levels', str(index), '--autoplay', '--sampled-graphics', '--resume'],
+             '--levels', str(index), *([] if args.manual else ['--autoplay']), '--sampled-graphics', '--resume'],
             [sys.executable, 'tools/verify_mesen_ppu.py', '--pack', args.pack,
-             '--level', str(index), '--folder', str(pack / f'verification/mesen-{index}-autoplay')],
+             '--level', str(index), '--folder', str(replay)],
         ]
         with (folder / f'{level}.log').open('w') as log:
             for command in stages:
@@ -75,7 +78,7 @@ def main():
                 # failure once; runtime assertions and timeouts still fail.
                 if (process.returncode and Path(command[1]).name == 'run_mesen_campaign.py'
                         and empty_startup_failure(folder / f'{level}.log',
-                                                  pack / f'verification/mesen-{index}-autoplay')):
+                                                  replay)):
                     startup_retry = True
                     print('Retrying empty Mesen startup exit once', file=log, flush=True)
                     process = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT)
@@ -103,7 +106,7 @@ def main():
     for row in results:
         level=row['id'];index=levels.index(level)+1
         if (not row['passed'] and row.get('stage')=='run_mesen_campaign.py' and
-                script_watchdog_failure(pack/f'verification/mesen-{index}-autoplay')):
+                script_watchdog_failure(pack/('verification/mesen-'+str(index)+('' if args.manual else '-autoplay')))):
             shutil.copyfile(folder/f'{level}.log',folder/f'{level}-host-watchdog.log')
             retried=verify(level);row.clear();row.update(retried,host_watchdog_retry=True)
             print(json.dumps(row),flush=True)

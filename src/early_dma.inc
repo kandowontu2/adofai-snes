@@ -226,10 +226,18 @@ early_dma_configure:
     and #255
     bra @flag
 @retain:
-    ; Returning to a menu can precede the last atlas commit. Keep the
-    ; loaded scene's safe window until the next load explicitly suspends
-    ; it; selecting another menu item does not load that chart's graphics.
+    ; Keep the safe window until the last gameplay pose is replaced.
+    ; Once a menu has actually committed, release the gameplay IRQ path:
+    ; it skips ordinary menu HDMA setup and blanks the credit/art footer.
+    lda display_state
+    cmp #1
+    bcc @menu
+    cmp #5
+    bcs @menu
     lda f:EARLY_DMA_ENABLE
+    bra @flag
+@menu:
+    lda #0
 @flag:
     sta f:EARLY_DMA_ENABLE
     ; Select the HDMA mask once per frame. Individual DMA sites retain
@@ -337,6 +345,16 @@ early_irq:
     rti
 
 early_irq_done:
+    ; An active early IRQ can overlap every ordinary NMI, so its NMI
+    ; configuration path may never run again. Release it here only after
+    ; a complete menu frame has replaced the last gameplay transaction.
+    lda display_state
+    beq @menu
+    cmp #5
+    bcc @restore
+@menu:
+    jsl early_dma_configure
+@restore:
     lda #0
     sta f:EARLY_IRQ_RUNNING
     jsl $800000+early_audio_tick

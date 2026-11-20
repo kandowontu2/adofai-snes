@@ -157,13 +157,19 @@ emu.addEventCallback(function()
         -- later. Center that discrete poll inside the perfect window.
         lead=1.5
       end
-      local requests=0;local consumed=false
+      local requests=0;local consumed=false;local exactMask=neoHeld
       while C.neo_events[neoInput] and current+lead>=C.neo_events[neoInput][1] do
         local mask=C.neo_events[neoInput][2]
+        exactMask=mask
         for bit=0,5 do if math.floor(mask/2^bit)%2==1 then requests=requests+1 end end
         consumed=true;neoInput=neoInput+1
       end
       if consumed then
+       if C.neo_exact_masks then
+        -- Negative hold controls deliberately retain the initiating key
+        -- while pressing another. Fresh-edge synthesis would release it.
+        neoHeld=exactMask
+       else
         -- A video poll can contain several distinct musical timestamps.
         -- Deliver all of their fresh physical edges rather than retaining
         -- only the last mask (which silently dropped fast chart taps).
@@ -173,6 +179,7 @@ emu.addEventCallback(function()
         end
         assert(requests==0,'Chart requires more fresh taps than one controller poll can supply')
         neoHeld=nextMask
+       end
       end
       for i,key in ipairs({'a','b','x','y','l','r'}) do
         if math.floor(neoHeld/2^(i-1))%2==1 then buttons[key]=true end
@@ -183,11 +190,16 @@ emu.addEventCallback(function()
       local current=elapsed+delta*.004*60.0988118623*C.pitch/1536-offset
       local target=C.manual_times[nextInput]
       local pool=frame%2==0 and {'a','x','l','up','left'} or {'b','y','r','down','right'}
-      local used=0
-      while target and current+1>=target and used<#pool do
-        used=used+1;buttons[pool[used]]=true
-        nextInput=nextInput+1
-        target=C.manual_times[nextInput]
+      local bits={a=0x80,b=0x8000,x=0x40,y=0x4000,l=0x20,r=0x10,up=0x800,down=0x400,left=0x200,right=0x100}
+      for _,key in ipairs(pool) do
+        if not target or current+1<target then break end
+        local ignored=0
+        for _,row in ipairs(C.input_filters or {})do if row[1]<=target then ignored=row[2]else break end end
+        if math.floor(ignored/bits[key])%2==0 then
+          buttons[key]=true
+          nextInput=nextInput+1
+          target=C.manual_times[nextInput]
+        end
       end
     else
       local target=C.times[step+2]

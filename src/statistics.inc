@@ -2,6 +2,8 @@ reset_clock:
     stz note_taps
 .ifdef NEO_BUILD
     stz neo_hold_keys
+    stz neo_pickup_strikes
+    stz neo_pickup_checkpoint_strikes
     jsr neo_reset_free
     stz neo_cam_active
     stz neo_return_until
@@ -223,6 +225,10 @@ record_judgment:
     rts
 
 save_checkpoint_stats:
+.ifdef NEO_BUILD
+    lda neo_pickup_strikes
+    sta neo_pickup_checkpoint_strikes
+.endif
     ldx #20
 @copy:
     lda judgment_counts,x

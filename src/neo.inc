@@ -191,6 +191,12 @@ neo_far_orb_roles:
     rtl
 
 neo_note_presentation:
+.ifndef ROM_DATA_BUILD
+    tay
+    lda [neo_note_ptr],y
+    and #255
+    rts
+.else
     tay
     lda selected_level
     asl a
@@ -202,6 +208,43 @@ neo_note_presentation:
     lda f:neo_hold_styles,x
     and #255
     rts
+.endif
+
+.ifndef ROM_DATA_BUILD
+; Resolve wrapped 16-bit catalog offsets once per load/retry. Each chart
+; is shorter than one bank, so a decreasing start advances the bank.
+neo_note_pointer:
+    lda selected_level
+    asl a
+    sta scratch2
+    stz scratch
+    ldx #0
+    ldy #0
+@level:
+    lda f:neo_hold_starts,x
+    cmp scratch
+    bcs :+
+    iny
+:
+    sta scratch
+    cpx scratch2
+    beq @found
+    inx
+    inx
+    bra @level
+@found:
+    clc
+    adc #.loword(neo_hold_styles)
+    sta neo_note_ptr
+    tya
+    adc #.bankbyte(neo_hold_styles)
+    sep #$20
+    .a8
+    sta neo_note_ptr+2
+    rep #$20
+    .a16
+    rts
+.endif
 
 neo_far_prepare_hold:
     jsr neo_impl_prepare_hold
@@ -214,6 +257,9 @@ neo_far_apply_ease:
     rtl
 neo_far_reset_free:
     stz neo_twirl_cache_step
+.ifndef ROM_DATA_BUILD
+    jsr neo_note_pointer
+.endif
     jsr neo_impl_reset_free
     rtl
 neo_far_prepare_free:
@@ -577,7 +623,12 @@ neo_sync_free:
     stz neo_free_x
     stz neo_free_y
     stz neo_coin_mask
+    stz neo_coin_mask+2
     stz neo_free_collected
+    stz neo_pickup_counts
+    stz neo_pickup_counts+2
+    stz neo_pickup_counts+4
+    stz neo_pickup_checked
     stz neo_free_checked
     stz neo_free_autocursor
     stz neo_free_reversed
@@ -1260,10 +1311,12 @@ neo_free_objectives:
     sta neo_free_pointer
     lda #1
     sta neo_free_mask
+    stz neo_pickup_mask_word
 @coin:
-    lda neo_coin_mask
+    ldx neo_pickup_mask_word
+    lda neo_coin_mask,x
     and neo_free_mask
-    bne @next_coin
+    jne @next_coin
     ldx neo_free_pointer
     lda f:neo_free_coins,x
     sta neo_free_object_x
@@ -1286,7 +1339,7 @@ neo_free_objectives:
     sec
     sbc neo_free_object_x
     jsr neo_near_coin
-    bcc @next_coin
+    jcc @next_coin
     lda neo_free_y
     clc
     adc orbit_y
@@ -1295,25 +1348,93 @@ neo_free_objectives:
     jsr neo_near_coin
     bcc @next_coin
 @collect:
-    lda neo_coin_mask
+    lda neo_free_pointer
+    lsr a
+    tax
+    lda f:neo_coin_types,x
+    cmp #4
+    beq @ordered_answer
+    cmp #5
+    bne @collect_value
+    lda neo_free_collected
+    cmp #4
+    jeq @failed
+    jmp @next_coin
+@ordered_answer:
+    ldx neo_free_record
+    lda neo_free_pointer
+    sec
+    sbc f:neo_free_records+36,x
+    lsr a
+    lsr a
+    cmp neo_free_collected
+    jeq @collect_value
+    jcs @failed
+    jmp @next_coin
+@collect_value:
+    ldx neo_pickup_mask_word
+    lda neo_coin_mask,x
     ora neo_free_mask
-    sta neo_coin_mask
+    sta neo_coin_mask,x
     inc neo_free_collected
+    lda neo_free_pointer
+    lsr a
+    tax
+    lda f:neo_coin_types,x
+    cmp #3
+    bcc :+
+    lda #0
+:
+    asl a
+    tax
+    inc neo_pickup_counts,x
+    lda neo_free_record
+    .repeat 5
+    lsr a
+    .endrepeat
+    tax
+    lda f:neo_pickup_ui,x
+    beq @next_coin
+    lda OBJECTIVE_HUD_ACTIVE
+    ora #2
+    sta OBJECTIVE_HUD_ACTIVE
 @next_coin:
     lda neo_free_pointer
     clc
     adc #4
     sta neo_free_pointer
     asl neo_free_mask
+    bne :+
+    inc neo_free_mask
+    inc neo_pickup_mask_word
+    inc neo_pickup_mask_word
+:
     dec neo_free_count
-    bne @coin
+    jne @coin
     ldx neo_free_record
     lda chart_time
     cmp f:neo_free_records+40,x
     bcc @hazards
-    lda neo_free_collected
-    cmp #3
-    jcc @failed
+    lda neo_pickup_checked
+    bne @hazards
+    inc neo_pickup_checked
+    jsr neo_check_pickup_rules
+    bcc @hazards
+    lda neo_free_record
+    .repeat 5
+    lsr a
+    .endrepeat
+    tax
+    lda f:neo_pickup_lives,x
+    jeq @failed
+    inc neo_pickup_strikes
+    pha
+    lda OBJECTIVE_HUD_ACTIVE
+    ora #2
+    sta OBJECTIVE_HUD_ACTIVE
+    pla
+    cmp neo_pickup_strikes
+    jeq @failed
 @hazards:
     ldx neo_free_record
     lda f:neo_free_records+44,x
@@ -1373,6 +1494,59 @@ neo_free_objectives:
     jsl neo_call_fail
     rts
 
+; Four bounded counters: coins, stars, hearts, and their combined total.
+; Carry is set only when an authored condition fails.
+neo_check_pickup_rules:
+    lda neo_free_record
+    lsr a
+    lsr a
+    lsr a
+    sta neo_pickup_rule
+    ldy #0
+@rule:
+    cpy #6
+    beq @total
+    lda neo_pickup_counts,y
+    bra @value
+@total:
+    lda neo_free_collected
+@value:
+    sta scratch2
+    ldx neo_pickup_rule
+    lda f:neo_coin_targets,x
+    sta scratch
+    lda f:neo_coin_modes,x
+    beq @next
+    cmp #1
+    beq @minimum
+    cmp #2
+    beq @equal
+    lda scratch2
+    cmp scratch
+    beq @failed
+    bra @next
+@equal:
+    lda scratch2
+    cmp scratch
+    bne @failed
+    bra @next
+@minimum:
+    lda scratch2
+    cmp scratch
+    bcc @failed
+@next:
+    inc neo_pickup_rule
+    inc neo_pickup_rule
+    iny
+    iny
+    cpy #8
+    bne @rule
+    clc
+    rts
+@failed:
+    sec
+    rts
+
 neo_near_coin:
     bpl :+
     eor #$FFFF
@@ -1400,8 +1574,10 @@ neo_draw_collectibles:
     lda #1
     sta object_small
     sta neo_free_mask
+    stz neo_pickup_mask_word
 @coin:
-    lda neo_coin_mask
+    ldx neo_pickup_mask_word
+    lda neo_coin_mask,x
     and neo_free_mask
     bne @next_coin
     ldx neo_free_pointer
@@ -1410,7 +1586,15 @@ neo_draw_collectibles:
     lda f:neo_free_coins+2,x
     sta neo_free_object_y
     jsr neo_object_position
-    lda #196
+    lda neo_free_pointer
+    lsr a
+    tax
+    lda f:neo_coin_types,x
+    cmp #4
+    jcs @next_coin
+    asl a
+    tax
+    lda f:neo_pickup_tiles,x
     sta sprite_tile
     lda #$23
     sta sprite_attr
@@ -1421,6 +1605,11 @@ neo_draw_collectibles:
     adc #4
     sta neo_free_pointer
     asl neo_free_mask
+    bne :+
+    inc neo_free_mask
+    inc neo_pickup_mask_word
+    inc neo_pickup_mask_word
+:
     dec neo_free_count
     bne @coin
 @hazards:
@@ -1471,6 +1660,8 @@ neo_draw_collectibles:
 @done:
     stz object_small
     rts
+
+neo_pickup_tiles: .word 196,224,225,226
 
 neo_object_position:
     lda step
@@ -1622,6 +1813,77 @@ neo_draw_conditional_mines:
 ; SA-1/CPU does no curve evaluation or scene graph traversal during play.
 ; Native decoration hitboxes use a radius-.3 Unity circle for either planet.
 ; The compiled boxes and projected artwork share the same per-frame transform.
+neo_far_rhythm_point:
+    phx
+    phy
+    lda state
+    cmp #1
+    jne @done
+    lda autoplay
+    jne @done
+    lda selected_level
+    asl a
+    asl a
+    tax
+    lda f:neo_rhythm_ranges+2,x
+    sta neo_deco_count
+    jeq @done
+    lda f:neo_rhythm_ranges,x
+    sta neo_deco_cursor
+    lda floor_x
+    sta neo_free_object_x
+    lda floor_y
+    sta neo_free_object_y
+@object:
+    ldx neo_deco_cursor
+    lda f:neo_deco_records,x
+    jsr neo_deco_track
+    lda [neo_deco_ptr],y
+    sta neo_deco_box
+    iny
+    iny
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+2
+    ldx neo_deco_cursor
+    lda f:neo_deco_records+2,x
+    jsr neo_deco_track
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+4
+    iny
+    iny
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+6
+    ldx neo_deco_cursor
+    lda f:neo_deco_records+4,x
+    jsr neo_deco_track
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+8
+    iny
+    iny
+    lda [neo_deco_ptr],y
+    sta neo_deco_box+10
+    lda neo_deco_box+8
+    beq @next
+    lda neo_deco_box+10
+    beq @next
+    jsr neo_deco_point
+    bcc @next
+    lda #1
+    sta fail_reason
+    jsl neo_call_fail
+    bra @done
+@next:
+    lda neo_deco_cursor
+    clc
+    adc #6
+    sta neo_deco_cursor
+    dec neo_deco_count
+    jne @object
+@done:
+    ply
+    plx
+    rtl
+
 neo_deco_collision:
     lda autoplay
     jne @done ; Native scrDecoration also exempts autoplay from death.

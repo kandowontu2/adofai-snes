@@ -6,9 +6,16 @@ import hashlib,sys
 sys.path.insert(0,str(ROOT/'tools'))
 from official_catalog import PACKS
 from verification_data import identity
+from pack_sources import load_source
 
 def suite_digest():
-    paths=sorted((ROOT/'tools').glob('verify*mesen.lua'))+[ROOT/'tools/mesen_failfast.lua',ROOT/'tools/run_mesen_campaign.py',ROOT/'tools/run_mesen_sequence.py',ROOT/'tools/menu_sets.py',ROOT/'tools/controller_events.py']
+    oracle_modules=('mesen_failfast.lua','run_mesen_campaign.py','run_mesen_sequence.py',
+        'menu_sets.py','controller_events.py','pack_sources.py','input_event_assets.py',
+        'verify_mesen_ppu.py','projected_tracks.py','mode1_tracks.py','decoration_tracks.py',
+        'gameplay_decorations.py','decoration_hitboxes.py','decoration_actors.py',
+        'projected_copies.py','neo_fog.py','neo_headings.py','hold_path.py',
+        'planet_scale.py','viewport_cells.py')
+    paths=sorted((ROOT/'tools').glob('verify*mesen.lua'))+[ROOT/'tools'/name for name in oracle_modules]
     return hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in paths)).hexdigest()
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--mesen',type=Path,default=Path(r'C:\mesen2\Mesen.exe'))
@@ -71,7 +78,7 @@ def main():
         if args.checkpoints:cpconfig=',checkpoints={'+','.join('{trigger='+str(c['trigger'])+',floor='+str(c['floor'])+',origin='+str(c['origin_frame'])+'}' for c in chart['checkpoints'])+'}'
         actions=''
         if suffix or 'menu_depth' in labels:
-            seq={90:'b'};f=96
+            seq={90:'select' if labels.get('MENU_OPTIONS_SELECT') else 'b'};f=96
             if args.time_attack:seq[f]='right';f+=4
             seq[f]='down';f+=4
             for _ in range(abs(speed-10)):seq[f]='right' if speed>10 else 'left';f+=4
@@ -96,8 +103,16 @@ def main():
         if json.loads((base/'pack.json').read_text()).get('fast_audio_rate') and speed>10:pitch=round(pitch/3)*3
         manual_notes=[n for n in chart['notes'][1:] if not(n['flags']&8) for _ in range(n.get('taps_needed',1))]
         scheduled=',pitch='+str(pitch)+',manual_times={'+','.join(str(n['frame']) for n in manual_notes)+'},manual_steps={'+','.join(str(n['step']) for n in manual_notes)+'}'
+        scheduled+=',viewport_top='+str(chart.get('viewport_top',chart.get('snapshot_map_top',32)))+',viewport_bottom='+str(chart.get('viewport_bottom',176))
+        scheduled+=',snapshot_aligned='+str(bool(chart.get('snapshot_aligned'))).lower()
+        scheduled+=',progress_row=26'
         if 'vfx_enabled' in labels:
             scheduled+=',vfx={address='+str(labels['vfx_enabled'])+',expected='+str(0 if args.vfx_off else 1)+'}'
+        if not args.autoplay and 'INPUT_EVENT_BUILD = 1' in (base/'addresses.inc').read_text():
+            from input_event_assets import schedule as input_schedule
+            source=load_source(base,global_id)
+            filters=input_schedule(source,chart)
+            if filters:scheduled+=',input_filters={'+','.join('{'+','.join(map(str,row))+'}' for row in filters)+'}'
         if args.autoplay:scheduled+=',autoplay=true'
         if chart.get('neo_cosmos') and not args.autoplay:
             # Full manual replay uses down/up edges, not an autoplay toggle.
@@ -201,7 +216,7 @@ def main():
             scheduled+=',triplet={entry='+str(labels['mode7_draw_orb']+bank)+',x='+str(labels['sprite_x'])+',y='+str(labels['sprite_y'])+',attr='+str(labels['sprite_attr'])+',free='+str(labels['neo_free_mode'])+',reversed='+str(labels['neo_free_reversed'])+',now='+str(labels['chart_time'])+',fx='+str(labels['floor_x'])+',fy='+str(labels['floor_y'])+',continuity='+str(global_id==256).lower()+',twirls={'+','.join(twirls)+'},controls={'+controls+'},script='+json.dumps((ROOT/'tools/verify_triplet_mesen.lua').as_posix())+'}'
             if 'neo_preview_circle' in labels:
                 import math
-                native=json.loads((ROOT/f'assets/private/level{global_id}.json').read_text())
+                native=load_source(base,global_id)
                 rows=[]
                 for i,n in enumerate(chart['notes']):
                     if not i or n['planets']!=3 or chart['notes'][i-1]['planets']==3:continue
@@ -215,7 +230,7 @@ def main():
         if args.graphics_dumps and chart.get('neo_cosmos') and not args.checkpoints:
             import math
             from hold_path import sweep
-            native=json.loads((ROOT/f'assets/private/level{global_id}.json').read_text())
+            native=load_source(base,global_id)
             holdrows=[]
             for i,n in enumerate(chart['notes'][:-1]):
                 if n.get('hold_length',-1)<0:continue

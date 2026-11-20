@@ -399,15 +399,15 @@ mode7_prepare_view:
     stz m7_window_left
     lda #255
     sta m7_window_right
-    lda #32
+    lda #GAMEPLAY_VIEW_TOP
     sta m7_vtop
     lda #175
     sta m7_vbottom
-    lda #$0620
+    lda #$0600+GAMEPLAY_VIEW_TOP
     sta M7_HDMA_STAGE
     lda #$117F
     sta M7_HDMA_STAGE+2
-    lda #$1111
+    lda #$1100+49-GAMEPLAY_VIEW_TOP
     sta M7_HDMA_STAGE+4
     lda #$0630
     sta M7_HDMA_STAGE+6
@@ -416,13 +416,13 @@ mode7_prepare_view:
     lda f:level_view_insets,x
     and #255
     beq :+
-    lda #40
+    lda #GAMEPLAY_VIEW_TOP+8
     sta m7_vtop
     lda #167
     sta m7_vbottom
-    lda #$1628
+    lda #$1600+GAMEPLAY_VIEW_TOP+8
     sta M7_HDMA_STAGE
-    lda #$1101
+    lda #$1100+33-GAMEPLAY_VIEW_TOP
     sta M7_HDMA_STAGE+4
     lda #$1638
     sta M7_HDMA_STAGE+6
@@ -440,6 +440,9 @@ mode7_prepare_view:
     rts
 
 mode7_draw_orb:
+.ifdef NEO_BUILD
+    jsl neo_far_rhythm_point
+.endif
 .ifdef PLANET_SCALE_BUILD
     lda m7_radius
     pha
@@ -1630,10 +1633,10 @@ mode7_collect_spans:
 .endif
 .segment "RODATA"
 mode7_bit_masks: .byte 1,2,4,8,16,32,64,128
-hdma_mode7: .byte 32,9,127,7,17,7,48,9,0
-hdma_mode7_inset: .byte 40,9,127,7,1,7,56,9,0
+hdma_mode7: .byte GAMEPLAY_VIEW_TOP,9,127,7,49-GAMEPLAY_VIEW_TOP,7,48,9,0
+hdma_mode7_inset: .byte GAMEPLAY_VIEW_TOP+8,9,127,7,33-GAMEPLAY_VIEW_TOP,7,56,9,0
 hdma_mode1: .byte 127,9,97,9,0
-hdma_mode3: .byte 32,9,127,3,25,3,40,9,0
+hdma_mode3: .byte GAMEPLAY_VIEW_TOP,9,127,3,57-GAMEPLAY_VIEW_TOP,3,40,9,0
 .segment "CODE"
 
 .ifdef SA1_BUILD

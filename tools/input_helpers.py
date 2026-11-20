@@ -29,11 +29,12 @@ def wait(em,predicate,limit=300):
     raise AssertionError(em.snapshot())
 
 def configure(em,speed=10,time_attack=False,fire=None,ice=None,calibration=None):
-    if 'menu_depth' in em.labels and em.read('state')==0 and em.read('menu_depth'):
+    modern=bool(em.labels.get('MENU_OPTIONS_SELECT'))
+    if not modern and 'menu_depth' in em.labels and em.read('state')==0 and em.read('menu_depth'):
         import json
         from menu_sets import groups_for_pack
         if len(groups_for_pack(em.rom_path.parent))>1:press(em,0)
-    press(em,0);wait(em,lambda:em.read('state')==7)
+    press(em,2 if modern else 0);wait(em,lambda:em.read('state')==7)
     for _ in range(6):
         if em.read('settings_row')==0:break
         press(em,4)
@@ -55,6 +56,16 @@ def configure(em,speed=10,time_attack=False,fire=None,ice=None,calibration=None)
             press(em,7 if current<calibration else 6)
         assert em.read('calibration',True)==calibration,'Calibration adjustment did not reach the requested value'
     press(em,3);wait(em,lambda:em.read('state')==0)
+
+def open_calibration(em):
+    """Enter calibration through the shipped Options menu."""
+    if not em.labels.get('MENU_OPTIONS_SELECT'):
+        press(em,2)
+    else:
+        press(em,2);wait(em,lambda:em.read('state')==7)
+        while em.read('settings_row')!=5:press(em,5)
+        press(em,8)
+    wait(em,lambda:em.read('state')==5)
 
 def verify_checkpoint_results(em):
     """Check normal results text in WRAM and in the committed PPU map."""

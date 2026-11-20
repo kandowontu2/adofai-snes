@@ -58,15 +58,17 @@ def tables(levels):
     result=['; MENU_SET_TABLES',
             'menu_set_starts: .word '+','.join(map(str,starts)),
             'menu_set_counts: .word '+','.join(str(len(indices)) for _,indices in sets),
+            *((['.segment "NEOCODE"'] if len(levels)>=200 else [])),
             'menu_level_indices: .word '+','.join(map(str,flat)),
+            *((['.segment "RODATA"'] if len(levels)>=200 else [])),
             'menu_set_name_ptrs: .word '+','.join(f'menu_set_name{i}' for i in range(len(sets)))]
     result += [f'menu_set_name{i}: .byte "{name:<28}",0' for i,(name,_) in enumerate(sets)]
     result += ['menu_root_name: .byte "CHOOSE A SET                ",0',
                'menu_open_hint: .byte "       START OPEN SET           ",0',
                'menu_single_hint:',
                'menu_play_hint: .byte "         START TO PLAY          ",0',
-               'menu_controls: .byte "   SELECT CALIBRATE  B OPTIONS   ",0',
-               'menu_back_controls: .byte "    SELECT CALIBRATE  B BACK     ",0',
+               'menu_controls: .byte "         SELECT OPTIONS         ",0',
+               'menu_back_controls: .byte "     SELECT OPTIONS  B BACK      ",0',
                'menu_navigation: .byte "       UP / DOWN SELECT         ",0']
     return '\n'.join(result)+'\n'
 

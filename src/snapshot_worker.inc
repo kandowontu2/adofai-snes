@@ -32,7 +32,7 @@ worker_snapshot_lz4:
     dec a
     pha
     jsr worker_snapshot_atlas_destination
-    ldx #$2520
+    ldx #$2000+SNAPSHOT_HEADER_BYTES
     pla
     phb
     mvn #$42,#$43
@@ -47,9 +47,16 @@ worker_snapshot_lz4_split:
     lda #0
     sta f:M1_BUILD_FORMAT
     lda native_kind
-    cmp #47
-    bne :+
+    and #1
+    beq :+
     lda #1
+    sta f:M1_BUILD_FORMAT
+:
+    lda native_kind
+    cmp #48
+    bcc :+
+    lda f:M1_BUILD_FORMAT
+    ora #4
     sta f:M1_BUILD_FORMAT
 :
 .ifdef WIDE_SNAPSHOT_SUPPORT
@@ -112,8 +119,17 @@ worker_snapshot_atlas_destination:
     pla
 :
 .endif
+    pha
+    lda f:M1_BUILD_FORMAT
+    bit #4
+    bne @aligned_destination
+    pla
     clc
     adc #32
+    tay
+    rts
+@aligned_destination:
+    pla
     tay
     rts
 
@@ -241,7 +257,7 @@ worker_snapshot_decode:
     lda #96
     jsr worker_native_advance
     jsr worker_snapshot_map
-    lda #1216
+    lda #SNAPSHOT_MAP_BYTES
     jsr worker_native_advance
     lda native_kind
     cmp #44
@@ -352,8 +368,17 @@ worker_snapshot_decode:
     pla
 :
 .endif
+    pha
+    lda f:M1_BUILD_FORMAT
+    bit #4
+    bne @aligned_run
+    pla
     clc
     adc #32
+    bra :+
+@aligned_run:
+    pla
+:
     sta f:M1_PATTERN_RUNS
     lda #1
     sta f:M1_RUN_COUNT
@@ -410,11 +435,13 @@ worker_snapshot_map:
     lda #$0200
     sta scratch
     lda f:M1_BUILD_FORMAT
+    and #3
     beq :+
     lda #$0100
     sta scratch
 .ifdef WIDE_SNAPSHOT_SUPPORT
     lda f:M1_BUILD_FORMAT
+    and #3
     cmp #2
     bne :+
     lda #$0080
@@ -422,6 +449,7 @@ worker_snapshot_map:
     bra :++
 :
     lda f:M1_BUILD_FORMAT
+    and #3
     cmp #3
     bne :+
     lda #$0040
@@ -430,6 +458,23 @@ worker_snapshot_map:
 :
     ldy #0
 @bank:
+    lda [transfer_ptr],y
+    cmp #1023
+    bne :+
+    lda #671
+    pha
+    lda f:M1_BUILD_FORMAT
+    bit #2
+    beq @fixed_blank
+    pla
+    lda #415
+    bra @store_blank
+@fixed_blank:
+    pla
+@store_blank:
+    sta [transfer_ptr],y
+    bra @next_bank_word
+:
     lda [transfer_ptr],y
     bne :+
     lda scratch
@@ -444,20 +489,33 @@ worker_snapshot_map:
     adc scratch
     sta [transfer_ptr],y
 :
+@next_bank_word:
     iny
     iny
-    cpy #1216
+    cpy #SNAPSHOT_MAP_BYTES
     bcc @bank
 @bank_ready:
+    ldy #0
+@front_blank:
+    lda [transfer_ptr],y
+    cmp #1023
+    bne :+
+    lda #671
+    sta [transfer_ptr],y
+:
+    iny
+    iny
+    cpy #SNAPSHOT_MAP_BYTES
+    bcc @front_blank
     ldy #0
 @first:
     tyx
     lda [transfer_ptr],y
-    cmp f:M1_MAP_STAGE+256,x
+    cmp f:M1_MAP_STAGE+SNAPSHOT_MAP_OFFSET,x
     bne @found
     iny
     iny
-    cpy #1216
+    cpy #SNAPSHOT_MAP_BYTES
     bcc @first
     lda #0
     sta f:M1_MAP_RUNS+2
@@ -466,13 +524,13 @@ worker_snapshot_map:
     sty map_dest
     tya
     clc
-    adc #256
+    adc #SNAPSHOT_MAP_OFFSET
     sta f:M1_MAP_RUNS
-    ldy #1214
+    ldy #SNAPSHOT_MAP_BYTES-2
 @last:
     tyx
     lda [transfer_ptr],y
-    cmp f:M1_MAP_STAGE+256,x
+    cmp f:M1_MAP_STAGE+SNAPSHOT_MAP_OFFSET,x
     bne @copy
     dey
     dey
@@ -491,7 +549,7 @@ worker_snapshot_map:
     tax
     lda map_dest
     clc
-    adc #.loword(M1_MAP_STAGE)+256
+    adc #.loword(M1_MAP_STAGE)+SNAPSHOT_MAP_OFFSET
     tay
     pla
     dec a

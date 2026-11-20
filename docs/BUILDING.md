@@ -503,7 +503,7 @@ Neo Cosmos localization asset. Rerender both charts after importing. These
 headings remain enabled with VFX off. Run tools/verify_neo_headings_release.py
 --pack YOUR_PACK to capture every stage heading in MesenCE.
 
-Current master builds use restart format 4 and MSU data version 35. Restart
+Current full-viewport master builds use restart format 4 and MSU data version 39. Restart
 seeds reference the exact screen image already stored in the animation
 stream. The build also removes unused Mode 7 tag tables from snapshot
 directories and shares identical image packets. Every timestamp, update,
@@ -628,4 +628,57 @@ The full PCM edition is retired. `install_stock_release.py` updates only
 ZIPs and the tester-update ZIP. It does not create a full PCM folder/archive
 or distribute checkpoint PCM. Hybrid checkpoint retries use compressed audio.
 Song-start PCM needed by the hybrid edition must remain available in the build
-pack or the existing hybrid folder.
+pack or the existing hybrid folder. A separate refreshed audio directory can
+be passed with `--audio-source`; unchanged song-start tracks are retained.
+
+### Rebuild a full-viewport catalog
+
+Use this workflow after importing the charts you want. It renders every camera
+frame, keeps gameplay objects when optional scenery is disabled, and builds a
+compressed master without generating a full PCM set. It needs the private
+chart/audio files from the import steps above. Choose a new output name each
+time so an already verified release stays intact.
+
+For example, make a catalog containing the imported Main Worlds:
+
+```powershell
+New-Item -ItemType Directory -Force build/catalog-work | Out-Null
+.\.venv\Scripts\python.exe -c "import json; from pathlib import Path; Path('build/catalog-work/catalog.json').write_text(json.dumps({'levels':list(range(1,13))}))"
+.\.venv\Scripts\python.exe tools/compile_catalog.py --catalog build/catalog-work/catalog.json --out build/catalog-work/raw --workers 2 --resume
+.\.venv\Scripts\python.exe tools/render_catalog.py --source build/catalog-work/raw --catalog build/catalog-work/catalog.json --out build/catalog-work/rendered --workers 2
+.\.venv\Scripts\python.exe tools/assemble_catalog.py --catalog build/catalog-work/catalog.json --rendered build/catalog-work/rendered --out build/packs/my-expanded-master
+```
+
+Open `build/packs/my-expanded-master/adofai.sfc` with its matching `.msu`
+beside it. This pipeline uses the 160-pixel gameplay viewport and global
+lossless native-event/image compression. It can take hours for a large
+catalog. Completed compile/render stages can be resumed; do not reuse a
+failed projection cache after changing its imported source or VFX settings.
+
+MSU-1 can address at most 4 GiB. If a large catalog exceeds that limit, keep
+the staged output and generate a storage plan:
+
+```powershell
+.\.venv\Scripts\python.exe tools/plan_catalog_storage.py --source build/packs/my-expanded-master --out build/catalog-work/storage-plan.json --workers 2
+.\.venv\Scripts\python.exe tools/assemble_catalog.py --catalog build/catalog-work/catalog.json --rendered build/catalog-work/rendered --out build/packs/my-budgeted-master --storage-plan build/catalog-work/storage-plan.json
+```
+
+The plan retains all gameplay frames, tile detail, replacement objects,
+hazards and T3 effects. It budgets the additional optional decorative scenes
+for VFX ON; large scenes that do not fit use the same gameplay cache in both
+settings. The report lists every omitted scene. Full render caches remain
+available for a smaller catalog that can include those scenes.
+
+Verify the assembled files in MesenCE before distributing them:
+
+```powershell
+.\.venv\Scripts\python.exe tools/verify_sa1_layout.py --pack my-expanded-master
+.\.venv\Scripts\python.exe tools/verify_snapshot_storage.py --pack my-expanded-master
+.\.venv\Scripts\python.exe tools/verify_catalog_mesen.py --pack my-expanded-master --workers 2
+.\.venv\Scripts\python.exe tools/verify_catalog_mesen.py --pack my-expanded-master --workers 2 --manual
+```
+
+These checks expect MesenCE at `C:\mesen2\Mesen.exe`. `run_mesen_campaign.py`
+accepts `--mesen` when running an individual replay with another executable
+path. Watch checks, real-input checks and checkpoint checks cover different
+behavior; a successful import alone is not a verified playable release.

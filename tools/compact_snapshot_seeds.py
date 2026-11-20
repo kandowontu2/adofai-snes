@@ -42,7 +42,7 @@ def patch_pack(folder):
         alternate=chart.get('vfx_off')
         if alternate and alternate.get('compact_snapshot_seeds',1)<3:
             seed=folder/f'mode1_seeds_vfx_off{level}.bin';before=seed.read_bytes()
-            after=compact(before,wide=bool(alternate.get('wide_snapshot_atlas')),previous=True) if alternate.get('compact_snapshot_seeds',1)<2 else before
+            after=compact(before,wide=bool(alternate.get('wide_snapshot_atlas')),previous=bool(alternate.get('compact_snapshot_seeds',1))) if alternate.get('compact_snapshot_seeds',1)<2 else before
             after=trim_map(after)
             saved+=len(before)-len(after);seed.write_bytes(after)
             alternate['compact_snapshot_seeds']=3

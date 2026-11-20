@@ -31,13 +31,20 @@ def encode_tile(pixels,palette):
     return bytes(out)
 
 
+_SPREAD_BITS=tuple(sum(((value>>(7-x))&1)<<(x*8) for x in range(8)) for value in range(256))
+
+
 def decode_tile(glyph,palette):
-    colors=[0]+list(palette);out=bytearray()
+    # Expand an entire bitplane row at once. Each byte of the 64-bit word
+    # is one pixel, so OR/shift cannot carry into its neighboring pixel.
+    out=bytearray()
     for y in range(8):
-        for x in range(8):
-            value=sum(((glyph[(p//2)*16+y*2+p%2]>>(7-x))&1)<<p for p in range(4))
-            out.append(colors[value])
-    return bytes(out)
+        at=y*2
+        row=(_SPREAD_BITS[glyph[at]]|(_SPREAD_BITS[glyph[at+1]]<<1)|
+             (_SPREAD_BITS[glyph[at+16]]<<2)|(_SPREAD_BITS[glyph[at+17]]<<3))
+        out.extend(row.to_bytes(8,'little'))
+    if max(out)>len(palette):raise IndexError('CHR refers to a missing palette color')
+    return bytes(out).translate(bytes([0]+list(palette)+[0]*(255-len(palette))))
 
 
 def compile_frames(chart,animation,patterns):

@@ -4,7 +4,7 @@
 ; On that rare path, count exact intervals for OAM and the reserved track.
 ; Scratch is the unused CPU WRAM below the relocated fast-NMI code.
 EXACT_COUNTS=$0620
-EXACT_TILES=$06C0
+EXACT_TILES=$06C2
 EXACT_Y=$0768
 EXACT_HEIGHT=$076A
 EXACT_SIZE=$076C
@@ -57,11 +57,11 @@ sprite_exact_room:
 @eligible:
     phx
     phy
-    lda #32
+    lda #GAMEPLAY_VIEW_TOP
     sta EXACT_Y
-    lda #144
+    lda #176-GAMEPLAY_VIEW_TOP
     sta EXACT_HEIGHT
-    ldx #$140
+    ldx #$144
 @clear:
     stz EXACT_COUNTS,x
     dex
@@ -152,7 +152,7 @@ sprite_exact_room:
     cmp #35
     bcs @reject
     inx
-    cpx #144
+    cpx #176-GAMEPLAY_VIEW_TOP
     bcc @line
     rep #$20
     .a16

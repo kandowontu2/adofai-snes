@@ -1,4 +1,9 @@
 draw_hud:
+.ifdef NEO_BUILD
+    lda OBJECTIVE_HUD_ACTIVE
+    and #2
+    jne @refresh
+.endif
     lda state
     cmp #1
     jne @refresh
@@ -16,9 +21,6 @@ draw_hud:
 .endif
     jne @refresh
     lda checkpoint_preroll
-    jne @refresh
-    lda combo
-    cmp hud_last_combo
     jne @refresh
     lda feedback
     cmp hud_last_feedback
@@ -73,14 +75,16 @@ draw_hud:
     lsr a
     .endrepeat
     sta hud_last_timer
+.ifdef NEO_BUILD
+    jsl neo_far_objective_hud
+    bcs @unchanged
+.endif
     jmp draw_hit_meter
 @refresh:
     lda #1
     sta hud_dirty
     lda step
     sta hud_last_step
-    lda combo
-    sta hud_last_combo
     lda feedback
     sta hud_last_feedback
     lda feedback_time
@@ -241,17 +245,14 @@ draw_hud:
     jeq @calibrate
     cmp #6
     jeq @cal_result
-    lda combo
-    ldy #3*64+8*2
-    jsr put4
-    lda best
-    ldy #3*64+19*2
-    jsr put4
+    cmp #1
+    bne @no_progress
     ldx step
     lda f:NOTE_PROGRESS,x
     and #255
-    ldy #3*64+25*2
+    ldy #26*64+14*2
     jsr put3
+@no_progress:
     lda state
     cmp #3
     bne @failed
@@ -405,6 +406,10 @@ draw_hud:
     ldy #22*64+10*2
     jsr put_text
 @meter:
+.ifdef NEO_BUILD
+    jsl neo_far_objective_hud
+    bcs @done
+.endif
     jsr draw_hit_meter
 @done:
     rts
@@ -437,11 +442,23 @@ draw_hud:
     bne @highlight
     rep #$20
     .a16
-    lda calibration
     ldy #26*64+12*2
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+    lda menu_depth
+    beq :+
+    ldy #24*64+12*2
+:
+.endif
+    lda calibration
     jsr put_offset
-    lda speed_tenths
     ldy #24*64+20*2
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+    lda menu_depth
+    beq :+
+    ldy #23*64+18*2
+:
+.endif
+    lda speed_tenths
     jsr put_speed
     lda #.loword(text_mode_normal)
     ldx autoplay
@@ -454,6 +471,14 @@ draw_hud:
     lda #.loword(text_mode_practice)
 @mode_show:
     ldy #18*64+8*2
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+    pha
+    lda menu_depth
+    beq :+
+    ldy #19*64+8*2
+:
+    pla
+.endif
     jmp put_text
 @calibrate:
     lda cal_count
@@ -560,6 +585,12 @@ draw_menu_list:
     lda #2|$3C00
     sta HUD+15*64+30*2
 @indicators_done:
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+    lda menu_depth
+    beq :+
+    jsl menu_browser_layout
+:
+.endif
     rts
 
 put_text:

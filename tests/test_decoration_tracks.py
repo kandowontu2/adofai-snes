@@ -12,6 +12,90 @@ from make_assets import FPS
 
 
 class DecorationTrackTests(unittest.TestCase):
+    def test_sprite_masks_clip_pixels_without_drawing_the_mask(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);Image.new('RGBA',(100,100),'white').save(root/'block.png')
+            chart=dict(notes=[dict(x=32,y=32,time=0,speed=1)])
+            common=dict(eventType='AddDecoration',decorationImage='block.png',position=[0,0],relativeTo='Tile',depth=0)
+            data=dict(source=str(root/'main.adofai'),bpm=120,featured_actions=[],featured_decorations=[
+                dict(common,scale=[200,200],color='ff0000',maskingType='VisibleOutsideMask'),
+                dict(common,scale=[100,100],maskingType='Mask',useMaskingDepth=True,maskingFrontDepth=0,maskingBackDepth=0)])
+            py,px=np.mgrid[:64,:64];palette=np.zeros(256,dtype=np.uint16)
+            result=DecorationTracks(data,chart).draw(np.zeros((66,64),dtype=np.uint8),0,px,py,0,palette)
+            self.assertEqual(int(palette[result[33,32]]),0)
+            self.assertGreater(int(palette[result[33,18]])&31,0)
+
+    def test_native_planet_objects_obey_independent_setobject_colors(self):
+        chart=dict(notes=[dict(x=32,y=32,time=0,speed=1)],local_decoration_pivots=True)
+        data=dict(source='unused.adofai',bpm=120,featured_decorations=[
+            dict(eventType='AddObject',objectType='Planet',planetColorType='Custom',
+                 planetColor='ff000000',tag='red',position=[0,0]),
+            dict(eventType='AddObject',objectType='Planet',planetColorType='Custom',
+                 planetColor='0000ff',tag='blue',position=[1,0])],featured_actions=[
+            dict(floor=0,eventType='SetObject',tag='red',planetColor='ff0000',angleOffset=180)])
+        renderer=DecorationTracks(data,chart);py,px=np.mgrid[:64,:96]
+        for frame,visible in ((0,False),(FPS,True)):
+            palette=np.zeros(256,dtype=np.uint16)
+            image=renderer.draw(np.zeros((66,96),dtype=np.uint8),frame,px,py,0,palette)
+            words=palette[image]
+            self.assertEqual(bool(np.any((words&31)>0)),visible)
+            self.assertTrue(np.any((words>>10)>0))
+
+    def test_math_superscript_has_a_readable_ascii_form(self):
+        from decoration_tracks import text_image
+        self.assertTrue(np.array_equal(text_image('x²=2'),text_image('x^2=2')))
+
+    def test_smart_punctuation_uses_editable_ascii_glyphs(self):
+        from decoration_tracks import text_image
+        np.testing.assert_array_equal(text_image('“Hey—you!”'),text_image('"Hey-you!"'))
+        np.testing.assert_array_equal(text_image('\ud83d'),text_image('?'))
+
+    def test_direction_instructions_use_external_arrow_glyphs(self):
+        from decoration_tracks import text_image
+        np.testing.assert_array_equal(text_image('➜'),text_image('→'))
+        self.assertFalse(np.array_equal(text_image('←'),text_image('→')))
+
+    @unittest.skipUnless(Path('C:/Windows/Fonts/msgothic.ttc').exists(),'Unicode source font unavailable')
+    def test_division_and_nabla_instructions_remain_distinct(self):
+        from decoration_tracks import text_image
+        divide,nabla=text_image('÷'),text_image('∇')
+        self.assertTrue(divide[:,:,3].any() and nabla[:,:,3].any())
+        self.assertFalse(np.array_equal(divide,nabla))
+        theta=text_image('θ')
+        self.assertTrue(theta[:,:,3].any())
+        self.assertFalse(np.array_equal(theta,nabla))
+
+    def test_literal_less_than_does_not_consume_closing_text_style(self):
+        from decoration_tracks import text_image
+        np.testing.assert_array_equal(text_image('<size=75>(<XS-X3)</size>'),
+                                      text_image('(<XS-X3)'))
+
+    @unittest.skipUnless(Path('C:/Windows/Fonts/malgun.ttf').exists(),'Korean source font unavailable')
+    def test_korean_instruction_glyphs_are_distinct_and_visible(self):
+        from decoration_tracks import text_image
+        a,b=text_image('텍'),text_image('스')
+        self.assertTrue(a[:,:,3].any() and b[:,:,3].any())
+        self.assertFalse(np.array_equal(a,b))
+
+    def test_default_planet_preset_overrides_ignored_custom_color(self):
+        from decoration_tracks import planet_object_color
+        self.assertEqual(planet_object_color(dict(planetColorType='DefaultBlue',planetColor='ff0000')),'0000ff')
+        self.assertEqual(planet_object_color(dict(planetColorType='Custom',planetColor='123456')),'123456')
+
+    def test_named_instruction_colors_match_hex_colors(self):
+        from decoration_tracks import text_image
+        self.assertTrue(np.array_equal(text_image('<color=lime>A</color>'),
+                                       text_image('<color=#00ff00>A</color>')))
+
+    def test_explicit_light_backdrop_preserves_black_track_pixels(self):
+        chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)],decoration_backdrop='ffffff')
+        data=dict(source='unused.adofai',bpm=120,featured_actions=[],featured_decorations=[])
+        palette=np.zeros(256,dtype=np.uint16);image=np.zeros((34,32),dtype=np.uint8);image[10:20,10:20]=32
+        py,px=np.mgrid[:32,:32]
+        result=DecorationTracks(data,chart).draw(image,0,px,py,0,palette)
+        self.assertEqual(int(palette[result[5,5]]),32767)
+        self.assertEqual(int(palette[result[15,15]]),0)
+
     def test_full_native_palette_reuses_exact_art_colors(self):
         chart=dict(notes=[dict(x=16,y=16,time=0,speed=1)])
         data=dict(source='unused.adofai',bpm=120,featured_actions=[],featured_decorations=[

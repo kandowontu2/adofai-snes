@@ -4,11 +4,17 @@ from pathlib import Path
 from verification_data import identity
 ROOT=Path(__file__).resolve().parents[1]
 
+def verify_icon_scratch(top,lines,scan,size):
+    assert lines+(176-top)*2<=scan,'Icon scanline counters overlap executable code'
+    assert scan+size<=0x480,'Icon scan code overlaps the copy-parent cache'
+
 def verify_cpu_scratch(twirl_begin,twirl_end):
     ranges=[('palette/roles',0x0580,0x05A2),('stream',0x05A2,0x0600),
-            ('sprite bins',0x0600,0x0620),('exact budgets',0x0620,0x0760),
+            ('sprite bins',0x0600,0x0620),('exact budgets',0x0620,0x0766),
             ('exact temporaries',0x0768,0x0778),('DMA commands',0x0778,0x077E),
-            ('math labels',0x0780,0x0794),('planet preview',0x07A0,0x07C8),
+            ('math labels',0x0780,0x0794),('menu artwork',0x0794,0x079E),
+            ('objective HUD',0x079E,0x07A0),
+            ('planet preview',0x07A0,0x07C8),
             ('twirl',twirl_begin,twirl_end)]
     ranges.sort(key=lambda r:r[1])
     assert all(a<b for _,a,b in ranges) and max(b for _,a,b in ranges)<=0x0800
@@ -33,6 +39,12 @@ def verify(base,source):
     worker=(base/'sa1_worker.bin').read_bytes()
     assert len(worker) in (0x7000,0x8000)
     assert rom[0x8000:0x8000+len(worker)]==worker
+    worker_labels={name:int(value,16) for value,name in re.findall(
+        r'al ([0-9A-Fa-f]+) \.([\w]+)',(base/'sa1_worker.lbl').read_text())}
+    if '__HOTICONSCAN_RUN__' in worker_labels:
+        top=re.search(r'^SNAPSHOT_MAP_TOP\s*=\s*(\d+)',build_flags,re.M)
+        verify_icon_scratch(int(top[1]) if top else 32,0x100,
+                            worker_labels['__HOTICONSCAN_RUN__'],worker_labels['__HOTICONSCAN_SIZE__'])
     camera_state=('M7_RASTER_SHIFT','M7_RASTER_X','M7_RASTER_Y','M7_RASTER_DISPLAY_X','M7_RASTER_DISPLAY_Y','M7_ORIGIN_X','M7_ORIGIN_Y')
     diagnostics=('VBLANK_DIAG_ROWS','VBLANK_DIAG_SPAN','VBLANK_DIAG_SLOTS','VBLANK_DIAG_LIMIT')
     constants={name:int(value,16) for name,value in re.findall(r'^(\w+)=\$([0-9A-Fa-f]+)$',(base/'sa1_layout.inc').read_text(),re.M)}
@@ -46,6 +58,10 @@ def verify(base,source):
         data=(base/'symbol_scale_frames.bin').read_bytes()
         assert rom[at:at+len(data)]==data,'Scaled symbol artwork differs from source'
         assert (at&65535)+len(data)<=65536,'Scaled symbol artwork crosses ROM bank'
+    if 'FAR_SCALE_TABLES = 1' in build_flags:
+        assert rom[0x230000:0x232000]==(base/'far_scale_tables.bin').read_bytes()
+        assert all(0xe30000<=labels[n]<0xe32000 for n in
+                   ('planet_scale_levels','planet_scale_rows','planet_scale_radii'))
     unmirror=lambda a:a&0x7fffff if helper_mirror else a
     if helper_mirror:
         code_size=re.search(r'NEO_CODE_BYTES = \$([0-9A-Fa-f]+)',(base/'addresses.inc').read_text())
@@ -103,7 +119,9 @@ def verify(base,source):
                 assert labels['SYMBOL_SCREEN_Y']+symbols*2<=labels['SNAPSHOT_ICON_INFO']
                 assert labels['SNAPSHOT_ICON_INFO']+count<=0x43E800
                 # Largest independent LZ4 pose: header + 640 CHR chunks.
-                assert 0x422000+1312+640*32<=labels['SNAPSHOT_ICON_PREFIX']
+                top=re.search(r'^SNAPSHOT_MAP_TOP\s*=\s*(\d+)',build_flags,re.M)
+                header_bytes=96+(184-(int(top[1]) if top else 32))*8
+                assert 0x422000+header_bytes+640*32<=labels['SNAPSHOT_ICON_PREFIX']
                 assert labels['SNAPSHOT_ICON_PREFIX']+544<=0x428000
             assert 0x408200<=labels['NATIVE_ALPHA'] and labels['NATIVE_ALPHA']+count<=labels['TRACK_SYMBOL_FLOORS']
             assert labels['NATIVE_READY']==0x42B200

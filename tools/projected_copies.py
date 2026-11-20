@@ -18,7 +18,8 @@ def capture_world(folder,level):
     folder=Path(folder);chart=json.loads((folder/f'level{level}.json').read_text())
     if chart.get('code') not in ('T3-X','T3EX-X'):return None
     chart=copy.deepcopy(chart)
-    data=json.loads((ROOT/f'assets/private/level{level}.json').read_text())
+    from pack_sources import load_source
+    data=load_source(folder,level)
     first=math.ceil(chapter_time(chart,850)*FPS);last=math.ceil(chapter_time(chart,882)*FPS)
     versions=chart['visibility_floor_versions'];initial=[rows[0][1] for rows in versions];changes={}
     for i,rows in enumerate(versions):

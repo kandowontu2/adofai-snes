@@ -16,6 +16,10 @@ def verify(name):
     if 287 in levels:checks.extend((287,off,watch) for off in (False,True) for watch in (False,True))
     for n in (293,294,295,296):
         if n in levels:checks.extend((n,True,watch) for watch in (False,True))
+    # Other release features reuse these two real-input replays. Finish
+    # them first so independent checks can run without writing one folder
+    # from two emulator processes at the same time.
+    checks.sort(key=lambda row:not(row[0] in (285,287) and not row[1] and not row[2]))
     for level,off,watch in checks:
         local=levels.index(level)+1
         args=['--pack',name,'--levels',local,'--sampled-graphics','--resume']

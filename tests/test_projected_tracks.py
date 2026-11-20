@@ -10,6 +10,22 @@ from mode1_tracks import decode_tile,schedule
 
 
 class ProjectedTrackTests(unittest.TestCase):
+    def test_sixteenth_opaque_color_requests_indexed_fallback(self):
+        image=np.zeros((184,256),dtype=np.uint8)
+        tile=np.resize(np.arange(32,48,dtype=np.uint8),(8,8))
+        image[16:24,:8]=tile
+        with self.assertRaisesRegex(ValueError,'fifteen'):
+            encode_screen(image,[],[bytes(32)],{bytes(32):0},{},map_top=16)
+        glyphs=[bytes(32)]
+        refs,_=encode_indexed_screen(image,glyphs,{bytes(32):0},map_top=16)
+        glyph,flags=refs[0]
+        raw=glyphs[glyph]
+        decoded=np.array([sum(((raw[(p//2)*16+y*2+p%2]>>(7-x))&1)<<p
+                              for p in range(8)) for y in range(8) for x in range(8)],dtype=np.uint8).reshape(8,8)
+        if flags&16:decoded=decoded[:,::-1]
+        if flags&32:decoded=decoded[::-1]
+        np.testing.assert_array_equal(decoded,tile)
+
     def test_reference_renderer_uses_native_colors_before_artwork_palette_writes(self):
         from projected_tracks import Source
         with tempfile.TemporaryDirectory() as directory:

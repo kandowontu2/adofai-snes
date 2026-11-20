@@ -151,6 +151,16 @@ def patch_pack(out, *, generate_pcm=True):
                             for c in [json.loads((out/f'level{n}.json').read_text())]
                             if c.get('mode1_snapshot'))
         data_version=35 if compact_version>=4 else 34 if compact_version>=3 else 33 if compact_version>=2 else 32
+        if compact_version>=4 and any(json.loads((out/f'level{n}.json').read_text()).get('snapshot_map_top',32)==16 for n in levels):
+            # The expanded map has two more rows. Reject older MSU files
+            # rather than decode their shorter headers as the new layout.
+            data_version=36
+    sharing=out/'msu-snapshot-sharing.json'
+    if sharing.exists() and json.loads(sharing.read_text()).get('native_lz4'):
+        assert data_version==36,'Native LZ4 requires the complete expanded snapshot layout'
+        codec=json.loads(sharing.read_text())
+        assert codec.get('native_filter_version')!=1,'Repack experimental coordinate caches with build_sa1.py before rebuilding the engine'
+        data_version=39 if codec.get('native_filter_version',0)>=2 else 37
     try:
         descriptors = (out/'msu_descriptors.bin').read_bytes()
         placements = json.loads((out/'placements.json').read_text())

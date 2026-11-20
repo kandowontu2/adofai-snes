@@ -22,7 +22,7 @@ def main():
             sounds[str(meta['id'])]=sound
             print(meta['code'],len(data['floors'])-1,'tiles',flush=True)
             continue
-        source=ROOT/meta['source'] if 'source' in meta else folder/meta['workshop']/'main.adofai'
+        source=ROOT/meta['source'] if 'source' in meta else folder/meta['workshop']/meta.get('chart_file','main.adofai')
         text=source.read_text(encoding='utf-8-sig')
         # Original archived v2 file omits one separator between floors 431/432.
         # Keep source bytes intact and record this syntax-only repair.

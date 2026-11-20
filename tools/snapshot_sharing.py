@@ -29,7 +29,7 @@ def share(index, data):
         packet=data[pointer:pointer+size]
         assert len(packet)==size and packet[-7:]==HEADER.pack(65535,255,0,0)
         _,kind,_,length=HEADER.unpack_from(packet)
-        assert kind in (41,44,45,46,47) and length+14==size
+        assert kind in (41,44,45,46,47,48,49) and length+14==size
         # The due k42 event retains its original musical timestamp. The
         # immutable packet's earlier timestamp is only a decoder due check.
         key=hashlib.sha256(packet[2:]).digest()

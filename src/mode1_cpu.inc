@@ -639,10 +639,26 @@ mode1_restore_raw_atlas:
 mode1_commit_map:
     stz pattern_skip_hud
     lda display_state
+    beq @no_scene
+    cmp #5
+    bcs @no_scene
     cmp #2
     bne :+
     rtl
 :
+    bra @scene
+@no_scene:
+    ; A menu replaces the track. A completed or abandoned snapshot must
+    ; never be uploaded over its artwork using the shorter menu VBlank.
+    lda #0
+    sta f:M1_RUN_COUNT
+    sta f:M1_SNAPSHOT_DIRTY
+    sta f:M1_PREFETCH_READY
+    sta f:M1_READY
+    sta f:TRACK_PALETTE_DIRTY
+    stz m7_row_count
+    rtl
+@scene:
     lda f:STREAM_MODE1
     cmp #3
     bne @other_hud
@@ -771,6 +787,9 @@ mode1_commit_patterns:
     ; A failed run keeps the last published track, just like Mode 7.
     ; Re-uploading its full atlas before the death HUD wastes VBlank.
     lda display_state
+    beq @no_scene
+    cmp #5
+    bcs @no_scene
     cmp #2
     bne :+
     rts
@@ -807,6 +826,8 @@ mode1_commit_patterns:
     dey
     bne @run
 @done:
+    lda #0
+    sta f:M1_RUN_COUNT
     lda f:STREAM_MODE1
     cmp #3
     bne :+
@@ -818,6 +839,7 @@ mode1_commit_patterns:
     lda f:M1_BUILD_FORMAT
     sta f:M1_FRONT_FORMAT
 :
+@no_scene:
     rts
 .segment "CODE"
 .endif
@@ -851,6 +873,28 @@ mode1_hdma_select:
     tay
     lda f:M1_FRONT_BANK
 mode1_hdma_choose:
+    ; The browser shares BG1 with gameplay and uses a 32-column map.
+    ; Restore the gameplay width with every published pose, including
+    ; the first pose after loading while the menu was still displayed.
+    pha
+    sep #$20
+    .a8
+    lda #$71
+    sta $2107
+    lda f:STREAM_MODE1
+    cmp #3
+    bne @keep_world_scroll
+    tya
+    and #4
+    beq :+
+    lda #$FF
+:
+    sta $210E
+    sta $210E
+@keep_world_scroll:
+    rep #$20
+    .a16
+    pla
 .ifdef WIDE_SNAPSHOT_SUPPORT
     pha
     sep #$20
@@ -881,6 +925,15 @@ mode1_hdma_choose:
     ldx #.loword(hdma_mode3)
 @done:
     ply
+    rtl
+mode1_snapshot_scroll:
+    lda f:M1_FRONT_FORMAT
+    and #4
+    beq :+
+    lda #$FFFF
+    rtl
+:
+    lda #0
     rtl
 .segment "CODE"
 .endif

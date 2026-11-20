@@ -12,6 +12,24 @@ from snapshot_codec import decode_split
 
 
 class ReferenceSeeds(unittest.TestCase):
+    def test_expanded_upper_rows_survive_compression_and_checkpoint_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'source';source.mkdir();out=Path(directory)/'out'
+            (source/'level1.json').write_text(json.dumps(dict(code='EXPANDED',notes=[dict(frame=65)],
+                pattern_initial=[0]*256,track_palette_versions=[],snapshot_map_top=16)))
+            (source/'animation1.bin').write_bytes(HEADER.pack(65535,255,0,0))
+            glyphs=[bytes(32),bytes([85])*32]
+            write(source,out,1,glyphs,[({0:(1,0),671:(1,0)},((32,33),))]*66,postroll=0)
+            index=(out/'stream_index1.bin').read_bytes();stream=(out/'stream_data1.bin').read_bytes()
+            seeds=trim_map(compact((out/'mode1_seeds1.bin').read_bytes()))
+            result=reference_seeds(seeds,index,stream,map_top=16)
+            at=struct.unpack_from('<I',result,4)[0];size,pointer=struct.unpack_from('<HI',result,at+4)
+            _,kind,count,length=HEADER.unpack_from(stream,pointer)
+            raw=decode_split(stream[pointer+7:pointer+7+length],count,header_bytes=1440)
+            self.assertEqual(len(raw),1440+count*32)
+            self.assertEqual(struct.unpack_from('<H',raw,96)[0]&1023,1)
+            self.assertEqual(struct.unpack_from('<H',raw,96+671*2)[0]&1023,1)
+            self.assertEqual(size,length+14)
     def test_all_formats_restore_identical_pixels_clones_cursor_and_symbols(self):
         for indexed,wide,count in [(False,False,30),(False,True,540),(True,False,30),(True,True,270)]:
             with self.subTest(indexed=indexed,wide=wide),tempfile.TemporaryDirectory() as directory:

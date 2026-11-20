@@ -3,7 +3,7 @@ import argparse,ctypes as C,json,math,wave
 from pathlib import Path
 import numpy as np
 from emulate import Emulator,ROOT
-from input_helpers import configure,press,wait
+from input_helpers import configure,press,wait,open_calibration
 
 
 def entry_sound(base,route='menu',core=None):
@@ -18,13 +18,14 @@ def entry_sound(base,route='menu',core=None):
             press(em,3);wait(em,lambda:em.read('state')==4,30)
             press(em,2);wait(em,lambda:em.read('state')==0,30)
         elif route=='options':
-            press(em,0)
+            press(em,2 if em.labels.get('MENU_OPTIONS_SELECT') else 0)
             for _ in range(5):press(em,5)
         elif route=='retry':
-            press(em,2)
+            open_calibration(em)
             for _ in range(60):em.run()
         em.audio.clear()
-        press(em,8 if route=='options' else 3 if route=='retry' else 2)
+        if route in ('options','retry'):press(em,8 if route=='options' else 3)
+        else:open_calibration(em)
         assert em.read('state')==5
         for _ in range(round(1.7*em.av.timing.fps)):em.run()
         pcm=np.frombuffer(b''.join(em.audio),dtype='<i2').reshape(-1,2).astype(float)
@@ -46,7 +47,7 @@ def presentation(base):
     em=Emulator(rom=base/'adofai.sfc')
     try:
         for _ in range(120):em.run()
-        press(em,2)
+        open_calibration(em)
         em.audio.clear();angles=[];images=[];pixels=set()
         for frame in range(round(1.8*em.av.timing.fps)):
             em.run();angles.append(em.read('angle'))
@@ -79,7 +80,7 @@ def metronome(base,start,display,initial=0):
     try:
         for _ in range(120):em.run()
         if initial:configure(em,calibration=initial)
-        press(em,2)
+        open_calibration(em)
         assert em.read('state')==5
         period=125;bias=round((display+8)/em.av.timing.fps/.004)
         beat=start;count=0;errors=[];polls=[]

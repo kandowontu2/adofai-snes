@@ -31,7 +31,7 @@ def verify(rom):
                 assert actual==fixed,(speed,offset,actual,fixed)
                 checked+=1
         configure(em,40,calibration=0)
-        press(em,0)
+        press(em,2 if em.labels.get('MENU_OPTIONS_SELECT') else 0)
         while em.read('settings_row')!=1:press(em,4)
         for _ in range(100):em.run([7])
         em.run();assert em.read('speed_tenths')==40
@@ -42,6 +42,9 @@ def verify(rom):
         wait(em,lambda:em.read('combo')>=5,2500)
         assert em.read('meter_count')>0 and em.read('meter_average')==64
         assert em.read('m7_vbottom')==175
+        expected_top=json.loads((rom.parent/f'level{levels[0]}.json').read_text()).get('snapshot_map_top',32)
+        assert em.read('m7_vtop')==expected_top
+        viewport_height=em.read('m7_vbottom')-em.read('m7_vtop')+1
         em.capture(rom.parent/'verification/ui-playfield.png')
         wait(em,lambda:em.read('state')==3,12000)
         for _ in range(8):em.run()
@@ -51,7 +54,7 @@ def verify(rom):
         assert em.read('misses')==0
         em.capture(rom.parent/'verification/ui-results.png')
         result=dict(passed=True,menu_songs=len(levels),sets=len(sets),calibration_speed_cases=checked,
-                    max_speed=4.0,viewport_height=144,autoplay_hits=em.read('perfects'),**identity(rom))
+                    max_speed=4.0,viewport_height=viewport_height,autoplay_hits=em.read('perfects'),**identity(rom))
         (rom.parent/'verification/ui-update.json').write_text(json.dumps(result,indent=2))
         print(result)
     finally:em.close()

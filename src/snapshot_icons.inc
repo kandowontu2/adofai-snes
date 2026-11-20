@@ -3,6 +3,9 @@
 .ifdef EXTENDED_CHART_BUILD
 .segment "NEOCODE"
 snapshot_icons_seed:
+.ifndef ROM_DATA_BUILD
+    jsr neo_note_pointer
+.endif
     lda selected_level
     asl a
     tax

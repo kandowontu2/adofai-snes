@@ -24,6 +24,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pack',default='stock-refresh-master')
     parser.add_argument('--folders-only',action='store_true')
+    parser.add_argument('--audio-source',type=Path,help='Separately verified refreshed song-start PCM, without another full PCM master')
     args=parser.parse_args();BASE=ROOT/'build/packs'/args.pack;V=BASE/'verification'
     frozen=identity(BASE/'adofai.sfc',fresh=True);pack=read(BASE/'pack.json');ids=pack['levels']
     assert ids and len(set(ids))==len(ids)
@@ -45,8 +46,19 @@ def main():
     assert [r['id'] for r in pcm]==ids
     main_tracks={f'adofai-{n}.pcm' for n in ids}
     update_tracks={f'adofai-{n}.pcm' for n in pack.get('updated_audio_levels',[]) if n in ids}
+    # Check both destinations before replacing either ROM/data pair or
+    # refreshing audio. A live emulator can otherwise leave a mixed build.
+    for edition in ('compressed','hybrid'):
+        for name,key in (('adofai.msu','msu_sha256'),('adofai.sfc','rom_sha256')):
+            current=DIST/f'adofai-msu-{edition}'/name
+            if current.exists() and file_sha256(current)!=frozen[key]:
+                try:
+                    with current.open('r+b'):pass
+                except PermissionError as error:
+                    raise PermissionError(f'Close the emulator using {current} before installing this build') from error
     for name in sorted(main_tracks):
         source=BASE/name;target=hybrid/name
+        if args.audio_source and (args.audio_source/name).exists():source=args.audio_source/name
         if source.exists() and (not target.exists() or file_sha256(source)!=file_sha256(target)):
             copy_file(source,target)
         assert target.is_file(),('Missing hybrid song-start audio',name)

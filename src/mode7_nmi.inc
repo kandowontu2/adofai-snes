@@ -34,7 +34,7 @@ mode7_prime_hdma:
     cmp #2
     bne @menu
 @scene:
-    lda #$0620
+    lda #$0600+GAMEPLAY_VIEW_TOP
     sta M7_HDMA_DISPLAY
     ldx #.loword(hdma_mode7)
     phx
@@ -44,7 +44,7 @@ mode7_prime_hdma:
     plx
     cmp #0
     beq :+
-    lda #$1628
+    lda #$1600+GAMEPLAY_VIEW_TOP+8
     sta M7_HDMA_DISPLAY
     ldx #.loword(hdma_mode7_inset)
 :
@@ -510,7 +510,7 @@ mode7_commit_camera:
     lda f:STREAM_MODE1
     cmp #2
     bcc :+
-    lda #0
+    jsl mode1_snapshot_scroll
     bra @bg_scroll_y
 :
 .endif

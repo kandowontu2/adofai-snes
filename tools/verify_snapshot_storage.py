@@ -3,7 +3,7 @@
 Compare the assembled file against the independent local render caches. This
 checks bytes and timestamps, not an assumption that similar images are enough.
 """
-import argparse,json,mmap,struct
+import argparse,json,mmap,struct,re
 from pathlib import Path
 from animation_bulk import records
 from verification_data import identity
@@ -12,8 +12,12 @@ from verification_data import identity
 def verify(base):
     frozen=identity(base/'adofai.sfc',fresh=True);rows=[]
     assert 'REFERENCE_SNAPSHOT_SEEDS = 1' in (base/'addresses.inc').read_text()
+    version=int(re.search(r'MSU_DATA_VERSION = (\d+)',(base/'addresses.inc').read_text())[1])
+    native_lz4='NATIVE_LZ4_BUILD = 1' in (base/'addresses.inc').read_text()
+    from native_packet_codec import expand_packet
+    assert version>=35
     with (base/'adofai.msu').open('rb') as file,mmap.mmap(file.fileno(),0,access=mmap.ACCESS_READ) as image:
-        assert len(image)<=2**32 and image[12:14]==struct.pack('<H',35)
+        assert len(image)<=2**32 and image[12:14]==struct.pack('<H',version)
         for n in json.loads((base/'pack.json').read_text())['levels']:
             chart=json.loads((base/f'level{n}.json').read_text())
             if not chart.get('mode1_snapshot'):continue
@@ -24,36 +28,55 @@ def verify(base):
                 seed=(base/f'mode1_seeds{suffix}{n}.bin').read_bytes()
                 count=len(index)//8;removed=count*512;directory=count*544
                 stream_base=c['stream_msu_base'];seed_base=c['mode1_seed_base']
-                refs={};visited=set();packets={}
+                refs={};visited=set();packets={};native_bytes=0;max_pose_bytes=0
                 for i in range(count):
                     for j in range(4):
                         before=struct.unpack_from('<HHI',stream,i*544+j*8)
                         after=struct.unpack_from('<HHI',image,stream_base+i*32+j*8)
-                        assert before[:2]==after[:2],(n,suffix,i,j,'Changed due time or packet size')
+                        assert before[0]==after[0],(n,suffix,i,j,'Changed due time')
+                        if not native_lz4:assert before[1]==after[1],(n,suffix,i,j,'Changed packet size')
                         if not before[1]:
                             assert before==after;continue
                         offset=before[2]&0x0fffffff
-                        assert after[2]==((before[2]&0xf0000000)|(offset-removed))
-                        size=before[1]
+                        if native_lz4:assert after[2]&0xf0000000==before[2]&0xf0000000
+                        else:assert after[2]==((before[2]&0xf0000000)|(offset-removed))
+                        size=before[1];runtime_size=after[1];runtime_offset=after[2]&0x0fffffff
                         while size:
                             length=size&0x7fff
+                            if native_lz4:
+                                assert bool(size&32768)==bool(runtime_size&32768),'Changed native chain'
+                                physical=runtime_size&32767
+                                expanded=expand_packet(bytes(image[stream_base+runtime_offset:stream_base+runtime_offset+physical]))
+                                assert len(expanded)==length,'Changed native packet length'
                             if offset not in visited:
                                 visited.add(offset)
+                                expected_chunk=bytearray(stream[offset:offset+length])
                                 for a,b,t,k,_,v in records(stream[offset:offset+length]):
                                     if k!=42:continue
+                                    assert 14<=v<=0x4000,(n,suffix,t,'Pose exceeds the physical source window')
+                                    max_pose_bytes=max(max_pose_bytes,v)
                                     at=offset+a+7;pointer=struct.unpack_from('<I',stream,at)[0]
-                                    runtime=struct.unpack_from('<I',image,stream_base+at-removed)[0]
+                                    runtime=(struct.unpack_from('<I',expanded,a+7)[0] if native_lz4 else
+                                             struct.unpack_from('<I',image,stream_base+at-removed)[0])
                                     assert image[stream_base+runtime:stream_base+runtime+v]==bytes(2)+stream[pointer+2:pointer+v],(n,suffix,t,'Changed pose')
                                     assert packets.setdefault(pointer,runtime)==runtime
                                     refs[at]=runtime
+                                    struct.pack_into('<I',expected_chunk,a+7,runtime)
+                                if native_lz4:
+                                    assert expanded==expected_chunk,(n,suffix,'Changed native event or timestamp')
+                                    native_bytes+=length
                             if not size&0x8000:break
                             offset+=length;size=struct.unpack_from('<H',stream,offset)[0];offset+=2
+                            if native_lz4:
+                                runtime_offset+=physical
+                                runtime_size=struct.unpack_from('<H',image,stream_base+runtime_offset)[0];runtime_offset+=2
                 assert packets
-                expected=bytearray(stream[directory:min(packets)])
-                for at,runtime in refs.items():struct.pack_into('<I',expected,at-directory,runtime)
-                actual=stream_base+count*32
-                assert image[actual:actual+len(expected)]==expected,(n,suffix,'Changed native animation bytes')
-                native_bytes=len(expected)
+                if not native_lz4:
+                    expected=bytearray(stream[directory:min(packets)])
+                    for at,runtime in refs.items():struct.pack_into('<I',expected,at-directory,runtime)
+                    actual=stream_base+count*32
+                    assert image[actual:actual+len(expected)]==expected,(n,suffix,'Changed native animation bytes')
+                    native_bytes=len(expected)
                 expected=bytearray(seed);seed_count=struct.unpack_from('<I',seed)[0]//4
                 for at in struct.unpack_from('<'+str(seed_count)+'I',seed):
                     header=struct.unpack_from('<H',seed,at+2)[0]
@@ -62,7 +85,7 @@ def verify(base):
                     if size:struct.pack_into('<I',expected,field+2,packets[pointer])
                 assert image[seed_base:seed_base+len(seed)]==expected,(n,suffix,'Changed restart state')
                 rows.append(dict(id=n,variant=suffix or 'main',directories=count,pose_references=len(refs),
-                                 unique_poses=len(packets),restart_seeds=seed_count,native_bytes=native_bytes))
+                                 unique_poses=len(packets),restart_seeds=seed_count,native_bytes=native_bytes,max_pose_bytes=max_pose_bytes))
     assert identity(base/'adofai.sfc',fresh=True)==frozen
     report=dict(passed=True,**frozen,variants=rows,pose_references=sum(r['pose_references'] for r in rows),
                 restart_seeds=sum(r['restart_seeds'] for r in rows))

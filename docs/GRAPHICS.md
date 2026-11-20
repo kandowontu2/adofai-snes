@@ -73,7 +73,9 @@ slots.
 Tiles 0–3 draw the occupied return cell; 4 is a collectible coin, 5 is a
 warning, and 6–7 are vertical/horizontal laser beams. Tiles 8–19 contain
 three fading versions of the return cell. Tile 20 is the incoming meteor used
-by T3 and T3EX defense sections. Keep the remaining tiles reserved.
+by T3 and T3EX defense sections. Tile 24 is the planet-count preview dash.
+Tiles 32, 33, and 34 are the live collectible star, heart, and banana.
+Keep the other unused tiles reserved.
 The loader places this sheet at OBJ indices 448–511, separate from the
 track spill cache and HUD tilemap.
 

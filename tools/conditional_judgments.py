@@ -30,9 +30,10 @@ def ranges(data):
     return result
 
 def tables(folder,levels):
+    from pack_sources import source_path
     entries=[];rows=[]
     for local,n in enumerate(levels):
-        path=ROOT/f'assets/private/level{n}.json'
+        path=source_path(folder,n)
         if not path.exists():continue
         intervals=ranges(json.loads(path.read_text()))
         if not intervals:continue

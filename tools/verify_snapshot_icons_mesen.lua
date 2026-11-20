@@ -10,10 +10,10 @@ return function(C)
  emu.addMemoryCallback(function()
   local start=word(C.addr.oam_pos,W)
   local objects,tiles,budget,high,bytes={},{},{},{},{}
-  for y=32,175 do objects[y]=0;tiles[y]=0 end
+  for y=C.viewport_top or 32,175 do objects[y]=0;tiles[y]=0 end
   for i=0,31 do budget[i]=emu.read(0x600+i,W);high[i]=emu.read(0x400+i,W)end
   local function charge(y,size)
-   for line=math.max(32,y),math.min(175,y+size-1)do
+   for line=math.max(C.viewport_top or 32,y),math.min(175,y+size-1)do
     objects[line]=objects[line]+1;tiles[line]=tiles[line]+size/8
    end
   end
@@ -23,7 +23,7 @@ return function(C)
   end
   local function sprite(x,y,tile,attr,size)
    size=size or 16
-   if start+#bytes>=512 or x< -15 or x>=256 or y<32 or y>=177 then return end
+   if start+#bytes>=512 or x< -15 or x>=256 or y<(C.viewport_top or 32) or y>(C.viewport_bottom or 176) then return end
    for line=y,math.min(175,y+size-1)do
     if objects[line]>=32 or tiles[line]+size/8>34 then return end
    end

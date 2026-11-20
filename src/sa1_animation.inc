@@ -22,6 +22,10 @@ worker_native_animation:
 .endif
 worker_animation_start:
     lda #0
+.ifdef NATIVE_LZ4_BUILD
+    sta f:NATIVE_LZ4_RESUME
+    sta f:NATIVE_COORD_DELTA
+.endif
 .ifdef SA1_STREAM_BUILD
     sta f:STREAM_SPILL_DIRECT
     sta f:STREAM_PATTERN_DIRECT
@@ -100,10 +104,32 @@ worker_animation_start:
     iny
     lda [transfer_ptr],y
     sta native_value
+.ifdef NATIVE_LZ4_BUILD
+    lda f:NATIVE_COORD_DELTA
+    beq @header_fields_ready
+    lda native_kind
+    asl a
+    tax
+    lda native_index
+    clc
+    adc a:NATIVE_FILTER_INDICES,x
+    sta a:NATIVE_FILTER_INDICES,x
+    sta native_index
+    lda native_value
+    clc
+    adc a:NATIVE_FILTER_VALUES,x
+    sta a:NATIVE_FILTER_VALUES,x
+    sta native_value
+@header_fields_ready:
+.endif
     lda #7
     jsr worker_native_advance
     lda native_kind
-    cmp #48
+.ifdef NATIVE_LZ4_BUILD
+    cmp #52
+.else
+    cmp #50
+.endif
     jcs @bad_kind
     asl a
     tax
@@ -123,6 +149,44 @@ worker_animation_start:
     .word @mode1snapshot_lz4
     .word @mode1snapshot_lz4_split
     .word @mode1snapshot_lz4_split
+    .word @mode1snapshot_lz4_split,@mode1snapshot_lz4_split
+.ifdef NATIVE_LZ4_BUILD
+    .word @native_lz4
+    .word @native_delta_lz4
+@native_delta_lz4:
+    lda #1
+    bra @native_lz4_setup
+@native_lz4:
+    lda #0
+@native_lz4_setup:
+    sta f:NATIVE_COORD_DELTA
+    beq @filter_ready
+    lda #0
+    ldx #102
+@filter_reset:
+    sta a:NATIVE_FILTER_INDICES,x
+    sta a:NATIVE_FILTER_VALUES,x
+    dex
+    dex
+    bpl @filter_reset
+@filter_ready:
+    lda transfer_ptr
+    clc
+    adc native_value
+    sta f:NATIVE_LZ4_RESUME
+    jsr worker_snapshot_load_hot
+    lda #$4242
+    sta f:lz4_literals+1
+    sta f:lz4_match_copy+1
+    lda f:NATIVE_LZ4_RESUME
+    sta map_left
+    ldx transfer_ptr
+    ldy #$2000
+    jsr worker_lz4_block
+    lda #$2000
+    sta transfer_ptr
+    jmp @record
+.endif
 @mode1snapshot_lz4_split:
     jsr worker_snapshot_lz4_split
     jmp @record
@@ -514,6 +578,34 @@ worker_animation_start:
     adc native_coord
     tay
     ldx transfer_ptr
+.ifdef NATIVE_LZ4_BUILD
+    lda f:NATIVE_COORD_DELTA
+    beq @bulk_raw
+    lda native_value
+    sta native_count
+    phb
+    sep #$20
+    .a8
+    lda #.bankbyte(SYMBOL_X)
+    pha
+    plb
+    rep #$20
+    .a16
+    lda #0
+@bulk_delta:
+    clc
+    adc f:$420000,x
+    sta a:$0000,y
+    inx
+    inx
+    iny
+    iny
+    dec native_count
+    bne @bulk_delta
+    plb
+    bra @bulk_advance
+@bulk_raw:
+.endif
     phb
     lda native_value
     asl a
@@ -751,6 +843,16 @@ worker_animation_start:
     inc a
     sta f:M7_CACHE_ERRORS
 @done:
+.ifdef NATIVE_LZ4_BUILD
+    lda f:NATIVE_LZ4_RESUME
+    beq :+
+    sta transfer_ptr
+    lda #0
+    sta f:NATIVE_LZ4_RESUME
+    sta f:NATIVE_COORD_DELTA
+    jmp @record
+:
+.endif
 .ifdef SA1_STREAM_BUILD
     lda f:STREAM_DECODING
     beq :+

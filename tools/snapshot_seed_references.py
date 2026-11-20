@@ -13,7 +13,8 @@ from snapshot_codec import decode,decode_split
 from projected_tracks import snapshot_pose
 
 
-def reference_seeds(seeds, index, stream, *, wide=False):
+def reference_seeds(seeds, index, stream, *, wide=False, map_top=32):
+    header_bytes=96+(184-map_top)//8*64;map_offset=map_top*8
     count=struct.unpack_from('<I',seeds)[0]//4
     offsets=list(struct.unpack_from('<'+str(count)+'I',seeds));offsets.append(len(seeds))
     entries=list(struct.iter_unpack('<HHI',index))[:-1]
@@ -28,13 +29,13 @@ def reference_seeds(seeds, index, stream, *, wide=False):
                 if k!=42:continue
                 pointer=struct.unpack_from('<I',stream,at+a+7)[0];length=v
                 _,kind,glyphs,packed=HEADER.unpack_from(stream,pointer)
-                assert kind in (41,44,45,46,47) and packed+14==length,(kind,packed,length)
+                assert kind in (41,44,45,46,47,48,49) and packed+14==length,(kind,packed,length)
                 payload=stream[pointer+7:pointer+7+packed]
-                if kind in (46,47):body=decode_split(payload,glyphs)
-                elif kind==45:body=decode(payload,glyphs)
+                if kind in (46,47,48,49):body=decode_split(payload,glyphs,header_bytes=header_bytes)
+                elif kind==45:body=decode(payload,glyphs,header_bytes=header_bytes)
                 elif kind==44:body=payload
                 else:
-                    palette,words,atlas=snapshot_pose(payload,glyphs)
+                    palette,words,atlas=snapshot_pose(payload,glyphs,map_top=map_top)
                     body=palette+words+b''.join(atlas)
             cursor+=1
         clones=42 if header&0x8000 else 0
@@ -45,13 +46,16 @@ def reference_seeds(seeds, index, stream, *, wide=False):
         if body is None:
             assert glyph_bytes==0 and not any(seed[at:symbols]),'Initial pose is not blank'
         else:
-            assert len(body)==1312+glyph_bytes
+            assert len(body)==header_bytes+glyph_bytes+(32 if kind in (48,49) else 0)
             assert seed[at:at+96]==body[:96]
-            assert seed[at+96:at+96+256]==bytes(256)
-            assert seed[at+96+256:at+96+1472]==body[96:1312]
-            assert seed[at+96+1472:at+96+1472+32]==bytes(32)
-            assert seed[at+96+1472+32:symbols]==body[1312:]
-            assert bool(header&(1 if wide else 0x4000))==(kind==47)
+            assert seed[at+96:at+96+map_offset]==bytes(map_offset)
+            assert seed[at+96+map_offset:at+96+1472]==body[96:header_bytes]
+            if kind in (48,49):
+                assert seed[at+96+1472:symbols]==body[header_bytes:]
+            else:
+                assert seed[at+96+1472:at+96+1472+32]==bytes(32)
+                assert seed[at+96+1472+32:symbols]==body[header_bytes:]
+            assert bool(header&(1 if wide else 0x4000))==(kind in (47,49))
         struct.pack_into('<I',result,i*4,len(result))
         result+=seed[:at]+struct.pack('<HI',length,pointer)+seed[symbols:]
     return bytes(result)
@@ -69,7 +73,7 @@ def patch_pack(folder):
             assert meta.get('compact_snapshot_seeds')==3,'Compact and share packets before referencing seeds'
             name=folder/f'mode1_seeds{suffix}{level}.bin';old=name.read_bytes()
             new=reference_seeds(old,(folder/f'stream_index{suffix}{level}.bin').read_bytes(),
-                (folder/f'stream_data{suffix}{level}.bin').read_bytes(),wide=bool(meta.get('wide_snapshot_atlas')))
+                (folder/f'stream_data{suffix}{level}.bin').read_bytes(),wide=bool(meta.get('wide_snapshot_atlas')),map_top=meta.get('snapshot_map_top',32))
             temporary=name.with_suffix('.bin.new');temporary.write_bytes(new);temporary.replace(name)
             meta['compact_snapshot_seeds']=4;meta['snapshot_seed_saved_bytes']=len(old)-len(new)
             saved+=len(old)-len(new);changed=True

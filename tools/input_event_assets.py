@@ -24,10 +24,11 @@ def schedule(data,chart):
  return rows
 
 def tables(folder,levels):
+ from pack_sources import source_path
  rows=[];starts=[];ends=[]
  for n in levels:
   starts.append(len(rows)*4)
-  path=ROOT/f'assets/private/level{n}.json'
+  path=source_path(folder,n)
   data=json.loads(path.read_text()) if n>=75 and path.exists() else {}
   if any(a.get('eventType')=='SetInputEvent' for a in data.get('featured_actions',[])):
    rows+=schedule(data,json.loads((Path(folder)/f'level{n}.json').read_text()))

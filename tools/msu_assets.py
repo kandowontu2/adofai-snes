@@ -5,6 +5,14 @@ import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
 RATE=44100
 
+def write_chart_metadata(out,chart):
+    """Preserve offline verifier histories omitted from the builder's heap."""
+    path=out/f'level{chart["id"]}.json'
+    complete=json.loads(path.read_text()) if path.exists() else {}
+    complete.update(chart)
+    path.write_text(json.dumps(complete,indent=2))
+
+
 def checkpoint_track_base(level):
     # Preserve released track numbers. Overclocked has 34 checkpoints and
     # extends past its old 32-track slot; new charts use a separate 64-slot area.
@@ -26,8 +34,12 @@ def generate(out,charts,music,*,generate_pcm=True,extended_catalog=False):
     descriptors=bytearray();manifest=[];stem=out/'adofai'
     from msu_snapshot_pool import SnapshotPool
     with tempfile.TemporaryFile(dir=out) as scratch,stem.with_suffix('.msu').open('w+b') as data:
-        shared=SnapshotPool(scratch)
-        data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',21 if extended_catalog else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
+        settings=out/'pack.json'
+        native_lz4=json.loads(settings.read_text()).get('native_packet_compression',False) if settings.exists() else False
+        if native_lz4:
+            assert all(c.get('mode1_snapshot') and c.get('snapshot_map_top')==16 for c in charts)
+        shared=SnapshotPool(scratch,native_lz4=native_lz4)
+        data.write(b'ADOFAI-MSU1\0'+struct.pack('<H',22 if charts and all(c.get("mode1_snapshot") and c.get("snapshot_map_top",32)==16 for c in charts) else 21 if extended_catalog else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13 if any(c.get('camera_rotation_versions') for c in charts) else 12)+bytes(18))
         for c in charts:
             n=c['id'];offset=data.tell();data.write(music[n]);track=n
             animation_offset=data.tell();data.write((out/f'animation{n}.bin').read_bytes())
@@ -51,7 +63,7 @@ def generate(out,charts,music,*,generate_pcm=True,extended_catalog=False):
                     variant(c)
                     if c.get('vfx_off'):variant(c['vfx_off'],'_vfx_off')
                     assert not c.get('fallback_stream_packets'),'Snapshot pools require independent poses'
-                    (out/f'level{n}.json').write_text(json.dumps(c,indent=2))
+                    write_chart_metadata(out,c)
                 else:
                     write_stream_assets(out,data,c,n)
             if not generate_pcm:
@@ -83,7 +95,7 @@ def write_stream_assets(out,data,c,n):
         if c.get('fallback_stream_packets'):
             c['fallback_stream_msu_base']=data.tell()
             data.write((out/f'stream_data_fallback{n}.bin').read_bytes())
-    (out/f'level{n}.json').write_text(json.dumps(c,indent=2))
+    write_chart_metadata(out,c)
 
 def generate_pcm_tracks(out, c):
     """Generate hybrid song-start PCM; checkpoint retries use BRR."""

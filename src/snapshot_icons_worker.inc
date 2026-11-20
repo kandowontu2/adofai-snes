@@ -2,7 +2,7 @@
 ; The CPU supplies its existing OAM prefix once. Exact scanline occupancy
 ; is charged incrementally instead of rescanning OAM for every icon.
 SNAPSHOT_ICON_LINES=$0100
-.assert SNAPSHOT_ICON_LINES+288 <= $0480, error, "Icon counters overlap copy-parent cache"
+.assert SNAPSHOT_ICON_LINES+(176-GAMEPLAY_VIEW_TOP)*2 <= __HOTICONSCAN_RUN__, lderror, "Icon counters overlap executable symbol scan"
 worker_snapshot_icons:
     lda M7_CACHE_CODE_VALID
     cmp #6
@@ -41,7 +41,7 @@ worker_snapshot_icons_hot:
     sta a:SNAPSHOT_ICON_LINES,x
     inx
     inx
-    cpx #288
+    cpx #(176-GAMEPLAY_VIEW_TOP)*2
     bcc @clear
     stz map_x
 @prefix:
@@ -213,23 +213,23 @@ worker_snapshot_icon_interval:
     lda view_y
     clc
     adc view_rows
-    cmp #33
+    cmp #GAMEPLAY_VIEW_TOP+1
     bcc @empty
     cmp #176
     bcc :+
     lda #176
 :
     sec
-    sbc #32
+    sbc #GAMEPLAY_VIEW_TOP
     asl a
     sta scratch2
     lda view_y
-    cmp #32
+    cmp #GAMEPLAY_VIEW_TOP
     bcs :+
-    lda #32
+    lda #GAMEPLAY_VIEW_TOP
 :
     sec
-    sbc #32
+    sbc #GAMEPLAY_VIEW_TOP
     asl a
     cmp scratch2
     bcs @empty
@@ -322,7 +322,7 @@ worker_snapshot_icon_piece:
     jcs @done
 @x_inside:
     lda view_y
-    cmp #32
+    cmp #GAMEPLAY_VIEW_TOP
     jcc @done
     cmp #177
     jcs @done
@@ -352,6 +352,37 @@ worker_snapshot_icon_piece:
     sta map_tile
 :
 .endif
+    ; Coarse bins overestimate every covered scanline. If adding a
+    ; two-sliver OBJ still stays at or below 32, both hardware limits are
+    ; proven without checking each line. Charge the exact counters too,
+    ; so later crowded objects retain the original admission decision.
+    lda view_y
+    .repeat 3
+    lsr a
+    .endrepeat
+    tax
+    lda view_rows
+    dec a
+    clc
+    adc view_y
+    .repeat 3
+    lsr a
+    .endrepeat
+    sta scratch2
+@coarse_room:
+    lda f:SPILL_OAM_BUDGET,x
+    and #255
+    cmp #31
+    bcs @exact_room
+    inx
+    cpx scratch2
+    bcc @coarse_room
+    beq @coarse_room
+    jsr worker_snapshot_icon_interval
+    bcs @outside
+    jsr worker_snapshot_icon_charge
+    bra @outside
+@exact_room:
     jsr worker_snapshot_icon_interval
     bcs @outside
     stx scratch

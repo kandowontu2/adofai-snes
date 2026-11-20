@@ -245,15 +245,15 @@ worker_camera_copies_hot:
     clc
     adc a:C_HALF
     adc a:C_HALF
-    cmp #33
+    cmp #GAMEPLAY_VIEW_TOP+1
     jcc @next_view
     lda a:C_N
     cmp #512
     jcs @done
     lda a:C_RIGHT
-    cmp #32
+    cmp #GAMEPLAY_VIEW_TOP
     bcs :+
-    lda #32
+    lda #GAMEPLAY_VIEW_TOP
 :
     sta a:C_ROW
     tax

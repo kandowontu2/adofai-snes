@@ -4,10 +4,23 @@ from pathlib import Path
 import campaign_assets as assets
 ROOT=Path(__file__).resolve().parents[1]
 
+def load_build_chart(path):
+    """Keep offline pixel histories on disk, outside the ROM builder's heap.
+
+    Full JSON remains available to the independent PPU verifier. Snapshot
+    playback uses encoded streams rather than projection_cells.
+    """
+    chart=json.loads(Path(path).read_text())
+    if chart.get('mode1_snapshot'):
+        for key in ('projection_cells','projected_spill_frames','render_viewports','render_transforms'):
+            chart.pop(key,None)
+    return chart
+
+
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--out',type=Path,default=ROOT/'build/packs/sa1-master')
     ap.add_argument('--source',type=Path,default=ROOT/'build/packs/master')
-    ap.add_argument('--no-pcm',action='store_true',help='Build ROM/data without regenerating unchanged PCM music')
+    ap.add_argument('--no-pcm',action='store_true',help='Build ROM/data without generating or copying MSU PCM music')
     ap.add_argument('--stream-levels',nargs='+',type=int,default=[],
                     help='Compile canonical per-frame charts into SA-1 animation packets')
     args=ap.parse_args()
@@ -15,9 +28,14 @@ def main():
     if not (out/'pack.json').exists():
         for p in source.iterdir():
             if not p.is_file():continue
-            if p.suffix=='.pcm':os.link(p,out/p.name)
-            else:shutil.copyfile(p,out/p.name)
-    pack=json.loads((out/'pack.json').read_text());charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
+            if args.no_pcm and re.fullmatch(r'adofai-\d+\.pcm',p.name):continue
+            shutil.copyfile(p,out/p.name)
+        # Rebuild callbacks/art from the same imported chart, even if the
+        # editable private catalog has changed since this pack was frozen.
+        for p in source.iterdir():
+            if p.is_dir() and (p.name=='source-imports' or p.name.startswith('vfx-off-')):
+                shutil.copytree(p,out/p.name,dirs_exist_ok=True)
+    pack=json.loads((out/'pack.json').read_text());charts=[load_build_chart(out/f'level{n}.json') for n in pack['levels']]
     assert all(not c.get('projection_source_only') or (c.get('mode1_snapshot') and not c.get('snapshot_preview')) for c in charts), 'Offline projection sources must be compiled to full snapshots before building a ROM'
     assert not any(c.get('decoration_tracks_preview') for c in charts), 'Decoration previews still require live-planet transforms and full effect coverage'
     if args.stream_levels:
@@ -33,8 +51,10 @@ def main():
     layout_path=out/'msu-snapshot-sharing.json'
     layout=json.loads(layout_path.read_text()) if layout_path.exists() else {}
     needs_compact_directory=any(c.get('compact_snapshot_seeds')==4 for c in charts) and layout.get('directory_saved_bytes') is None
-    if args.stream_levels or saved or shared or referenced or needs_compact_directory or not (out/'adofai.msu').exists():
-        charts=[json.loads((out/f'level{n}.json').read_text()) for n in pack['levels']]
+    needs_native_compression=bool(pack.get('native_packet_compression'))!=bool(layout.get('native_lz4'))
+    needs_native_compression|=bool(pack.get('native_packet_compression')) and layout.get('native_filter_version',0)<2
+    if args.stream_levels or saved or shared or referenced or needs_compact_directory or needs_native_compression or not (out/'adofai.msu').exists():
+        charts=[load_build_chart(out/f'level{n}.json') for n in pack['levels']]
         from msu_assets import generate
         generate(out,charts,{c['id']:(out/f"level{c['id']}.brr").read_bytes() for c in charts},generate_pcm=not args.no_pcm)
     assets.OUT=out;blobs=assets.ui_assets(pack['title'],mode7=True)
@@ -63,13 +83,13 @@ def main():
         if c.get('native_stream_format'):blobs[f'resident_animation{n}']=(out/f'resident_animation{n}.bin').read_bytes()
         blobs[f'music{n}']=blobs[f'timeline{n}']=bytes(2)
         blobs[f'checkpoints{n}']=bytes(max(2,14*len(c['checkpoints'])))
-    if any(c.get('neo_cosmos') for c in charts):
+    if assets.needs_neo_runtime(charts,msu=True):
         from neo_runtime_assets import binary_tables
         blobs['neo_tables']=binary_tables(out,[c['id'] for c in charts])[0]
     assets.pack_payload(blobs,charts,msu=True,sa1=True);assets.common_tables(charts)
     if any(c.get('camera_rotation_versions') for c in charts):
         with (out/'adofai.msu').open('r+b') as f:
-            f.seek(12);f.write(bytes([21 if len(charts)>=200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13,0]))
+            f.seek(12);f.write(bytes([22 if all(c.get("mode1_snapshot") and c.get("snapshot_map_top",32)==16 for c in charts) else 21 if len(charts)>=200 else 20 if any(c["id"]>=62 for c in charts) else 19 if any(c.get('adaptive_raster') for c in charts) else 18 if any(c.get('mode7_zoom_enabled') for c in charts) else 17 if any(c.get('camera_position_events',0) for c in charts) else 16 if any(c.get('native_layout_version',0)>=2 for c in charts) else 15 if any(c.get('track_separators_version') for c in charts) else 14 if any(c.get('opacity_curve_version') for c in charts) else 13,0]))
     # The engine pass reads individual charts itself. Retaining the full
     # expanded catalog here needlessly doubles the compiler's memory peak.
     del charts,blobs
@@ -132,6 +152,10 @@ def compile_engine(out, *, generate_pcm=True):
     current+=scales
     addresses=re.sub(r'^PLANET_SCALE_BUILD = .*\n?','',addresses,flags=re.M)
     if scales:addresses+='\nPLANET_SCALE_BUILD = 1\n'
+    addresses=re.sub(r'^PLANET_SCALE_CALLBACK_BUILD = .*\n?','',addresses,flags=re.M)
+    if 'PLANET_SCALE_CALLBACK_COUNT =' in scales:addresses+='\nPLANET_SCALE_CALLBACK_BUILD = 1\n'
+    addresses=re.sub(r'^FAR_SCALE_TABLES = .*\n?','',addresses,flags=re.M)
+    if '.segment "FARSCALE"' in scales:addresses+='\nFAR_SCALE_TABLES = 1\n'
     (out/'addresses.inc').write_text(addresses)
     write_menu_count(out,menu_levels)
     assert re.search(r'^orb_colors:.*$',current,re.M), 'Missing planet color table'
@@ -178,6 +202,7 @@ def compile_engine(out, *, generate_pcm=True):
         text=text.replace('STATE: start=$1800,size=$04A0','STATE: start=$1800,size=$0500')
         # Reset clears through $1DFF; the hardware stack stays above $1E00.
         text=text.replace('STATE: start=$1800,size=$0500','STATE: start=$1800,size=$0520')
+        text=text.replace('STATE: start=$1800,size=$0520','STATE: start=$1800,size=$0560')
         if 'NEO_BUILD' in addresses and 'NEOBANK:' not in text:
             text=text.replace(' PAY: start=$810000,size=$7F0000',
                 ' NEOBANK: start=$028000,size=$2000,type=ro,file=%O,fill=yes;\n PAY: start=$812000,size=$7EE000')
@@ -202,6 +227,9 @@ def compile_engine(out, *, generate_pcm=True):
             for size in ('2000','3000','4000','6000','7000'):
                 text=text.replace(f'size=${size},type=ro,file=%O,fill=yes;\n PAY: start=$81{size},size=$7E{0x10000-int(size,16):04X}',
                                   'size=$8000,type=ro,file=%O,fill=yes;\n PAY: start=$818000,size=$7E8000')
+        if 'FAR_SCALE_TABLES = 1' in addresses and 'FARSCALE:' not in text:
+            text=text.replace(' NEOBANK:',f' SCALEBANK: start=$E30000,size=$2000,type=ro,file="{(out/"far_scale_tables.bin").as_posix()}",fill=yes;\n NEOBANK:')
+            text=text.replace(' NEOCODE:', ' FARSCALE: load=SCALEBANK,type=ro;\n NEOCODE:')
         config.write_text(text)
     assemble_engine(out)
 
@@ -218,7 +246,7 @@ def assemble_engine(out):
     (out/'sa1_symbols.inc').write_text(worker_symbols((out/'adofai.lbl').read_text()))
     (out/'sa1_worker.cfg').write_text(worker_config())
     sys.path.insert(0,str(ROOT));from build import command
-    subprocess.run([command('ca65'),'--cpu','65816','-I',str(out),'-I',str(ROOT/'src'),'-g','-o',str(out/'sa1_worker.o'),str(ROOT/'src/sa1_worker.s')],check=True)
+    subprocess.run([command('ca65'),'--cpu','65816','-I',str(out),'-I',str(ROOT),'-I',str(ROOT/'src'),'-g','-o',str(out/'sa1_worker.o'),str(ROOT/'src/sa1_worker.s')],check=True)
     subprocess.run([command('ld65'),'-C',str(out/'sa1_worker.cfg'),'-o',str(out/'sa1_worker.bin'),'-Ln',str(out/'sa1_worker.lbl'),str(out/'sa1_worker.o')],check=True)
     subprocess.run([sys.executable,str(ROOT/'build_campaign.py'),'--pack','master','--out',str(out),'--skip-assets'],cwd=ROOT,check=True)
 

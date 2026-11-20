@@ -28,6 +28,13 @@ def verify(base,route):
         for _ in range(index):actions[at]='down';at+=4
         actions.update({at:'y',at+8:'start',at+308:'start',at+316:'select',at+324:'select'})
     if route=='retry':actions={120:'select',300:'start'}
+    if labels.get('MENU_OPTIONS_SELECT'):
+        if route=='options':
+            actions[90]='select'
+        else:
+            enter=120 if route in ('menu','retry') else at+324
+            for i in range(5):actions[enter+8+i*4]='down'
+            actions[enter+32]='a'
     start=max(actions);finish=start+120
     script='local A={'+','.join(k+'='+str(labels[k]) for k in ('state','audio_ticks','angle'))+'}\n'
     script+='local actions={'+','.join('['+str(k)+']='+json.dumps(v) for k,v in actions.items())+'}\n'

@@ -26,7 +26,7 @@ return function(C)
     for i=0,31 do budget[i]=emu.read(0x600+i,W);high[i]=emu.read(0x400+i,W)end
     while pieces>0 and math.floor(stroke/2)+age<4 do
       local x=signed(px+arc.x[current]);local y=signed(py+arc.y[current])
-      if start+#bytes>=512 or x< -15 or x>=256 or y<32 or y>=177 then break end
+      if start+#bytes>=512 or x< -15 or x>=256 or y<(C.viewport_top or 32) or y>(C.viewport_bottom or 176) then break end
       local first=math.floor(y/8);local last=math.floor((y+7)/8);local fits=true
       for i=first,last do if budget[i]>=33 then fits=false end end
       if not fits then break end

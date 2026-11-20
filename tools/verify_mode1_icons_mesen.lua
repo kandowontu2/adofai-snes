@@ -29,7 +29,7 @@ return function(C)
     local cp=word(C.icons.checkpoint,W)
     local activated=cp==0 and -1 or word(0x1d800+cp-1,W)
     local function sprite(x,y,tile,attr)
-      if start+#bytes>=512 or x< -15 or x>=256 or y<32 or y>=177 then return end
+      if start+#bytes>=512 or x< -15 or x>=256 or y<(C.viewport_top or 32) or y>(C.viewport_bottom or 176) then return end
       local first,last=math.floor(y/8),math.floor((y+15)/8)
       for i=first,last do if budget[i]>=32 then return end end
       for i=first,last do budget[i]=budget[i]+2 end

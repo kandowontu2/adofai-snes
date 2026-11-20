@@ -12,6 +12,14 @@ from viewport_cells import sampled_pixels
 
 def exact_palettes(wanted):
     """Prove six-bank feasibility when greedy packing fails at a crossing."""
+    groups=sorted((s for s in wanted if not any(s<q for q in wanted)),key=lambda s:(-len(s),tuple(sorted(s))))
+    colors=sorted(set().union(*groups))
+    # A set-cover formulation is much stronger than assigning every color
+    # and tile independently. Enumerate only unions of actual tile groups;
+    # a useful hardware palette never needs an unrelated source color.
+    if len(colors)<=32 and len(groups)<=80:
+        try:return cover_palettes(tuple(tuple(sorted(g)) for g in groups))
+        except ValueError:pass
     from scipy.optimize import milp,Bounds,LinearConstraint
     from scipy.sparse import coo_matrix
     maximal=sorted((s for s in wanted if not any(s<q for q in wanted)),key=lambda s:(-len(s),tuple(sorted(s))))
@@ -40,6 +48,45 @@ def exact_palettes(wanted):
     banks=[[c for c in colors if answer.x[b*width+ids[c]]>.5] for b in range(6)]
     assert all(len(b)<=15 for b in banks) and all(any(s<=set(b) for b in banks) for s in wanted)
     return banks
+
+
+@lru_cache(maxsize=128)
+def cover_palettes(groups):
+    from scipy.optimize import milp,Bounds,LinearConstraint
+    from scipy.sparse import coo_matrix
+    colors=sorted(set().union(*map(set,groups)));ids={c:i for i,c in enumerate(colors)}
+    bits=[sum(1<<ids[c] for c in g) for g in groups]
+    seen={0}
+    for group in bits:
+        seen|={mask|group for mask in seen if (mask|group).bit_count()<=15}
+        if len(seen)>250000:raise ValueError('Palette union search exceeded its offline budget')
+    covers={}
+    for mask in seen:
+        if mask.bit_count()<15 and any(mask|g!=mask and (mask|g).bit_count()<=15 for g in bits):continue
+        cover=sum(1<<i for i,g in enumerate(bits) if mask&g==g)
+        if cover:covers[cover]=mask
+    masks=sorted(covers,key=lambda c:(-c.bit_count(),c));rows=[];columns=[]
+    for j,cover in enumerate(masks):
+        rows.extend(i for i in range(len(bits)) if cover>>i&1)
+        columns.extend([j]*cover.bit_count())
+    matrix=coo_matrix((np.ones(len(rows)),(rows,columns)),shape=(len(bits),len(masks))).tocsc()
+    answer=milp(np.ones(len(masks)),integrality=np.ones(len(masks)),bounds=Bounds(0,1),
+        constraints=LinearConstraint(matrix,1,np.inf),
+        options={'time_limit':30})
+    if answer.x is None:raise ValueError(('Exact palette cover failed',answer.message))
+    selected=[covers[masks[i]] for i,x in enumerate(answer.x) if x>.5]
+    if len(selected)>6:raise ValueError('Exact palette cover needs more than six banks')
+    offered=[{c for i,c in enumerate(colors) if mask>>i&1} for mask in selected]
+    used=[set() for _ in offered]
+    for group in sorted(map(set,groups),key=lambda g:(-len(g),tuple(sorted(g)))):
+        bank=min((i for i,p in enumerate(offered) if group<=p),
+                 key=lambda i:(len(group-used[i]),len(used[i]),i))
+        used[bank]|=group
+    # Maximal cover candidates can contain unused filler colors. Retaining
+    # only assigned groups leaves space for adjacent animation frames.
+    banks=[sorted(bank) for bank in used]
+    assert all(any(set(g)<=set(bank) for bank in banks) for g in groups)
+    return banks+[[] for _ in range(6-len(banks))]
 
 def anchored_palettes(wanted,anchors,exact=True):
     """Keep common fill/edge pairs in the same CHR bitplanes across banks."""
@@ -104,7 +151,8 @@ class Source:
         if c.get('decoration_tracks_preview') or c.get('decoration_tracks') or c.get('maze_decoration_tracks'):
             from decoration_tracks import DecorationTracks
             root=Path(__file__).resolve().parents[1]
-            data=json.loads((root/f'assets/private/level{level}.json').read_text())
+            from pack_sources import load_source
+            data=load_source(folder,level)
             if c.get('maze_decoration_tracks'):
                 from decoration_hitboxes import visual_maze_decorations
                 data=visual_maze_decorations(data)
@@ -169,12 +217,37 @@ class Source:
         return normalized
 
 
-def encode_screen(image,palettes,glyphs,lookup,encodings,anchors=(),exact=True):
+def visible_screen(image,map_top=32,bottom=176):
+    """Discard only scanlines hidden by the hardware gameplay window.
+
+    Zero-scroll SNES backgrounds fetch source row y+1. Row bottom is
+    therefore visible; the remaining seven lines in its tile are not.
+    """
+    result=image.copy()
+    result[:map_top+1]=0
+    result[bottom+1:]=0
+    return result
+
+
+def encoded_screen(image,chart):
+    result=visible_screen(image,chart.get('snapshot_map_top',32))
+    if chart.get('snapshot_aligned'):
+        result[:-1]=result[1:]
+        result[-1]=0
+    return result
+
+
+def encode_screen(image,palettes,glyphs,lookup,encodings,anchors=(),exact=True,*,map_top=32,prefer_shared=False):
     """Encode every sampled color exactly; never quantize or omit a tile."""
-    blocks=image[32:184].reshape(19,8,32,8).transpose(0,2,1,3).reshape(608,64)
+    rows=(184-map_top)//8
+    blocks=image[map_top:184].reshape(rows,8,32,8).transpose(0,2,1,3).reshape(rows*32,64)
     unique,inverse=np.unique(np.ascontiguousarray(blocks).view('V64').ravel(),return_inverse=True)
     surfaces={i:bytes(p) for i,p in enumerate(unique) if any(bytes(p))}
     wanted={frozenset(p)-{0} for p in surfaces.values()}
+    if any(len(colors)>15 for colors in wanted):
+        # Let the caller select the exact eight-bit atlas before a new
+        # bank can silently assign a sixteenth color to transparent ink.
+        raise ValueError('A source tile needs more than fifteen opaque colors')
     for colors in sorted(wanted,key=lambda s:(-len(s),tuple(sorted(s)))):
         if any(colors<=set(p) for p in palettes):continue
         choices=[(len(colors-set(p)),i) for i,p in enumerate(palettes) if len(set(p)|colors)<=15]
@@ -182,9 +255,17 @@ def encode_screen(image,palettes,glyphs,lookup,encodings,anchors=(),exact=True):
         elif len(palettes)<6:palettes.append(sorted(colors))
         else:palettes[:]=anchored_palettes(wanted,anchors,exact=exact) if anchors else pack_palettes(wanted);break
     refs={};encoded={}
-    for i,raw in surfaces.items():
+    order=surfaces.items()
+    if prefer_shared:
+        counts=np.bincount(inverse,minlength=len(unique))
+        order=sorted(order,key=lambda pair:(-counts[pair[0]],pair[1]))
+    for i,raw in order:
         colors=frozenset(raw)-{0}
         bank=next(i for i,p in enumerate(palettes) if colors<=set(p))
+        if prefer_shared:
+            options=[(int((g:=encode_tile(raw,p)) not in lookup),b,g)
+                     for b,p in enumerate(palettes) if colors<=set(p)]
+            _,bank,glyph=min(options)
         key=raw,tuple(palettes[bank])
         if key not in encodings:
             glyph=encode_tile(raw,palettes[bank])
@@ -206,14 +287,15 @@ def indexed_canonical(raw):
     return variants[best],(16 if best&1 else 0)|(32 if best&2 else 0)
 
 
-def encode_indexed_screen(image,glyphs,lookup):
+def encode_indexed_screen(image,glyphs,lookup,*,map_top=32):
     """Exact Mode 3 fallback: preserve source indices in eight bitplanes."""
-    blocks=image[32:184].reshape(19,8,32,8).transpose(0,2,1,3).reshape(608,64)
+    rows=(184-map_top)//8
+    blocks=image[map_top:184].reshape(rows,8,32,8).transpose(0,2,1,3).reshape(rows*32,64)
     unique,inverse=np.unique(np.ascontiguousarray(blocks).view('V64').ravel(),return_inverse=True)
     surfaces={i:bytes(p) for i,p in enumerate(unique) if any(bytes(p))}
     canonical={i:indexed_canonical(raw) for i,raw in surfaces.items()}
     count=len({raw for raw,flags in canonical.values()})
-    if count>319:raise ValueError(('Indexed snapshot atlas capacity',count))
+    if count>320:raise ValueError(('Indexed snapshot atlas capacity',count))
     encoded={}
     for i,(raw,flags) in canonical.items():
         glyph=bytearray(64)
@@ -265,6 +347,7 @@ def _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,look
     # Stable bank/color assignments avoid recreating every visible glyph
     # merely because a new source color enters the viewport.
     wanted=set();frequencies=collections.Counter();crowded=False
+    map_top=source.chart.get('snapshot_map_top',32);rows=(184-map_top)//8
     for frame in range(start,end+1):
         if pre_rendered:
             length=struct.unpack('<I',rendered.read(4))[0]
@@ -274,7 +357,8 @@ def _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,look
             image=source.screen(frame)
             packed=compress_frame(image.tobytes()+source.palette.astype('<u2').tobytes())
             rendered.write(struct.pack('<I',len(packed)));rendered.write(packed)
-        blocks=image[32:184].reshape(19,8,32,8).transpose(0,2,1,3).reshape(608,64)
+        image=encoded_screen(image,source.chart)
+        blocks=image[map_top:184].reshape(rows,8,32,8).transpose(0,2,1,3).reshape(rows*32,64)
         unique,counts=np.unique(np.ascontiguousarray(blocks).view('V64').ravel(),return_counts=True)
         for raw,count in zip(unique,counts):
             colors=frozenset(bytes(raw))-{0}
@@ -298,6 +382,7 @@ def _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,look
         length=struct.unpack('<I',rendered.read(4))[0]
         raw=decompress_frame(rendered.read(length))
         image=np.frombuffer(raw[:184*256],dtype=np.uint8).reshape(184,256)
+        image=encoded_screen(image,source.chart)
         palette=np.frombuffer(raw[184*256:],dtype='<u2')
         if extra_colors is not None:
             for i,v in source.color_events.get(frame,[]):runtime_palette[i]=v
@@ -312,11 +397,11 @@ def _compile_rendered_section(source,start,end,extra_colors,palettes,glyphs,look
         if len(encodings)>250000:encodings.clear()
         try:
             try:
-                previous_frame=encode_screen(image,palettes,glyphs,lookup,encodings,anchors,exact=False)
+                previous_frame=encode_screen(image,palettes,glyphs,lookup,encodings,anchors,exact=False,map_top=map_top)
             except ValueError:
-                try:previous_frame=encode_indexed_screen(image,glyphs,lookup)
+                try:previous_frame=encode_indexed_screen(image,glyphs,lookup,map_top=map_top)
                 except ValueError:
-                    previous_frame=encode_screen(image,palettes,glyphs,lookup,encodings,anchors,exact=True)
+                    previous_frame=encode_screen(image,palettes,glyphs,lookup,encodings,anchors,exact=True,map_top=map_top)
             frames.append(previous_frame);previous_image=image
         except ValueError as error:raise ValueError(('Projected frame palette capacity',source.chart.get('id',source.chart.get('code')),frame,len(set(image.ravel())-{0}),error.args)) from error
     return glyphs,frames
@@ -330,10 +415,11 @@ def map_cost(indices):
     return sum(b-a+2+64 for a,b in spans)
 
 
-def snapshot_pose(payload,count):
+def snapshot_pose(payload,count,*,map_top=32):
     """Restore a complete pose without depending on any preceding atlas."""
-    palette=payload[:96];tilemap=payload[96:1312];at=1312;glyphs=[]
-    assert len(palette)==96 and len(tilemap)==1216
+    header=96+(184-map_top)//8*64
+    palette=payload[:96];tilemap=payload[96:header];at=header;glyphs=[]
+    assert len(palette)==96 and len(tilemap)==header-96
     for _ in range(count):
         flag=payload[at];at+=1;assert flag in (0,1,2)
         size=16 if flag else 32;glyph=payload[at:at+size];at+=size
@@ -345,11 +431,11 @@ def snapshot_pose(payload,count):
     return palette,tilemap,glyphs
 
 
-def raw_seeds(index,data,*,snapshot=False,clone_state=False,wide=False):
+def raw_seeds(index,data,*,snapshot=False,clone_state=False,wide=False,map_top=32):
     from animation_bulk import HEADER,records
     entries=list(struct.iter_unpack('<HHI',index))[:-1];count=entries[-1][0]//64+2
     result=bytearray(count*4);palette=bytes(96);tilemap=bytearray(4096);atlas=bytearray(40960 if wide else 32768);symbols=b'';cursor=0;glyph_bytes=0;indexed=False
-    clones=bytes(42)
+    clones=bytes(42);header_bytes=96+(184-map_top)//8*64
     for seed in range(count):
         while cursor<len(entries) and entries[cursor][0]<seed*64:
             _,_,choice=entries[cursor];_,size,offset=struct.unpack_from('<HHI',data,choice)
@@ -361,26 +447,27 @@ def raw_seeds(index,data,*,snapshot=False,clone_state=False,wide=False):
                     palette=packet[at+2:at+98]
                 elif k==37:
                     for slot,glyph in inline_pixels(packet[at:b],i):atlas[slot*32:slot*32+32]=glyph
-                elif k in (41,42,44,45,46,47):
+                elif k in (41,42,44,45,46,47,48,49):
                     if k==42:
                         pointer=struct.unpack_from('<I',packet,at)[0]
                         pose=data[pointer:pointer+v];pt,pk,i,pv=HEADER.unpack_from(pose)
-                        assert pk in (41,44,45,46,47) and pv+14==v and pose[-7:]==HEADER.pack(65535,255,0,0)
+                        assert pk in (41,44,45,46,47,48,49) and pv+14==v and pose[-7:]==HEADER.pack(65535,255,0,0)
                         body=pose[7:-7]
                     else:body=packet[at:b];pk=k
                     if pk==45:
                         from snapshot_codec import decode
-                        body=decode(body,i)
-                    elif pk in (46,47):
+                        body=decode(body,i,header_bytes=header_bytes)
+                    elif pk in (46,47,48,49):
                         from snapshot_codec import decode_split
-                        body=decode_split(body,i)
-                    if pk in (44,45,46,47):
-                        assert len(body)==1312+i*32
-                        palette,words=body[:96],body[96:1312]
-                        glyphs=[body[a:a+32] for a in range(1312,len(body),32)]
-                    else:palette,words,glyphs=snapshot_pose(body,i)
-                    tilemap[256:1472]=words;glyph_bytes=i*32;indexed=pk==47
-                    atlas[32:32+glyph_bytes]=b''.join(glyphs)
+                        body=decode_split(body,i,header_bytes=header_bytes)
+                    if pk in (44,45,46,47,48,49):
+                        assert len(body)==header_bytes+i*32
+                        palette,words=body[:96],body[96:header_bytes]
+                        glyphs=[body[a:a+32] for a in range(header_bytes,len(body),32)]
+                    else:palette,words,glyphs=snapshot_pose(body,i,map_top=map_top)
+                    tilemap[map_top*8:1472]=words;glyph_bytes=(i-(1 if pk in (48,49) else 0))*32;indexed=pk in (47,49)
+                    begin=0 if pk in (48,49) else 32
+                    atlas[begin:begin+i*32]=b''.join(glyphs)
                 elif k==28:symbols=packet[at:b]
                 elif k==43:clones=struct.pack('<H',i)+packet[at:b]+bytes(40-v)
                 elif k==31:

@@ -29,6 +29,10 @@ def verify(pack, level, tag, boot_only=False):
     actions[at+700] = 'start'; actions[at+708] = 'select'
     captures = {90: 'boot', at+250: 'gameplay', at+650: 'gameplay-later', at+770: 'return'}
     config = dict(out=out.as_posix(), base=base.as_posix(), finish=at+780)
+    wide='WIDE_SNAPSHOT_SUPPORT = 1' in (base/'addresses.inc').read_text()
+    config.update(bg_chr=0xaa00 if wide else 0x8000,bg_map=0xb800 if wide else 0x9000,
+                  bg_tile=80 if wide else 0,bg_base=0x5000 if wide else 0x4000,
+                  bg_map_base=0x5c00 if wide else 0x4800)
     if boot_only:
         captures = {90: 'boot'}
         actions = {}
@@ -37,6 +41,7 @@ def verify(pack, level, tag, boot_only=False):
               re.findall(r'al ([0-9A-Fa-f]+) \.([\w]+)', (base/'adofai.lbl').read_text())}
     config.update(state=labels['state'], selected=labels['selected_level'], index=index)
     script = 'local C=' + '{' + ','.join(k+'='+json.dumps(v) for k,v in config.items()) + '}\n'
+    script+='dofile('+json.dumps((ROOT/'tools/mesen_failfast.lua').as_posix())+')(C)\n'
     script += 'local actions={' + ','.join(f'[{k}]="{v}"' for k,v in actions.items()) + '}\n'
     script += 'local captures={' + ','.join(f'[{k}]="{v}"' for k,v in captures.items()) + '}\n'
     script += r'''
@@ -60,17 +65,17 @@ emu.addEventCallback(function()
   local selected=emu.read(C.selected,W)+256*emu.read(C.selected+1,W)
   if name:find('gameplay') and (state~=1 or selected~=C.index) then wrong=wrong+1 end
   if (name=='boot' or name=='return') and state~=0 then wrong=wrong+1 end
-  for i=1,#chr do if emu.read(0xaa00+i-1,V)~=chr:byte(i) then wrong=wrong+1 end end
+  for i=1,#chr do if emu.read(C.bg_chr+i-1,V)~=chr:byte(i) then wrong=wrong+1 end end
   for i=1,#map,2 do
-   local expected=map:byte(i)+256*map:byte(i+1)+80
-   local a=0xb800+i-1
+   local expected=map:byte(i)+256*map:byte(i+1)+C.bg_tile
+   local a=C.bg_map+i-1
    if emu.read(a,V)+256*emu.read(a+1,V)~=expected then wrong=wrong+1 end
   end
   for i=1,#font,2 do
    local ink=font:byte(i)|font:byte(i+1)
    if emu.read(0xa000+i-1,V)~=ink or emu.read(0xa000+i,V)~=ink then wrong=wrong+1 end
   end
-  if p['ppu.layers[1].chrAddress']~=0x5000 or p['ppu.layers[1].tilemapAddress']~=0x5c00 then wrong=wrong+1 end
+  if p['ppu.layers[1].chrAddress']~=C.bg_base or p['ppu.layers[1].tilemapAddress']~=C.bg_map_base then wrong=wrong+1 end
   log:write(name..' mismatches='..wrong..'\n');errors=errors+wrong
  end
  if frame>=C.finish then log:write(errors==0 and 'PASS\n' or 'FAIL\n');log:close();emu.stop(errors==0 and 0 or 1) end

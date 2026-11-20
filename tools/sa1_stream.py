@@ -3,7 +3,10 @@ import collections,json,struct
 from pathlib import Path
 from animation_bulk import HEADER,records
 LIMIT=14336
-SUPPORTED={0,1,2,3,4,6,7,8,9,10,11,12,13,14,15,17,18,19,22,23,25,27,28,29,30,31,32,33,34,35,36,37,39,41,42,43,44,45,46,47}
+# Native runs keep their 14 KiB decode budget. Immutable pose packets use
+# the complete separate source window at $42C000..$42FFFF.
+SNAPSHOT_LIMIT=0x4000
+SUPPORTED={0,1,2,3,4,6,7,8,9,10,11,12,13,14,15,17,18,19,22,23,25,27,28,29,30,31,32,33,34,35,36,37,39,41,42,43,44,45,46,47,48,49}
 
 def bulk_map_rows(data,chart):
     if not chart.get('stream_bulk_rows_trial'):return data

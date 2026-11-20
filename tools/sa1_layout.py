@@ -39,7 +39,7 @@ def worker_config():
  FIXEDIRAM: start=$0500,size=$0180,type=rw;
  MODE1IRAM: start=$0500,size=$0200,type=rw;
  PROJECTEDIRAM: start=$0500,size=$0200,type=rw;
- ICONSCANIRAM: start=$0220,size=$0260,type=rw;
+ ICONSCANIRAM: start=$0240,size=$0240,type=rw;
  SYMBOLIRAM: start=$0500,size=$0200,type=rw;
  ICONIRAM: start=$0500,size=$0200,type=rw;
  SNAPSHOTIRAM: start=$0500,size=$0200,type=rw;

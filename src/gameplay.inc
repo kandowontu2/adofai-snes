@@ -1,4 +1,14 @@
 return_title:
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+    ; A gameplay atlas can replace the menu art even when the same song
+    ; remains selected. Reload it on every return, without requiring reset.
+    stz MENU_ART_PHASE
+    lda #$FFFF
+    sta MENU_ART_LEVEL
+.endif
+.ifdef NEO_BUILD
+    stz OBJECTIVE_HUD_ACTIVE
+.endif
     lda #$80
     jsr spc_command
     ; The menu mode is a persistent selection, including after a song.
@@ -9,27 +19,24 @@ return_title:
 update_title:
     lda pressed
     bit #$8000
-    beq @calibrate
+    beq @options_key
 .if MENU_SET_COUNT > 1
     lda menu_depth
-    beq @options
+    beq @options_key
     stz menu_depth
     lda menu_group
     sta menu_selection
     lda #$FFFF
     sta hud_state
     rts
-@options:
 .endif
-    lda #7
-    sta state
-    rts
-@calibrate:
-    stz cal_return
+@options_key:
     lda pressed
     bit #SELECT
     beq @up
-    jmp start_calibration
+    lda #7
+    sta state
+    rts
 @up:
     bit #$0800
     beq @down
@@ -158,7 +165,7 @@ menu_song_index:
     clc
     adc menu_set_starts,x
     tax
-    lda menu_level_indices,x
+    lda f:menu_level_indices,x
     rts
 
 menu_sync_song:
@@ -288,14 +295,22 @@ update_game:
     bne :+
     lda f:NOTE_PAUSE-2,x
     bpl :+
-    ; Authored AutoPlayTiles holds have no initiating player key. Their
-    ; automatic release must not enter the manual release-only branch.
+    ; A manual hold needs a release only when its exit is manual. An
+    ; explicit AutoPlayTiles exit advances on time; an ordinary midspin
+    ; still keeps the release edge for the real landing after it.
     phx
     ldx step
     lda f:NOTE_FLAGS,x
-    plx
     and #8
-    beq @manual
+    bne @auto_hold_exit
+    lda f:NOTE_FLAGS+1,x
+    and #24
+    cmp #8
+    beq @auto_hold_exit
+    plx
+    jmp @manual
+@auto_hold_exit:
+    plx
 :
 .endif
     lda step
@@ -324,6 +339,9 @@ update_game:
 @automatic:
     ; Midspin/automatic floors consume no tap and add no score. A press
     ; within the window remains available for the real landing after it.
+.ifdef NEO_BUILD
+    stz neo_hold_keys
+.endif
     inc step
     jsr activate_checkpoint
     lda step
@@ -436,6 +454,7 @@ update_game:
     clc
     adc f:NOTE_TIME,x
     cmp tap_clock
+    beq @input
     bcc @input
     rts
 @input:

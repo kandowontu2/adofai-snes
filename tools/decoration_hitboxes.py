@@ -59,7 +59,7 @@ def compile_region(data, chart, region):
         tags = set(dec.get('tag', '').split())
         kills = dec.get('hitbox') == 'Kill' or (
             'hitbox' not in dec and enabled(dec.get('failHitbox', False)))
-        if not kills or (not all_regions and dec['floor'] != floor - 1):
+        if not kills or (not all_regions and dec.get('floor',0) != floor - 1):
             continue
         # These are the optional all-perfect secret route and its failure
         # screen, not obstacles on the normal maze route.
@@ -138,11 +138,13 @@ def compile_region(data, chart, region):
 
 
 def table_source(charts):
+    # Retain collision tracks for the two output passes, not the complete
+    # catalog's offline atlas histories (which can occupy tens of GiB).
+    charts=[([r.get('decoration_hitboxes',[]) for r in c.get('freeroam_regions',[])],
+             c.get('rhythm_hitboxes',[])) for c in charts]
     ranges = []; records = []; conditions=[]; tracks = []; geometry = bytearray(); shared = {}
-    for chart in charts:
-        for region in chart.get('freeroam_regions', []):
-            objects = region.get('decoration_hitboxes', [])
-            ranges.append((len(records) * 6, len(objects)))
+    def append_objects(objects,destination):
+            destination.append((len(records)*6,len(objects)))
             for obj in objects:
                 record = []
                 for field in (0, 2, 4):
@@ -165,7 +167,13 @@ def table_source(charts):
                     record.append(shared[key])
                 records.append(record)
                 conditions.append(int(obj.get('perfect_only',False)))
+    for regions,_ in charts:
+        for objects in regions:
+            append_objects(objects,ranges)
+    rhythm_ranges=[]
+    for _,objects in charts:append_objects(objects,rhythm_ranges)
     lines = ['neo_deco_ranges:'] + ['.word ' + ','.join(map(str, r)) for r in ranges]
+    lines += ['neo_rhythm_ranges:'] + ['.word '+','.join(map(str,r)) for r in rhythm_ranges]
     lines += ['neo_deco_records:'] + ['.word ' + ','.join(map(str, r)) for r in records]
     lines += ['neo_deco_conditions:'] + ['.word '+str(v)+',0,0' for v in conditions]
     lines += ['neo_deco_tracks:'] + ['.word ' + ','.join(map(str, r)) for r in tracks]

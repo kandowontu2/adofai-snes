@@ -40,6 +40,10 @@ def main():
         subprocess.run([command('ca65'),'--cpu','65816','-I','.', '-I',str(out),'--bin-include-dir',str(out),'-g','-o',str(out/'game.o'),'-l',str(out/'game.lst'),'src/campaign.s'],check=True)
         subprocess.run([command('ld65'),'-C',str(out/('sa1.cfg' if sa1 else 'exhirom.cfg')),'-o',str(out/'adofai.sfc'),'-m',str(out/'adofai.map'),'-Ln',str(out/'adofai.lbl'),str(out/'game.o')],check=True)
         dest=out/'adofai.sfc';rom=bytearray(dest.read_bytes());assert len(rom)==0x800000
+        if sa1 and 'FAR_SCALE_TABLES = 1' in (out/'addresses.inc').read_text():
+            data=(out/'far_scale_tables.bin').read_bytes();assert len(data)==0x2000
+            assert not any(rom[0x230000:0x232000]),'Far planet-size tables overlap packed assets'
+            rom[0x230000:0x232000]=data
         if not sa1:rom[0x8000:0x10000]=rom[0x408000:0x410000]
         if sa1 and 'SA1_FASTROM_MIRROR = 1' in (out/'addresses.inc').read_text():
             assert not any(rom[0x200000:0x208000]),'FastROM code mirror overlaps packed data'

@@ -13,7 +13,7 @@ return function(C)
   -- flag used by the independent VRAM pixel decoder.
   emu.addMemoryCallback(function(a,v)
    local line=emu.getState()['ppu.scanline']
-   if line<40 or line>=160 or word(C.addr.display_state,W)~=1 or word(0x3ef0c,S)==0 then return end
+   if line<(C.viewport_top or 32)+8 or line>=(C.viewport_bottom or 176)-16 or word(C.addr.display_state,W)~=1 or word(0x3ef0c,S)==0 then return end
    local expected=word(0x3efb8,S)%2==1 and 3 or 1
    assert(v%8==expected,'Actual PPU bit depth differs from the published snapshot format at chart '..word(C.addr.display_chart_time,W)..' line='..line..' mode='..v..' expected='..expected..' front='..word(0x3ef80,S))
   end,emu.callbackType.write,0x2105,0x2105,emu.cpuType.snes)
@@ -24,7 +24,7 @@ return function(C)
   local p=emu.getState()
   local x=word(C.addr.display_cam_x,W)%1024
   local y=(word(C.addr.display_cam_y,W)-1)%1024
-  if mode>=2 then x=0;y=0 end
+  if mode>=2 then x=0;y=C.snapshot_aligned and 1023 or 0 end
   local checks={
    {'ppu.layers[0].hscroll',x},{'ppu.layers[0].vscroll',y},
    {'ppu.layers[0].tilemapAddress',0x7000},{'ppu.layers[0].chrAddress',C.wide_atlas and word(0x3ef80,S)==512 and 0x2000 or 0},
@@ -38,6 +38,15 @@ return function(C)
    end
   end
   samples=samples+1
+  if C.progress_row and samples%100==0 then
+   local V=emu.memType.snesVideoRam
+   local at=0xf000+C.progress_row*64+14*2
+   for i=0,2 do
+    local digit=emu.read(at+i*2,V)
+    assert(digit>=48 and digit<=57,'Missing visible gameplay percentage digit '..i)
+   end
+   assert(emu.read(at+6,V)==37,'Missing visible gameplay percentage sign')
+  end
   if previous then max_gap=math.max(max_gap,frame-previous) end
   previous=frame
   if samples==1 or samples%100==0 then local f=io.open(C.out..'/screen-registers.txt','w');f:write('PASS samples='..samples..' max_frame_gap='..max_gap);f:close() end

@@ -4,7 +4,7 @@ A native SNES adaptation of A Dance of Fire and Ice, using the SA-1, Mode 7,
 and SPC700. The master also uses MSU-1 for chart data and optional PCM music.
 This is an unofficial project; it is not affiliated with 7th Beat Games.
 
-The selected master catalog contains 247 charts, including the remaining
+The selected master catalog contains 272 charts, including the remaining
 Classic and Tech Featured waves, 20 Yangsy-authored cursed charts, and the
 Team Vega 1-EX through 12-EX remakes. **MAIN EX LEVELS** and **YANGSY CURSED
 LEVELS** have separate menu categories. Main EX charts without authored
@@ -33,6 +33,10 @@ The latest additions are Wake Up, Piano! (Strode), OCTAGON
 (M1n3c4rt), MECHANICAL GOD (Hazrd), Beethoven Virus (Trevor Smithy),
 William Tell Overture (Dinosore), Flow (Pharah & HanB), and Phantigma
 (Juegang / 주강).
+The new Community batch adds 25 charts, including Great Great 8, Collect N,
+Totally Normal Here, Rush E, and all three full Novel Feature pack charts.
+Gameplay opens 16 pixels higher, giving a 160-pixel playfield. Combo and best
+counters are removed; percentage sits between the mode and speed readouts.
 Visible three-planet entries
 have the native white-planet preview and dashed triangle. T3-X/EX display
 their native stage headings, including the ampersand in Holds & Midspins.
@@ -86,9 +90,17 @@ Use [cleanup-full-pcm.ps1](cleanup-full-pcm.ps1) to remove retired PCM copies;
 Keep master files together and extract archives before playing. Revisions may
 change the MSU dataset: replace both `adofai.sfc` and `adofai.msu` when instructed.
 Start a fresh session instead of loading save states from an older build.
-The refreshed master `.msu` is about 3.41 GiB even without PCM files: it contains
+The refreshed master `.msu` is about 3.93 GiB even without PCM files: it contains
 the compiled graphics as well as compressed audio. Removing PCM does not
 remove that graphics data.
+
+The catalog uses shared complete screen poses and lossless native-event
+compression, including typed field prediction decoded by the SA-1. Tile
+detail and source motion updates are retained. To fit MSU-1's 4 GiB address
+limit, the current master includes 77 additional optional scenery caches;
+39 large decorative scenes use their complete gameplay cache in both VFX
+settings. Required floors, hazards, minigames and T3 effects remain present.
+The full render caches can be used in smaller custom catalogs.
 
 PCM plays at 1.0x. Other speeds use compressed music; standalone cartridges
 use lower-rate compressed music above 1.0x. Tempo and pitch change together.
@@ -98,19 +110,22 @@ Physical-cartridge compatibility has not been established.
 ## Controls
 
 Up/down select a set or song; START opens the selected set. B returns from a
-song list to the set list and opens options from the set list. Single-set
+song list to the set list. SELECT opens Options from either list. Single-set
 cartridges open directly to their songs. Left/right or L/R adjust applicable
 settings, including playback speed from 0.5x to 4.0x in 0.1x steps. START
 starts or resumes play. X selects practice and Y selects autoplay on the menu.
-SELECT opens calibration from the menu. Gameplay buttons
+In Options, select AUDIO OFFSET and press A to start calibration. Gameplay buttons
 provide rhythm input. Retry and result screens use START/SELECT to avoid an
 extra rhythm tap accidentally restarting the song.
+
+The song browser shows the chart's preview artwork, mapper and difficulty.
+Artwork reloads after leaving gameplay, including Practice and Watch runs.
 
 RJ-X's double-bordered tiles require two taps within the same timing window.
 Use two buttons together or tap twice; holding a button counts only once.
 
-Normal runs and speed trials do not display elapsed time. The playfield is
-up to 144 pixels tall (Mad Piano Party retains 128 to fit the hardware tile cache).
+Normal runs and speed trials do not display elapsed time. The master playfield
+is 160 pixels tall on every chart, including Mad Piano Party.
 The timing meter shows independently fading hit positions and a latest-hit
 arrow; the center line is perfect timing. Each hit lasts three seconds, with
 up to 512 records retained; neighboring markers do not erase one another.
@@ -144,6 +159,8 @@ Camera zoom and rotation support is chart-specific. R additionally imports
 MoveTrack tile rotations. The expanded catalog uses losslessly compressed
 full-resolution snapshots, with wider glyph atlases and indexed-color frames
 where needed. This does not reproduce every Unity shader or decoration.
+Native animation packets and screen poses use one lossless LZ4 pipeline with
+shared immutable images. Tile detail and the source update schedule are retained.
 Extreme scenes can still stutter; passing the playback and pixel checks is not
 a claim of locked 60 fps.
 

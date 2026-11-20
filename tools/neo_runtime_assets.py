@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 from track_motion import easing
 from hold_path import sweep
+from pack_sources import load_source
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -74,7 +75,7 @@ def table_source(out,levels):
         chart=json.loads((out/f'level{level}.json').read_text())
         if not chart.get('neo_cosmos'):
             counts.append(0);continue
-        raw=json.loads((ROOT/f'assets/private/level{level}.json').read_text())
+        raw=load_source(out,level)
         count=0
         for i,floor in enumerate(raw['floors'][:-1]):
             n=chart['notes'][i];end=chart['notes'][i+1]['frame']
@@ -125,7 +126,8 @@ def table_source(out,levels):
         if not chart.get('neo_cosmos'):
             motion_starts.append(65535)
             continue
-        raw=json.loads((ROOT/f'assets/private/level{level}.json').read_text())
+        assert len(chart['notes'])<65536,'Planet presentation chart exceeds one offset bank'
+        raw=load_source(out,level)
         scaled=any(f.get('radiusScale',1)!=1 or n.get('margin',100)!=(800 if n.get('margin',100)>100 else 100)
                    for f,n in zip(raw['floors'],chart['notes']))
         motion_starts.append(len(radii)*2 if scaled else 65535)
@@ -142,12 +144,25 @@ def table_source(out,levels):
     for name,values in [('neo_motion_starts',motion_starts),('neo_orbit_radii',radii),('neo_note_margins',margins)]:
         lines += [name+':']+['.word '+','.join(map(str,values[i:i+16])) for i in range(0,len(values),16)]
     free_records=[];free_starts=[];free_counts=[];free_phases=[];free_cells=[];coins=[];hazards=[];routes=[];lasers=[];deaths=[];entries=[];twirls=[]
-    twirl_ranges=[];twirl_positions=[]
+    twirl_ranges=[];twirl_positions=[];coin_requirements=[];coin_types=[];coin_modes=[];coin_targets=[];pickup_lives=[]
+    pickup_ui=[];question_starts=[];question_text=[]
     for level in levels:
         chart=json.loads((out/f'level{level}.json').read_text())
         regions=chart.get('freeroam_regions',[])
         free_starts.append(len(free_records)*64);free_counts.append(len(regions))
         for r in regions:
+            coin_requirements.append(r.get('coin_required',3))
+            coin_types.extend(r.get('coin_types',[0]*len(r.get('coins',[]))))
+            coin_modes.extend(r.get('coin_modes',[1,0,0,0]))
+            coin_targets.extend(r.get('coin_targets',[r.get('coin_required',3),0,0,0]))
+            pickup_lives.append(r.get('pickup_lives',0))
+            pickup_ui.append(r.get('pickup_ui',0))
+            question_starts.append(len(question_text))
+            for question in r.get('question_texts',[]):
+                assert len(question)==3
+                for line in question:
+                    assert len(line)<=32,('Question exceeds HUD width',line)
+                    question_text.extend(line.upper().encode('ascii').ljust(32,b' '))
             n=chart['notes'][r['step']];following=chart['notes'][r['step']+1]
             origin_offset=n.get('position_track_offset',(0,0))
             exit_offset=following.get('position_track_offset',(0,0))
@@ -189,6 +204,10 @@ def table_source(out,levels):
     lines+=['neo_free_twirl_positions:']+['.word '+','.join(str(v&65535) for v in twirl_positions[i:i+16]) for i in range(0,len(twirl_positions),16)]
     lines+=['neo_free_coins:']
     lines+=['.word '+','.join(str(v&65535) for v in coins[i:i+16]) for i in range(0,len(coins),16)]
+    lines+=['neo_free_coin_requirements: .word '+','.join(map(str,coin_requirements or [3]))]
+    for name,values in [('neo_coin_types',coin_types),('neo_coin_modes',coin_modes),('neo_coin_targets',coin_targets),('neo_pickup_lives',pickup_lives),('neo_pickup_ui',pickup_ui),('neo_question_text_starts',question_starts)]:
+        lines += [name+':']+['.word '+','.join(map(str,values[i:i+16])) for i in range(0,len(values),16)]
+    lines+=['neo_question_text:']+['.byte '+','.join(map(str,question_text[i:i+32])) for i in range(0,len(question_text),32)]
     lines+=['neo_free_hazards:']
     lines+=['.word '+','.join(map(str,row)) for row in hazards]
     lines+=['neo_free_routes:']
@@ -230,7 +249,7 @@ def table_source(out,levels):
     preview_rows=[];preview_starts=[];preview_counts=[]
     for level in levels:
         chart=json.loads((out/f'level{level}.json').read_text())
-        raw=json.loads((ROOT/f'assets/private/level{level}.json').read_text())
+        raw=load_source(out,level)
         rows=planet_previews(chart['notes'],raw['floors'])
         preview_starts.append(len(preview_rows)*10);preview_counts.append(len(rows));preview_rows.extend(rows)
     assert len(preview_rows)*10<65536,'Planet preview record capacity'

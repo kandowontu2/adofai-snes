@@ -1,9 +1,15 @@
-; Playing HUD text changes only on row 3 (score), row 22 (feedback), and
+; Playing HUD text changes only on row 26 (progress), row 22 (feedback), and
 ; rows 24/25 (meter). Menus, transitions and calibration keep a full upload.
 .segment "CODE"
 .a8
 .i16
 hud_upload_frame:
+.ifdef MENU_PREVIEW_DESCRIPTORS_ADDR
+    jsl menu_art_vblank
+    ; The map clear owns this transfer budget. Keep the pending HUD dirty
+    ; for the next VBlank; menus do not need another full upload here.
+    jcs @done
+.endif
     lda hud_dirty
     jeq @done
 .ifdef ROM_WRAP_MAP
@@ -41,11 +47,33 @@ hud_upload_frame:
 @partial:
     sep #$20
     .a8
-    ldx #$7800+3*32+8
+.ifdef NEO_BUILD
+    lda OBJECTIVE_HUD_ACTIVE
+    and #2
+    beq @ordinary_partial
+    ldx #$7800+22*32
     stx $2116
-    ldx #HUD+3*64+16
+    ldx #HUD+22*64
     stx $4302
-    ldx #40
+    ldx #256
+    stx $4305
+    lda #1
+    sta $420B
+    lda OBJECTIVE_HUD_ACTIVE
+    and #$FD
+    sta OBJECTIVE_HUD_ACTIVE
+    and #1
+    jeq @meter
+    stz hud_meter_dirty
+    stz meter_bitmap_dirty
+    jmp @clean
+@ordinary_partial:
+.endif
+    ldx #$7800+26*32+14
+    stx $2116
+    ldx #HUD+26*64+28
+    stx $4302
+    ldx #6
     stx $4305
     lda #1
     sta $420B
